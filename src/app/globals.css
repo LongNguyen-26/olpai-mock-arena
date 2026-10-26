@@ -2210,7 +2210,7 @@ td.mono {
     scroll-behavior: auto !important;
   }
 }
-`n@media (min-width: 651px) {
+@media (min-width: 651px) {
   .auth-title-break {
     display: block;
   }
