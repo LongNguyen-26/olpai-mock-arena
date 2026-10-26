@@ -7,3 +7,5 @@
 - Các mốc 5/6 giờ trong kiểm tra được mô phỏng bằng dịch thời điểm bắt đầu trong namespace QA. Không chờ 6 giờ theo thời gian thực.
 - Gói contestant, private input, PDF, attribution và 4 bộ đáp án gzip đã nạp vào bucket private. Không đưa dữ liệu hoặc credential vào Git.
 - Luồng nhận bài chấm đồng bộ; chưa benchmark tải đồng thời quy mô lớn. Thiết kế phục vụ buổi luyện nhóm nhỏ.
+- Production Vercel đã READY; kiểm tra URL public, chặn anonymous API, đăng nhập admin/cookie Secure, đọc statement trước giờ thi theo quyền admin, tải PDF thực qua Blob và đối chiếu số byte: đạt. Buổi thi thật giữ trạng thái chờ, 300 + 60 phút, chưa có bản nộp.
+- Giao diện đăng nhập và dashboard đã xem trực tiếp trong trình duyệt; thiết kế có bố cục responsive cho màn hình nhỏ.

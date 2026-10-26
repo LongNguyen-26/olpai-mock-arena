@@ -41,8 +41,8 @@ export default function Login() {
             OLYMPIC AI · PRACTICE SEASON 2026
           </span>
           <h1>
-            Sáu giờ tập trung. <br />
-            Một bước tiến xa.
+            Sáu giờ tập trung.
+            <span className="auth-title-break"> Một bước tiến xa.</span>
           </h1>
           <p>
             Luyện như thi thật. Từ baseline đầu tiên đến bản nộp cuối, cùng đội

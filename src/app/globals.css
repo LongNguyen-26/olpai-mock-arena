@@ -2176,8 +2176,8 @@ td.mono {
     font-size: 29px;
     line-height: 1.35;
   }
-  .auth-pitch h1 br {
-    display: none;
+  .auth-title-break {
+    display: inline;
   }
   .auth-pitch > p {
     font-size: 11px;
@@ -2208,5 +2208,10 @@ td.mono {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+`n@media (min-width: 651px) {
+  .auth-title-break {
+    display: block;
   }
 }
