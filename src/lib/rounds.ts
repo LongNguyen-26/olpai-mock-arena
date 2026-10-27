@@ -110,20 +110,28 @@ export async function snapshot(user: SafeUser, id?: string) {
     !!contest &&
     entered &&
     (user.admin || ["private", "ended"].includes(phase));
-  const roster =
-    contest && user.admin
-      ? Object.values(
-          (await db().hgetall<Record<string, Registration>>(
-            registrationKey(contest),
-          )) ?? {},
-        )
-      : [];
+  const roster = contest
+    ? Object.values(
+        (await db().hgetall<Record<string, Registration>>(
+          registrationKey(contest),
+        )) ?? {},
+      )
+    : [];
+  const approved = roster.filter((r) => r.status === "approved");
+  const adminId = await db().get<string>(key("admin"));
+  const participants = approved.filter((r) => r.userId !== adminId);
+  const participantIds = new Set(participants.map((r) => r.userId));
+  const teamCount = Object.values(teams).filter((t) =>
+    t.members.some((id) => participantIds.has(id)),
+  ).length;
   return {
     user,
     rounds,
     contest,
     registration,
     entered,
+    participantCount: participants.length,
+    teamCount,
     phase,
     serverNow: now,
     ready: !!pkg,
@@ -171,7 +179,7 @@ export async function snapshot(user: SafeUser, id?: string) {
         ).map(([id, title]) => ({ id, title }))
       : [],
     registrations: await Promise.all(
-      roster.map(async (r) => {
+      (user.admin ? roster : []).map(async (r) => {
         const u = await db().get<User>(key(`user:${r.userId}`));
         return { ...r, name: u?.name ?? "", username: u?.username ?? "" };
       }),

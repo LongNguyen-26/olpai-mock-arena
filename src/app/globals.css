@@ -2552,3 +2552,261 @@ td .filename {
     font-size: 12px;
   }
 }
+
+/* Arena navigation and competition workflow */
+.round-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22px;
+}
+.round-card {
+  position: relative;
+  padding: 30px 34px;
+  min-height: 220px;
+}
+.round-card:hover {
+  border-color: #f17c45;
+  box-shadow: 0 6px 24px #18333d0b;
+}
+.round-card-link {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 1;
+}
+.round-card:has(.round-card-link:focus-visible) {
+  outline: 3px solid #f17c45;
+  outline-offset: 3px;
+}
+.round-card-footer button {
+  position: relative;
+  z-index: 2;
+  margin-left: auto;
+}
+.arena-nav {
+  scrollbar-width: thin;
+  scrollbar-color: #3b505a transparent;
+  overscroll-behavior: contain;
+}
+.arena-nav::-webkit-scrollbar {
+  width: 5px;
+}
+.arena-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.arena-nav::-webkit-scrollbar-thumb {
+  background: #3b505a;
+  border-radius: 6px;
+}
+.nav-link {
+  position: relative;
+}
+.nav-link.active:before {
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  height: auto;
+  transform: none;
+  width: 3px;
+  border-radius: 4px;
+}
+.breadcrumbs {
+  font-size: 15px;
+}
+.breadcrumbs a {
+  color: #345664;
+  font-weight: 650;
+  text-decoration: none;
+}
+.breadcrumbs a:hover {
+  color: #d95e27;
+}
+.round-loading {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 80px 20px;
+  justify-content: center;
+  color: #66777e;
+}
+.registration-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.registration-panel h2 {
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+.registration-panel p {
+  color: #66777e;
+  margin: 0;
+}
+.simple-task h3 {
+  font-size: 23px;
+  line-height: 1.5;
+  height: 69px;
+  min-height: 69px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hero-timer > .eyebrow {
+  font-size: 13px;
+  color: #b9cbd0;
+}
+.hero-timer p {
+  font-size: 14px;
+}
+.announcement p,
+.announcement b {
+  font-size: 15px;
+  line-height: 1.75;
+}
+.announcement-icon {
+  background: #ffeadb;
+  color: #b75222;
+}
+.submission-grid {
+  grid-template-columns: minmax(0, 1fr) 275px;
+  align-items: start;
+}
+.submit-help h3 {
+  font-size: 18px;
+}
+.submit-help p {
+  font-size: 13px;
+  line-height: 1.75;
+}
+.pill.submission-phase {
+  font-size: 14px;
+  padding: 8px 14px;
+}
+.submission-quota {
+  font-size: 16px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.submission-result {
+  min-height: 330px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+  padding: 28px 12px;
+}
+.submission-result h3 {
+  font-size: 24px;
+  margin: 0;
+}
+.submission-result p {
+  max-width: 480px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #65787f;
+  margin: 0 0 8px;
+}
+.result-success > svg {
+  color: #268168;
+}
+.result-error > svg,
+.invalid {
+  color: #b44631;
+}
+.result-score {
+  font-size: 40px;
+  color: #204e45;
+}
+.result-score small {
+  font-size: 16px;
+  font-weight: 500;
+}
+.spinning {
+  animation: arena-spin 1s linear infinite;
+  color: #ed7a40;
+}
+@keyframes arena-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.submission-history table,
+.leaderboard {
+  font-size: 15px;
+}
+.submission-history th,
+.leaderboard th {
+  font-size: 12px;
+}
+.submission-history td .filename {
+  font-size: 15px;
+}
+.submission-history td small {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.submission-history td {
+  padding-top: 19px;
+  padding-bottom: 19px;
+}
+.invalid {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.submission-error {
+  max-width: 330px;
+  white-space: normal;
+}
+.leaderboard td {
+  padding-top: 25px;
+  padding-bottom: 25px;
+}
+.participation-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #55707b;
+  font-size: 14px;
+}
+@media (max-width: 1100px) {
+  .submission-grid {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+}
+@media (max-width: 800px) {
+  .submission-grid {
+    grid-template-columns: 1fr;
+  }
+  .registration-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .round-card {
+    padding: 25px;
+  }
+  .breadcrumbs {
+    font-size: 13px;
+  }
+}
+@media (max-width: 650px) {
+  .simple-task h3 {
+    font-size: 21px;
+  }
+  .schema-line {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .hero-timer p {
+    font-size: 13px;
+  }
+  .round-grid {
+    gap: 18px;
+  }
+}

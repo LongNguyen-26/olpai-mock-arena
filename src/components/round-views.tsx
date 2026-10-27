@@ -1,21 +1,18 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowRight,
   ArrowUpRight,
   Bell,
   BookOpen,
-  CheckCircle2,
   Clock3,
   Database,
   Flag,
   LockKeyhole,
   Medal,
-  RefreshCw,
   Send,
   Trophy,
-  UploadCloud,
   Users,
 } from "lucide-react";
 import Markdown from "react-markdown";
@@ -41,8 +38,8 @@ type Props = ViewProps & {
 const names = {
   waiting: "Chưa mở",
   scheduled: "Đã hẹn giờ",
-  public: "Đang nhận public",
-  private: "Đang nhận private",
+  public: "PUBLIC",
+  private: "PRIVATE",
   ended: "Đã kết thúc",
 };
 function Locked({
@@ -83,7 +80,9 @@ export function OverviewView({ data, phase, now, go }: Props) {
     remaining = target
       ? Math.max(0, Math.ceil((target - now) / 1000))
       : c.publicSeconds + c.privateSeconds;
-  const mySubs = data.submissions.filter((s) => s.teamId === data.user.teamId),
+  const mySubs = data.submissions.filter(
+      (s) => s.teamId === data.user.teamId && s.status !== "invalid",
+    ),
     myRank = data.leaderboard[
       phase === "private" || phase === "ended" ? "private" : "public"
     ]?.find((r) => r.teamId === data.user.teamId);
@@ -152,25 +151,44 @@ export function OverviewView({ data, phase, now, go }: Props) {
       <div className="stat-grid">
         <Stat
           icon={<Users size={21} />}
-          label="Đội của bạn"
-          value={data.team?.name ?? "Chưa có đội"}
+          label={data.user.admin ? "Đội tham gia" : "Đội của bạn"}
+          value={
+            data.user.admin
+              ? String(data.teamCount)
+              : (data.team?.name ?? "Chưa có đội")
+          }
           caption={
-            data.team ? `${data.team.members.length}/3 thành viên` : undefined
+            data.user.admin
+              ? `${data.participantCount} thí sinh`
+              : data.team
+                ? `${data.team.members.length}/3 thành viên`
+                : undefined
           }
         />
         <Stat
           icon={<Send size={21} />}
-          label="Số bài nộp"
-          value={String(mySubs.length)}
+          label="Thí sinh tham gia"
+          value={String(data.participantCount)}
+          caption={`${data.teamCount} đội`}
         />
         <Stat
           icon={<Trophy size={21} />}
           label={
-            phase === "private" || phase === "ended"
-              ? "Điểm private"
-              : "Điểm public"
+            data.user.admin
+              ? "Bài nộp hợp lệ"
+              : phase === "private" || phase === "ended"
+                ? "Điểm private"
+                : "Điểm public"
           }
-          value={fmt(myRank?.total)}
+          value={
+            data.user.admin
+              ? String(
+                  data.submissions.filter(
+                    (s) => s.status !== "invalid" && !s.adminTest,
+                  ).length,
+                )
+              : fmt(myRank?.total)
+          }
         />
       </div>
       <section className="panel schedule-panel">
@@ -230,8 +248,9 @@ export function OverviewView({ data, phase, now, go }: Props) {
             <h3>
               {locked
                 ? `Tác vụ 0${id} · Chưa mở`
-                : (data.tasks.find((t) => t.id === id)?.title ??
-                  `Tác vụ 0${id}`)}
+                : (data.tasks
+                    .find((t) => t.id === id)
+                    ?.title.replace(/^Tác vụ \d+\s*/, "") ?? `Tác vụ 0${id}`)}
             </h3>
             <div className="task-footer">
               <span>
@@ -242,7 +261,7 @@ export function OverviewView({ data, phase, now, go }: Props) {
                       .filter((s) => s.task === id && s.split === "public")
                       .reduce<
                         number | null
-                      >((best, s) => (best === null ? s.score : Math.max(best, s.score)), null),
+                      >((best, s) => (best === null ? s.score : Math.max(best, s.score ?? 0)), null),
                   )}
                 </b>
               </span>
@@ -401,221 +420,7 @@ export function DataView({ data }: Props) {
     </div>
   );
 }
-export function SubmitView({ data, phase, busy, go, refresh, report }: Props) {
-  const [task, setTask] = useState<TaskId>("1"),
-    [sending, setSending] = useState(false);
-  const nonce = useRef(crypto.randomUUID()),
-    input = useRef<HTMLInputElement>(null);
-  const c = data.contest;
-  if (!c) return null;
-  const open = ["public", "private"].includes(phase),
-    count = data.submissions.filter(
-      (s) =>
-        s.teamId === data.user.teamId && s.task === task && s.split === phase,
-    ).length,
-    quota = phase === "private" ? c.privateLimit : c.publicLimit;
-  async function send(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    f.set("task", task);
-    f.set("split", phase);
-    f.set("nonce", nonce.current);
-    setSending(true);
-    report("");
-    try {
-      const res = await fetch(endpoint("submit", c!.roundId), {
-        method: "POST",
-        body: f,
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-      nonce.current = crypto.randomUUID();
-      if (input.current) input.current.value = "";
-      await refresh();
-    } catch (e) {
-      report(
-        e instanceof Error
-          ? e.message
-          : "Không thể nộp bài. Kiểm tra lịch sử trước khi thử lại.",
-      );
-    } finally {
-      setSending(false);
-    }
-  }
-  return (
-    <>
-      <div className="submission-grid">
-        <section className="panel">
-          <div className="section-title">
-            <h2>
-              <UploadCloud size={20} />
-              Nộp bài
-            </h2>
-            <span className="pill neutral">{names[phase]}</span>
-          </div>
-          {data.user.admin ? (
-            <Locked
-              title="Tài khoản quản trị"
-              text="Đăng nhập bằng tài khoản thí sinh để nộp bài."
-            />
-          ) : !open ? (
-            <Locked
-              title="Chưa mở hoặc đã khóa nhận bài"
-              text="Xem thời gian và trạng thái trên trang tổng quan."
-            />
-          ) : !data.team ? (
-            <Locked title="Bạn chưa có đội">
-              <button className="btn primary" onClick={() => go("team")}>
-                Tạo hoặc tham gia đội
-              </button>
-            </Locked>
-          ) : (
-            <form onSubmit={send}>
-              <label>
-                Tác vụ
-                <select
-                  value={task}
-                  disabled={sending}
-                  onChange={(e) => {
-                    setTask(e.target.value as TaskId);
-                    nonce.current = crypto.randomUUID();
-                  }}
-                >
-                  {(["1", "2"] as const).map((id) => (
-                    <option key={id} value={id}>
-                      0{id} ·{" "}
-                      {data.tasks.find((t) => t.id === id)?.title ??
-                        `Tác vụ ${id}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="schema-line">
-                <code>
-                  {task === "1" ? "ImageId,EncodedPixels" : "id,prediction"}
-                </code>
-                <span>
-                  {count}/{quota} lượt · {phase}
-                </span>
-              </div>
-              <label className="dropzone">
-                <UploadCloud size={32} />
-                <b>Chọn tệp CSV</b>
-                <span>UTF-8 · Tối đa 3 MB</span>
-                <input
-                  ref={input}
-                  type="file"
-                  name="file"
-                  required
-                  disabled={sending}
-                  accept=".csv,text/csv"
-                  onChange={() => {
-                    nonce.current = crypto.randomUUID();
-                  }}
-                />
-              </label>
-              <label>
-                Ghi chú <span className="muted">(không bắt buộc)</span>
-                <input name="note" maxLength={300} />
-              </label>
-              <button
-                className="btn primary wide"
-                disabled={busy || sending || count >= quota}
-              >
-                {sending
-                  ? "Đang chấm bài…"
-                  : count >= quota
-                    ? "Đã hết lượt nộp"
-                    : "Nộp bài"}
-                <Send size={17} />
-              </button>
-            </form>
-          )}
-        </section>
-        <aside className="panel submit-help">
-          <h3>Lưu ý nộp bài</h3>
-          <p>CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang mở.</p>
-          <p>
-            Bài lỗi định dạng không trừ quota. Bài hợp lệ được trả điểm ngay.
-          </p>
-          <p>
-            Điểm public và private đều lấy kết quả cao nhất của từng tác vụ.
-          </p>
-          <p>Tổng điểm là tổng hai tác vụ, tối đa 200 điểm.</p>
-        </aside>
-      </div>
-      <section className="panel">
-        <div className="section-title">
-          <h2>Lịch sử nộp bài</h2>
-          <button className="text-button" onClick={refresh}>
-            Làm mới
-            <RefreshCw size={15} />
-          </button>
-        </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Bản nộp / thời gian</th>
-                <th>Tác vụ</th>
-                <th>Bộ kiểm thử</th>
-                <th>Điểm</th>
-                <th>Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.submissions.length ? (
-                data.submissions.slice(0, 100).map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <a
-                        className="filename"
-                        href={
-                          endpoint("submission/download", c.roundId) +
-                          `&id=${s.id}`
-                        }
-                      >
-                        {s.filename}
-                      </a>
-                      <small>
-                        {when(s.createdAt)}
-                        {s.note ? ` · ${s.note}` : ""}
-                      </small>
-                    </td>
-                    <td>0{s.task}</td>
-                    <td>
-                      <span
-                        className={`pill ${s.split === "private" ? "lavender" : "neutral"}`}
-                      >
-                        {s.split}
-                      </span>
-                    </td>
-                    <td className="mono">{fmt(s.score)}</td>
-                    <td>
-                      <span className="valid">
-                        <CheckCircle2 size={15} />
-                        Hợp lệ
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <div className="empty">
-                      <UploadCloud size={30} />
-                      <b>Chưa có bài nộp</b>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </>
-  );
-}
+export { default as SubmitView } from "./submission-view";
 export function BoardView({ data }: Props) {
   const [board, setBoard] = useState<"public" | "private">("public");
   return (
@@ -635,6 +440,10 @@ export function BoardView({ data }: Props) {
             Private
           </button>
         </div>
+        <span className="participation-count">
+          <Users size={18} />
+          {data.participantCount} thí sinh · {data.teamCount} đội
+        </span>
       </div>
       {board === "private" && !data.leaderboard.private ? (
         <Locked title="Điểm private chưa được mở" />

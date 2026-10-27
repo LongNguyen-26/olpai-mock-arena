@@ -75,6 +75,30 @@ test("public uses highest valid score", () => {
   );
 });
 
+test("invalid submissions and admin trials never contribute to ranking", () => {
+  const valid = sub("1", 42);
+  const invalid = {
+    ...sub("2", 100),
+    status: "invalid" as const,
+    error: "Bad CSV",
+  };
+  const admin = { ...sub("3", 100), adminTest: true };
+  const board = rankTeams(
+    [{ id: "t", name: "Team" }],
+    [valid, invalid, admin],
+    {},
+    "private",
+  );
+  assert.equal(board[0].total, 42);
+  assert.equal(board[0].submitted, 1);
+  assert.equal(visibleSubmission(invalid).score, null);
+  assert.equal(
+    rankTeams([{ id: "t", name: "Team" }], [invalid, admin], {}, "private")
+      .length,
+    0,
+  );
+});
+
 test("unlimited rounds and early private use the actual private opening time", () => {
   const c = {
     id: "r",

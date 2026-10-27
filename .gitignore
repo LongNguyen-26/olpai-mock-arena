@@ -8,3 +8,5 @@ ACCESS.local.md
 output/
 *.tsbuildinfo
 .note.txt
+.note2.txt
+.note*

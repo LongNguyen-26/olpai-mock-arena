@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpen,
   CheckCircle2,
@@ -68,8 +67,8 @@ const nav = [
 export const names = {
   waiting: "Chưa mở",
   scheduled: "Đã hẹn giờ",
-  public: "Đang nhận public",
-  private: "Đang nhận private",
+  public: "PUBLIC",
+  private: "PRIVATE",
   ended: "Đã kết thúc",
 };
 export default function Arena() {
@@ -154,7 +153,6 @@ export default function Arena() {
   }, [phase, load]);
   function go(s: string, id = selected.current) {
     if (!(s in labels)) return;
-    if (id !== selected.current) setData(null);
     selected.current = id;
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("round", id);
@@ -205,7 +203,8 @@ export default function Arena() {
       </div>
     );
   const isAdmin = data.user.admin,
-    inside = !!c && data.entered,
+    transitioning = (c?.roundId ?? "") !== selected.current,
+    inside = !!c && !transitioning,
     open = inside && ["public", "private"].includes(phase),
     props = { data, busy, action },
     views = {
@@ -235,13 +234,6 @@ export default function Arena() {
           </span>
         </a>
         <nav className="arena-nav" aria-label="Điều hướng chính">
-          <button
-            className={`nav-link ${section === "rounds" ? "active" : ""}`}
-            onClick={() => go("rounds", "")}
-          >
-            <Layers3 size={19} />
-            Vòng luyện
-          </button>
           {inside &&
             nav.map((n) => (
               <button
@@ -257,13 +249,15 @@ export default function Arena() {
               </button>
             ))}
           <div className="nav-divider" />
-          <button
-            className={`nav-link ${section === "team" ? "active" : ""}`}
-            onClick={() => go("team")}
-          >
-            <Users size={19} />
-            Đội của tôi
-          </button>
+          {!isAdmin && (
+            <button
+              className={`nav-link ${section === "team" ? "active" : ""}`}
+              onClick={() => go("team")}
+            >
+              <Users size={19} />
+              Đội của tôi
+            </button>
+          )}
           {inside && isAdmin && (
             <button
               className={`nav-link ${section === "admin" ? "active" : ""}`}
@@ -303,7 +297,15 @@ export default function Arena() {
       <div className="app-body">
         <header className="topbar">
           <div className="breadcrumbs">
-            Olympic AI 2026
+            <a
+              href="/#rounds"
+              onClick={(e) => {
+                e.preventDefault();
+                go("rounds", "");
+              }}
+            >
+              Các vòng luyện
+            </a>
             <ChevronRight size={16} />
             <span>{labels[section]}</span>
           </div>
@@ -354,14 +356,8 @@ export default function Arena() {
           )}
           <div className="page-heading">
             <div>
-              {c && inside && section !== "rounds" && (
-                <button className="back-link" onClick={() => go("rounds", "")}>
-                  <ArrowLeft size={14} />
-                  Danh sách vòng luyện
-                </button>
-              )}
               <h1>{labels[section]}</h1>
-              {c && section !== "rounds" && <p>{c.title}</p>}
+              {inside && section !== "rounds" && <p>{c.title}</p>}
             </div>
           </div>
           {section === "rounds" && (
@@ -369,6 +365,15 @@ export default function Arena() {
               <div className="round-grid">
                 {data.rounds.map((r) => (
                   <article className="panel round-card" key={r.id}>
+                    <a
+                      className="round-card-link"
+                      aria-label={`Vào ${r.title}`}
+                      href={`/?round=${r.id}#overview`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        go("overview", r.id);
+                      }}
+                    />
                     <div className="section-title">
                       <span className="round-emblem">
                         <Layers3 size={25} />
@@ -393,53 +398,19 @@ export default function Arena() {
                     </div>
                     {r.startAt && <p>Bắt đầu {when(r.startAt)}</p>}
                     <div className="round-card-footer">
-                      {isAdmin ? (
-                        <button
-                          className="btn primary"
-                          onClick={() => go("admin", r.id)}
-                        >
-                          Quản trị
-                          <ArrowRight size={16} />
-                        </button>
-                      ) : r.registration?.status === "approved" ? (
-                        <>
-                          <span className="pill green">
-                            <CheckCircle2 size={14} />
-                            Đã đăng ký
-                          </span>
-                          <button
-                            className="btn primary"
-                            onClick={() => go("overview", r.id)}
-                          >
-                            Vào vòng luyện
-                            <ArrowRight size={16} />
-                          </button>
-                        </>
-                      ) : r.registration?.status === "pending" ? (
-                        <span className="pill neutral">
-                          Đăng ký đang chờ duyệt
-                        </span>
-                      ) : (
-                        <button
-                          className="btn primary"
-                          disabled={busy}
-                          onClick={() =>
-                            action(
-                              "round/register",
-                              {},
-                              r.autoApprove
-                                ? "Đăng ký thành công."
-                                : "Đã gửi đăng ký, chờ quản trị viên duyệt.",
-                              r.id,
-                            )
-                          }
-                        >
-                          {r.registration?.status === "rejected"
-                            ? "Đăng ký lại"
-                            : "Đăng ký tham gia"}
-                          <ArrowRight size={16} />
-                        </button>
+                      {r.registration?.status === "approved" && (
+                        <span className="pill green">Đã đăng ký</span>
                       )}
+                      {r.registration?.status === "pending" && (
+                        <span className="pill neutral">Đang chờ duyệt</span>
+                      )}
+                      <button
+                        className="btn primary"
+                        onClick={() => go("overview", r.id)}
+                      >
+                        Vào vòng luyện
+                        <ArrowRight size={16} />
+                      </button>
                     </div>
                   </article>
                 ))}
@@ -453,34 +424,55 @@ export default function Arena() {
               {isAdmin && <PublishRound {...props} />}
             </>
           )}
-          {c &&
-            !inside &&
+          {transitioning && section !== "rounds" && (
+            <div className="round-loading" role="status">
+              <div className="loader" />
+              Đang tải vòng luyện…
+            </div>
+          )}
+          {inside &&
+            !data.entered &&
             !["rounds", "team", "settings"].includes(section) && (
-              <Locked
-                title={
-                  data.registration?.status === "pending"
-                    ? "Đăng ký đang chờ duyệt"
-                    : "Đăng ký tham gia vòng luyện"
-                }
-                text="Đăng ký và được duyệt để vào vòng luyện."
-              >
+              <section className="panel registration-panel">
+                <div>
+                  <h2>
+                    {data.registration?.status === "pending"
+                      ? "Đăng ký đang chờ duyệt"
+                      : "Tham gia vòng luyện"}
+                  </h2>
+                  <p>
+                    Đăng ký để xem đề, tải dữ liệu và nộp bài khi vòng luyện mở.
+                  </p>
+                </div>
                 <button
                   className="btn primary"
                   disabled={busy || data.registration?.status === "pending"}
                   onClick={() =>
-                    action("round/register", {}, "Đã gửi đăng ký.")
+                    action(
+                      "round/register",
+                      {},
+                      c.autoApprove !== false
+                        ? "Đăng ký thành công."
+                        : "Đã gửi đăng ký, chờ duyệt.",
+                    )
                   }
                 >
-                  Đăng ký tham gia
+                  {data.registration?.status === "pending"
+                    ? "Chờ duyệt"
+                    : data.registration?.status === "rejected"
+                      ? "Đăng ký lại"
+                      : "Đăng ký tham gia"}
                 </button>
-              </Locked>
+              </section>
             )}
           {inside && section === "overview" && <OverviewView {...views} />}{" "}
           {inside && section === "statement" && <StatementView {...views} />}{" "}
           {inside && section === "data" && <DataView {...views} />}{" "}
-          {inside && section === "submit" && <SubmitView {...views} />}{" "}
+          {inside && data.entered && section === "submit" && (
+            <SubmitView key={c.id} {...views} />
+          )}{" "}
           {inside && section === "leaderboard" && <BoardView {...views} />}
-          {section === "team" && <TeamView {...props} />}{" "}
+          {section === "team" && !isAdmin && <TeamView {...props} />}{" "}
           {section === "settings" && <ProfileView {...props} />}{" "}
           {inside && isAdmin && section === "admin" && (
             <RoundAdmin {...props} />

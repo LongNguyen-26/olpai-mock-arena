@@ -5,7 +5,11 @@ import type { ContestPackage, Contest, User } from "../src/lib/types";
 async function main() {
   if (!process.env.ARENA_NAMESPACE?.startsWith("arena:qa:"))
     throw new Error("QA namespace required");
-  const pkg = await db().get<ContestPackage>("arena:v1:package");
+  const pkg = await db().get<ContestPackage>(
+    process.env.QA_PACKAGE_ID
+      ? "arena:v1:package:" + process.env.QA_PACKAGE_ID
+      : "arena:v1:package",
+  );
   if (!pkg) throw new Error("Import production package first");
   await db().set(key("package"), pkg);
   const id = randomUUID();

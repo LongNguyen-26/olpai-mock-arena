@@ -8,9 +8,12 @@ async function main() {
   for (const url of Object.values(links))
     if (new URL(url).hostname !== "drive.google.com")
       throw new Error("Drive URL required");
-  const original = await db().get<ContestPackage>(key("package"));
-  if (!original) throw new Error("Original package not found");
-  const keys = [key("package"), key(`package:${original.version}`)];
+  const version = process.argv[3];
+  const original = await db().get<ContestPackage>(key(version ? `package:${version}` : "package"));
+  if (!original) throw new Error("Target package not found");
+  if (Object.keys(links).some(name => !original.assets.some(a => a.name === name)))
+    throw new Error("Drive link names must match assets in the target package");
+  const keys = version ? [key(`package:${version}`)] : [key("package"), key(`package:${original.version}`)];
   for (const object of keys) {
     const pkg = await db().get<ContestPackage>(object);
     if (!pkg) continue;
@@ -23,7 +26,7 @@ async function main() {
     await db().set(object, updated);
   }
   console.log(
-    "Verified Drive file links attached to original package; no data or judge objects changed.",
+    "Drive file links attached to target package; no data or judge objects changed.",
   );
 }
 main().catch((e) => {

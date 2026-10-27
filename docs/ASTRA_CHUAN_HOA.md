@@ -1,6 +1,8 @@
-# Đề nghị chuẩn hóa bộ đề 01 cho Astra
+# Bàn giao chuẩn hóa bộ đề 01 cho Astra
 
-Theo yêu cầu người dùng ngày 27/10/2026. Hai tác vụ hiện tại thuộc **một bộ đề**. Website tiếp tục dùng dữ liệu, bộ chấm và ZIP hiện tại trong lúc chờ bản thay thế. Không sửa thư mục statements gốc ở lượt triển khai web này.
+Cập nhật 27/10/2026: đã nhận gói `statements/Arena_01/web_ready`, tải dữ liệu/PDF/bộ chấm theo manifest và đối chiếu đủ bốn điểm baseline qua API. Các yêu cầu bên dưới được giữ làm lịch sử và tiêu chí cho bộ đề tiếp theo.
+
+Theo yêu cầu người dùng ngày 27/10/2026. Hai tác vụ hiện tại thuộc **một bộ đề**. Bản web mới sử dụng bộ dữ liệu chuẩn hóa đã bàn giao. Không sửa thư mục statements gốc ở lượt triển khai web này.
 
 ## Sản phẩm cần bàn giao
 

@@ -196,7 +196,7 @@ async function handle(
       const s = id
         ? await db().hget<Submission>(key(`submissions:${c.id}`), id)
         : null;
-      if (!s || (!user.admin && s.teamId !== user.teamId))
+      if (!s || !s.path || (!user.admin && s.teamId !== user.teamId))
         throw new ApiError("Không tìm thấy bản nộp.", 404);
       const result = await storage().signedReadUrl(s.path, {
         expiresIn: "1m",
@@ -209,6 +209,8 @@ async function handle(
     if (req.method !== "POST")
       throw new ApiError("Không tìm thấy chức năng.", 404);
     if (route === "team") {
+      if (user.admin)
+        throw new ApiError("Tài khoản quản trị không tham gia đội.", 403);
       await rateLimit(`team:${user.id}`, 30, 60);
       const value = z
         .discriminatedUnion("action", [
@@ -262,21 +264,17 @@ async function handle(
       const file = form.get("file"),
         task = z.enum(["1", "2"]).parse(form.get("task")),
         split = z.enum(["public", "private"]).parse(form.get("split")),
-        nonce = z.string().uuid().parse(form.get("nonce")),
-        note = z
-          .string()
-          .max(300)
-          .parse(form.get("note") ?? "");
-      if (
-        !(file instanceof File) ||
-        !file.name.toLowerCase().endsWith(".csv") ||
-        file.size < 1 ||
-        file.size > 3_000_000
-      )
-        throw new ApiError("Chọn một CSV UTF-8, tối đa 3 MB.");
-      return json(
-        await submit(user, task, split, file, note, nonce, selectedRound()),
+        nonce = z.string().uuid().parse(form.get("nonce"));
+      if (!(file instanceof File)) throw new ApiError("Hãy chọn tệp nộp bài.");
+      const result = await submit(
+        user,
+        task,
+        split,
+        file,
+        nonce,
+        selectedRound(),
       );
+      return json(result, result.status === "invalid" ? 422 : 200);
     }
     if (route === "round/register") {
       await rateLimit("enroll:" + user.id, 20, 60);

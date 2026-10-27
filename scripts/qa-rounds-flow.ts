@@ -88,9 +88,7 @@ async function main() {
   assert.ok(
     snap.assets.every(
       (a: { name: string; phase: string }) =>
-        !a.name.endsWith(".md") &&
-        !a.name.endsWith(".pdf") &&
-        a.phase === "public",
+        !a.name.endsWith(".md") && a.phase === "public",
     ),
   );
   const statement = (await request("statement", users[0], undefined, first))
@@ -136,6 +134,39 @@ async function main() {
     randomUUID(),
     422,
   );
+  const invalidSnap = (await request("arena", users[0], undefined, first)).data;
+  assert.equal(invalidSnap.submissions.length, 1);
+  assert.equal(invalidSnap.submissions[0].status, "invalid");
+  assert.equal(
+    await db().get(
+      key(
+        `quota:${invalidSnap.contest.id}:${invalidSnap.user.teamId}:1:public`,
+      ),
+    ),
+    null,
+  );
+  const adminTrial = await upload(
+    "1",
+    "public",
+    path("public", "1", "00-nop-thu"),
+    admin,
+  );
+  assert.equal(adminTrial.adminTest, true);
+  assert.equal(
+    (await request("arena", admin, undefined, first)).data.leaderboard.public
+      .length,
+    0,
+  );
+  await request(
+    "team",
+    admin,
+    { action: "create", name: "Admin team" },
+    "",
+    403,
+  );
+  pass(
+    "invalid attempts retained without quota; admin trials excluded from ranking and teams",
+  );
   const n = randomUUID();
   const [a, b] = await Promise.all([
     upload(
@@ -158,7 +189,20 @@ async function main() {
   assert.equal(a.id, b.id);
   await upload("2", "public", path("public", "2", "03-hop-le-diem-cao"));
   snap = (await request("arena", users[0], undefined, first)).data;
-  assert.equal(snap.submissions.length, 2);
+  assert.equal(snap.submissions.length, 3);
+  assert.equal(
+    snap.submissions.filter((s: { status: string }) => s.status === "invalid")
+      .length,
+    1,
+  );
+  assert.equal(
+    await db().get(
+      key(`quota:${snap.contest.id}:${snap.user.teamId}:1:public`),
+    ),
+    1,
+  );
+  assert.equal(snap.participantCount, 2);
+  assert.equal(snap.teamCount, 1);
   assert.ok(snap.leaderboard.public[0].total > 140);
   pass("real scoring, sum of task scores and concurrent shared idempotency");
   const privateKey = (await db().get<{
@@ -191,8 +235,8 @@ async function main() {
   assert.equal(snap.phase, "private");
   assert.equal(snap.leaderboard.private[0].total, 200);
   assert.ok(
-    snap.submissions.every(
-      (s: { score: unknown }) => typeof s.score === "number",
+    snap.submissions.every((s: { score: unknown; status: string }) =>
+      s.status === "invalid" ? s.score === null : typeof s.score === "number",
     ),
   );
   await upload(

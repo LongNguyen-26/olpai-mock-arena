@@ -78,6 +78,9 @@ export interface Submission {
   sha256: string;
   path: string;
   note: string;
+  status?: "accepted" | "invalid";
+  error?: string;
+  adminTest?: boolean;
 }
 export interface CVImage {
   id: string;

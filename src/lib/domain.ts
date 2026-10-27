@@ -37,7 +37,13 @@ export function canRead(
 }
 export function visibleSubmission(s: Submission, _reveal = true) {
   const { path: _path, ...rest } = s;
-  return rest;
+  return {
+    ...rest,
+    status: s.status ?? "accepted",
+    score: s.status === "invalid" ? null : s.score,
+    secondary: s.status === "invalid" ? null : s.secondary,
+    downloadable: !!s.path,
+  };
 }
 export function rankTeams(
   teams: { id: string; name: string }[],
@@ -48,7 +54,11 @@ export function rankTeams(
   return teams
     .map((t) => {
       const list = submissions.filter(
-        (s) => s.teamId === t.id && s.split === split,
+        (s) =>
+          s.teamId === t.id &&
+          s.split === split &&
+          s.status !== "invalid" &&
+          !s.adminTest,
       );
       const chosen = (["1", "2"] as const).map(
         (task) =>

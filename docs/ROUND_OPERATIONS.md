@@ -59,3 +59,12 @@ npm run build
 QA dùng namespace `arena:qa:*` riêng. `qa-setup.ts`, `qa-rounds-flow.ts`, `qa-cleanup.ts` tạo/kiểm tra/dọn đúng namespace đó. Không cung cấp credential production cho preview chưa duyệt. Hiện kiểm tra đầy đủ qua local QA nên chưa cần Redis preview bổ sung.
 
 Nâng cấp từ bản một vòng: chạy `scripts/migrate-rounds.ts` một lần. Script giữ nguyên tài khoản, bộ đề và các lượt nộp hiện có; không tự mở đề hoặc phát hành thêm bộ giả. Nếu cần đặt lại đồng hồ sau nâng cấp, dùng admin Đặt lại / mở lượt mới.
+
+
+## Nộp thử và gói chuẩn hóa
+
+Admin nộp thử được với cả public/private khi vòng chưa bắt đầu hoặc đã kết thúc; không cần đội, không có quota và không xuất hiện trên BXH. Bài CSV không hợp lệ vẫn có trong lịch sử với lý do lỗi; chỉ bài hợp lệ của đội được tính quota.
+
+Dùng `scripts/upload-ready-package.ts` với thư mục `web_ready` để xác minh checksum và tải đúng các tệp trong upload-plan. Script chỉ chuẩn bị manifest trong `.local`, không phát hành vòng. `scripts/stage-package.ts` thêm gói vào danh sách cho admin xác nhận. Link Drive chỉ cập nhật sau khi tải xong đúng phiên bản, không trỏ gói mới sang ZIP cũ.
+
+`scripts/refresh-round-package.ts` dành cho chuyển một vòng đã kết thúc sang gói mới và xóa kết quả thử khi người dùng yêu cầu rõ ràng. Chạy trước không `--apply` để xem phạm vi; sau đó dùng `--apply`. Script giữ tài khoản, đội, đăng ký và đưa vòng về trạng thái chờ.
