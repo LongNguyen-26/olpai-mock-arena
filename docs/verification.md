@@ -50,7 +50,8 @@
 - Sửa Workspace tự gắn run ID mới của cùng vòng; giữ Pod và tách chat/token theo run. Nút dùng cùng điều kiện pha, đăng ký và service readiness như backend. Tab chat tự đồng bộ khi model sẵn sàng, không phụ thuộc dashboard đang mở.
 - Model worker theo dõi policy liên tục: khởi động lại khi public mở, trả VRAM khi private/đóng; chặn phản hồi của run cũ sau reset.
 - 27 unit tests, 9 Python tests, typecheck và Redis QA đạt. CI Ubuntu/Python 3.10 xác nhận web production build và runtime tests.
-- [CI image thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40506084778). Digest runtime: `sha256:47a5b56e4d1f90fccb472fcbdd8129e3d046418c2de0ef09e072ba544e4e75e2`. Cập nhật Pod cũ `0fb95yqf1t0bka`, kiểm tra không có kernel trước khi restart; volume `/workspace` 100 GB giữ nguyên, cache GGUF 19.851.335.840 byte còn đủ.
+- [CI image cuối thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40508452681). Digest runtime: `sha256:f3ce6656c68b37f3d574c6b0f7f95243a4eef4de75363c22f2a07e020fd2bba5`. Cập nhật Pod cũ `0fb95yqf1t0bka`, kiểm tra không có kernel trước mỗi lần restart; volume `/workspace` 100 GB giữ nguyên, cache GGUF 19.851.335.840 byte còn đủ.
 - Kiểm chứng trên Pod thật: `/api/status` không token trả 200; `/api/contents` và `/api/kernels` không token trả 403; status có token giữ schema Jupyter chuẩn. Mở Notebook theo quyền thí sinh sau reset trả 200.
-- DeepSeek thực sự lên A40 (~19,6 GB VRAM); token-count và generate qua agent trả 8 token. Không chạy notebook training hay chấm dữ liệu thi.
+- DeepSeek thực sự lên A40 (~19,2 GiB VRAM); token-count và generate qua agent trả 8 token. Không chạy notebook training hay chấm dữ liệu thi.
 - Chrome/Playwright xác nhận uptime tăng từng giây và Chatbot bị vô hiệu khi model chưa sẵn sàng. Uptime lấy từ telemetry, không tính từ thời điểm gửi yêu cầu cấp phát.
+- Kiểm tra browser tìm thêm lỗi Host nội bộ của proxy làm Jupyter chặn WebSocket. Cấu hình `allow_origin` đúng domain của từng Pod và `trust_xheaders`; không bật wildcard hoặc tắt xác thực. Browser đã render đầy đủ Lab và chạy `1 + 1` qua kernel WebSocket, trả `2`; kernel QA được xóa sau kiểm tra.
