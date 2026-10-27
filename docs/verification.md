@@ -55,3 +55,10 @@
 - DeepSeek thực sự lên A40 (~19,2 GiB VRAM); token-count và generate qua agent trả 8 token. Không chạy notebook training hay chấm dữ liệu thi.
 - Chrome/Playwright xác nhận uptime tăng từng giây và Chatbot bị vô hiệu khi model chưa sẵn sàng. Uptime lấy từ telemetry, không tính từ thời điểm gửi yêu cầu cấp phát.
 - Kiểm tra browser tìm thêm lỗi Host nội bộ của proxy làm Jupyter chặn WebSocket. Cấu hình `allow_origin` đúng domain của từng Pod và `trust_xheaders`; không bật wildcard hoặc tắt xác thực. Browser đã render đầy đủ Lab và chạy `1 + 1` qua kernel WebSocket, trả `2`; kernel QA được xóa sau kiểm tra.
+
+# Pod chung và tách dịch vụ — 27/10/2026
+
+- 29 unit tests, 13 Python tests và typecheck đạt. Redis QA dùng namespace riêng/Runpod giả lập kiểm tra: một private Pod cũ cùng hai shared Pods, cấp đồng thời không trùng, đội tạo sau, chặn người chưa có đội, legacy reservation, tách lịch sử/token theo đội và chặn route dịch vụ không bật.
+- [Image tách dịch vụ build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40514595000). Mặc định/template cho Pod mới ghim digest `sha256:b6ca1acfecc2ed190280679ca2d29f82fd541bc1224d4d399abf976086f6ebcb`. Production kiểm chứng Pod hiện có vẫn cùng ID/image cũ, scope team/services both; không restart hoặc tạo GPU mới trong kiểm thử tính năng.
+- Chrome/Playwright desktop 1440 và mobile 390 px: chọn scope all/Jupyter-only, giữ lựa chọn dataset, xác minh payload teamId null và đúng round/services; nhóm shared/private cùng hiện; LLM-only không có link Notebook và ngược lại. Mobile không tràn ngang. POST cấp Pod trong UI QA được chặn và trả dữ liệu ví dụ, không gửi tới Runpod.
+- API production chặn cấu hình scope team thiếu teamId bằng 400 trước cấp phát. Default image mới, DTO legacy và trường nội bộ/secret đã được kiểm tra. Hướng dẫn lỗi Runpod được lưu riêng và liên kết trong AGENTS.md.
