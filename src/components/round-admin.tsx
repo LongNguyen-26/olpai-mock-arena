@@ -422,6 +422,10 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
   );
 }
 export function PublishRound({ data, busy, action }: ViewProps) {
+  const packages = [...data.packages].sort(
+    (a, b) =>
+      Number(b.id.includes("-clean-")) - Number(a.id.includes("-clean-")),
+  );
   return (
     <section className="panel publish-panel">
       <div className="section-title">
@@ -455,9 +459,12 @@ export function PublishRound({ data, busy, action }: ViewProps) {
           <label>
             Bộ đề
             <select name="packageId" required>
-              {data.packages.map((p) => (
+              {packages.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.title}
+                  {p.id.includes("-clean-")
+                    ? " · Bản chuẩn hóa"
+                    : " · Bản trước"}
                 </option>
               ))}
             </select>

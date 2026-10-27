@@ -2,7 +2,7 @@
 
 Admin cấp một GPU mỗi Pod, chọn riêng một đội hoặc dùng chung cho tất cả đội. Mỗi Pod chạy cả hai dịch vụ, chỉ Chatbot DeepSeek 32B Q4, hoặc chỉ JupyterLab. Mặc định A40 48 GB; không yêu cầu chặn Internet/cấm pip ở tầng hệ thống.
 
-Image tách dịch vụ đã được [GitHub Actions build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40514595000). Digest mặc định cho Pod mới: `nguyenlong26/olpai-workspace@sha256:b6ca1acfecc2ed190280679ca2d29f82fd541bc1224d4d399abf976086f6ebcb`. Các Pod đang chạy giữ nguyên image và volume.
+Image task-root và không nạp dataset đã được [GitHub Actions build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40574925727), từ commit `06b3cb81658890db67cd59d628f6a774e692d075`. Digest mặc định cho Pod mới: `nguyenlong26/olpai-workspace@sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf`. Các Pod đang chạy giữ nguyên image và volume.
 
 ## Pod chung, Pod riêng và loại dịch vụ
 
@@ -13,9 +13,9 @@ Image tách dịch vụ đã được [GitHub Actions build/push thành công](h
 - Chọn **Riêng một đội** hoặc **Chung tất cả đội** trong form cấp phát. Pod chung là một tài nguyên duy nhất, không tạo một Pod cho mỗi đội; đội có Pod riêng vẫn thấy và dùng được Pod chung.
 - Pod chung cấp quyền cho thành viên thật của mọi đội, kể cả đội tạo sau; không cần đăng ký riêng để nhận quyền chia sẻ này. Người chưa có đội không được truy cập. Pod riêng giữ yêu cầu đăng ký được duyệt. Cả hai vẫn theo lịch public/private của vòng đã chọn.
 - **Chỉ Chatbot**: không khởi động Jupyter, không mở cổng 8888, không tải dataset. Model và ngân sách token theo template; lịch sử và quota phiên tách theo đội, kể cả khi các đội dùng trùng session ID. GPU xử lý một yêu cầu chat mỗi lần.
-- **Chỉ JupyterLab**: không tải/nạp LLM, GPU dành cho notebook. Vẫn chọn dataset và lịch của vòng luyện; public preload, private nạp khi mở private. Jupyter chung dùng chung tệp, kernel và GPU, không phải workspace tách biệt từng đội.
+- **Chỉ JupyterLab**: không tải/nạp LLM, GPU dành cho notebook. Vẫn gắn lịch của vòng luyện; có thể nạp dataset hoặc mở notebook trống. Nếu nạp dữ liệu, public preload, private nạp khi mở private. Jupyter chung dùng chung tệp, kernel và GPU, không phải workspace tách biệt từng đội.
 - Mỗi phạm vi/vòng có tối đa một Pod cung cấp từng dịch vụ: cho phép một Pod LLM và một Pod Jupyter riêng biệt; một Pod chạy cả hai giữ cả hai slot. Không tạo trùng khi bấm đồng thời hoặc mất xác nhận. Pod cũ mặc định riêng một đội/cả hai dịch vụ và giữ tương thích khóa cấp phát cũ.
-- API deploy thêm `scope: team|all`, `services: both|llm|jupyter`; `teamId` chỉ bắt buộc với scope team. Runtime nhận `ARENA_WORKSPACE_SERVICES`, mặc định both để tương thích Pod cũ.
+- API deploy thêm `scope: team|all`, `services: both|llm|jupyter`, `loadDataset: boolean` (mặc định true); `teamId` chỉ bắt buộc với scope team. Runtime nhận `ARENA_WORKSPACE_SERVICES`, mặc định both để tương thích Pod cũ.
 
 ## Nguồn và phạm vi mô phỏng
 

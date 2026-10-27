@@ -13,6 +13,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Website Next.js App Router/React/TypeScript; Node.js 24. Repo `LongNguyen-26/olpai-mock-arena`, nhánh production `main`; web: `https://olpai-mock-arena.vercel.app`. Xác minh remote, SHA, project/team và trạng thái cloud trước mỗi lần phát hành; các ghi chép cũ không phải trạng thái hiện tại.
 - Đọc `git status`/diff trước khi sửa. Giữ thay đổi của người dùng/session khác; chỉ stage phần của mình, không dùng `git add .`, reset hoặc deploy cả working tree đang lẫn việc khác. Không sửa notebook/dự án luyện thi bên ngoài repo. Làm tiếp trong phạm vi đã được người dùng cho phép, không hỏi lại các bước đã được duyệt.
 - Điểm vào: `src/components/` là UI; `src/app/api/` là HTTP; `src/lib/` chứa quyền, vòng thi, dữ liệu và Workspace; `gpu-workspace/` là runtime trên Pod. Quyền phải kiểm tra ở server, không chỉ ẩn nút UI. Giữ ranh giới public/private và run sau khi reset vòng.
+- Khi chuẩn hóa đề, ZIP hoặc notebook, đọc `docs/DATASET_PACKAGING.md`: giữ nguồn cũ, đề tách khỏi dữ liệu, notebook gọn không EDA/lời nhắc; ghi chú triển khai ở ngoài đề. Chỉ nạp catalogue quản trị trừ khi người dùng yêu cầu phát hành vòng.
 - Không commit/in log `.env*`, `ACCESS.local.md`, `.local/`, cookie, token, signed URL. Khóa mã hóa `GPU_WORKSPACE_ENCRYPTION_KEY` phải ổn định, không tự sinh đè; mất khóa sẽ không giải mã được Runpod credential đã lưu. Xem tên biến trong `.env.example`; không dùng `NEXT_PUBLIC_` cho secret.
 
 ## Kiểm tra và phát hành

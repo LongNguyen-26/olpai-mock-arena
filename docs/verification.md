@@ -75,4 +75,6 @@
 - `qa-workspace-flow.ts`: Redis namespace riêng, Runpod/agent giả lập; kiểm tra không nạp dataset trả assets rỗng, vẫn giữ quyền/lịch và chuyển metadata task-root. Không tạo GPU thật.
 - `qa-gpu-layout-ui.js`: Edge desktop 1600px/mobile 390px, login QA thật, provider giả lập. Kiểm tra telemetry Pod cũ có nhãn/đơn vị, trạng thái thu gọn mở được, thông báo cạnh Làm mới, bỏ tổng chi phí rời và payload không nạp dataset; không tràn ngang, không có pageerror.
 - Bản chuẩn hóa dưới `statements/Arena_01|02/web_ready/release_20261028`: 5 notebook đã chạy public/private trên CPU, không training; CSV đủ ID/schema, dữ liệu/bộ chấm/weights đối chiếu nguồn, PDF được render kiểm tra. Nguồn cũ giữ nguyên, bản mới chỉ nạp catalogue quản trị, không tự phát hành vòng.
+- `check-standardized-baselines.ts`: cả 10 CSV được bộ chấm web hiện tại chấp nhận, mỗi tệp dưới 3 MB. Đây là kiểm tra pipeline/schema và nhãn chấm, không khẳng định chất lượng mô hình hoặc benchmark GPU.
+- CI runtime [40574925727](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40574925727) build/push thành công; digest `sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf` đã ghim trên env production và template tương lai. Danh tính, image và vòng gắn trên record Pod hiện tại không đổi.
 
