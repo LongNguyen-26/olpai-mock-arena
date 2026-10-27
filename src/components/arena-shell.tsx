@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Cpu,
   Database,
   Layers3,
   LayoutDashboard,
@@ -28,6 +29,7 @@ import {
 } from "./arena-client";
 import { phaseOf } from "@/lib/domain";
 import RoundAdmin, { PublishRound } from "./round-admin";
+import GpuWorkspace from "./gpu-workspace";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
   OverviewView,
@@ -45,6 +47,7 @@ type Section =
   | "leaderboard"
   | "team"
   | "settings"
+  | "workspace"
   | "admin";
 const labels: Record<Section, string> = {
   rounds: "Vòng luyện",
@@ -55,6 +58,7 @@ const labels: Record<Section, string> = {
   leaderboard: "Bảng xếp hạng",
   team: "Đội của tôi",
   settings: "Tài khoản",
+  workspace: "GPU Workspace",
   admin: "Quản trị vòng luyện",
 };
 const nav = [
@@ -249,6 +253,13 @@ export default function Arena() {
               </button>
             ))}
           <div className="nav-divider" />
+          <button
+            className={`nav-link ${section === "workspace" ? "active" : ""}`}
+            onClick={() => go("workspace")}
+          >
+            <Cpu size={19} />
+            GPU Workspace
+          </button>
           {!isAdmin && (
             <button
               className={`nav-link ${section === "team" ? "active" : ""}`}
@@ -432,7 +443,7 @@ export default function Arena() {
           )}
           {inside &&
             !data.entered &&
-            !["rounds", "team", "settings"].includes(section) && (
+            !["rounds", "team", "settings", "workspace"].includes(section) && (
               <section className="panel registration-panel">
                 <div>
                   <h2>
@@ -474,6 +485,7 @@ export default function Arena() {
           {inside && section === "leaderboard" && <BoardView {...views} />}
           {section === "team" && !isAdmin && <TeamView {...props} />}{" "}
           {section === "settings" && <ProfileView {...props} />}{" "}
+          {section === "workspace" && <GpuWorkspace {...props} />}
           {inside && isAdmin && section === "admin" && (
             <RoundAdmin {...props} />
           )}

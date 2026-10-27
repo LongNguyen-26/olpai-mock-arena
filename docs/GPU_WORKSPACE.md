@@ -1,0 +1,97 @@
+# GPU Workspace — cấu hình luyện tập
+
+Người dùng chốt 27/10/2026: một A40 48 GB mỗi đội; DeepSeek 32B Q4_K_M và JupyterLab dùng chung GPU; không yêu cầu chặn Internet/cấm pip ở tầng hệ thống. Image: `nguyenlong26/olpai-workspace:2026.10.27`.
+
+## Nguồn và phạm vi mô phỏng
+
+[Thông báo chính thức OLP](https://www.olp.vn/tin-t%E1%BB%A9c/olympic-icpc/th%C3%B4ng-b%C3%A1o), mục 21h30 ngày 01/11/2025: LLM dùng trong 5 giờ đầu, không giới hạn session, tối đa 2.000 token chung input + output cho mỗi session. Đây là nguồn 2025, chưa phải xác nhận luật 2026. Web mặc định khóa chatbot khi chuyển khỏi public, kể cả mở private/kết thúc sớm. Vòng vô thời hạn giữ LLM tới khi chuyển pha.
+
+Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử, token định dạng và phần suy luận. Lịch sử gửi lại ở mỗi lượt tiếp tục được tính vào input tiêu thụ của phiên. Đây là cách triển khai ngân sách tiêu thụ: thông báo không mô tả chi tiết cách tính nhiều lượt. Admin chỉnh tổng/input/output qua template; không có quota tổng cả kỳ thi. Các lệnh `/usage`, `/limits`, `/help`, `/new` không gọi inference.
+
+[Model gốc](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B) và [GGUF cộng đồng của bartowski](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF): Q4_K_M khoảng 19,9 GB. Không khẳng định chất lượng tương đương BF16/cấu hình BTC. LLM và notebook tranh chấp VRAM/compute, không phân vùng GPU cứng; chưa benchmark A40 thực tế.
+
+[Giá Runpod](https://www.runpod.io/pricing) đối chiếu 27/10/2026: A40 48 GB $0,59/h; RTX 6000 Ada 48 GB $0,99/h; A100 PCIe 80 GB $1,79/h. Sáu giờ A40 khoảng $3,54 tiền GPU, cộng lưu trữ/thuế; giá và tồn kho thay đổi. Web dùng [REST Pods v1](https://docs.runpod.io/api-reference/pods/POST/pods) và [catalog giá v2](https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types), cache 60 giây. Trần USD/h admin nhập áp dụng giá GPU báo từ catalog, không phải hard cap hóa đơn.
+
+## Build và publish image
+
+Ưu tiên **GitHub Actions**, không cần Docker/GPU trên máy local. Workflow `.github/workflows/gpu-workspace-image.yml` chạy kiểm tra web + runtime Python 3.10, sau đó build CUDA image trên runner Linux và push Docker Hub. Các action được pin SHA, chỉ quyền đọc repo; secret không được chuyển vào Docker build. Không tải GGUF 19,9 GB trong CI; Pod tải sau khi được cấp.
+
+1. Tạo Docker Hub access token có quyền Write cho `nguyenlong26/olpai-workspace`.
+2. Thêm repository secret tên **`DOCKERHUB_TOKEN`** tại [GitHub → Secrets and variables → Actions](https://github.com/LongNguyen-26/olpai-mock-arena/settings/secrets/actions). Không gửi token qua chat.
+3. Vào [GitHub Actions](https://github.com/LongNguyen-26/olpai-mock-arena/actions), chọn **GPU Workspace image** → Run workflow → `publish=true`, tag `2026.10.27`. Push thay đổi Dockerfile/workflow cũng kích hoạt. Pull request chỉ build/kiểm tra, không login/push image.
+4. Lấy image digest trong Summary của job để lưu vào template admin. Thiếu secret sẽ dừng rõ ràng trước khi build image lớn; có thể chọn `publish=false` để chỉ kiểm tra build.
+
+Runner được dọn các toolchain cài sẵn trên máy ảo dùng một lần, yêu cầu ít nhất 35 GB trống. Việc này không dọn file trên máy người dùng. Private repository cần đủ Actions minutes theo gói GitHub của chủ repo; kiểm tra quota trước khi chạy nhiều lần.
+
+Lệnh local chỉ là phương án dự phòng:
+
+Tại thư mục dự án, Docker engine cần Running và đủ khoảng 25–30 GB dung lượng trống:
+
+```powershell
+docker build --progress plain -t nguyenlong26/olpai-workspace:2026.10.27 -f gpu-workspace/Dockerfile gpu-workspace
+docker push nguyenlong26/olpai-workspace:2026.10.27
+```
+
+Đăng nhập Docker Desktop/Docker Hub trên máy có quyền push repository, không gửi credential vào chat. Image cần public; bản hiện tại chưa cấu hình registry authentication cho image private. Sau push nên dùng `nguyenlong26/olpai-workspace@sha256:...` trong template.
+
+Image dùng CUDA 12.8.1/cuDNN/Ubuntu 22.04, Python 3.10, PyTorch 2.8.0/cu128 và torchvision 0.23.0, Transformers 4.57.1/Hugging Face Hub 0.36.0 để khớp requirements của Bộ đề 01. Pod được lọc host hỗ trợ CUDA từ 12.8. Kernel TensorFlow 2.17.1 riêng tránh xung đột wheel CUDA. Thư viện còn lại ở `gpu-workspace/requirements.txt`. Phiên bản do môi trường luyện tập chọn, không phải lockfile chính thức BTC. AutoViz yêu cầu xgboost <1.7 nên pin 1.6.2. Các corpus spaCy/NLTK và pretrained theo luật từng bài cần chuẩn bị riêng.
+
+llama.cpp pin b5046, commit đối chiếu `74d4f5b041ad837153b0e90fc864b8290e01d8d5`. Một slot inference, context theo template, model tải vào volume lần khởi động đầu. Jupyter và agent khởi động trước model; không tự chạy notebook/training.
+
+GGUF pin revision `1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec`. Khi private/kết thúc/đặt lại vòng, agent dừng llama.cpp để trả VRAM cho notebook ở lần kiểm tra chính sách tiếp theo (khoảng 20 giây cộng độ trễ mạng). Web chặn inference ngay theo thời gian server.
+
+## Cấu hình server
+
+Giữ Redis/Blob hiện có và thêm biến server-only:
+
+| Biến | Ý nghĩa |
+|---|---|
+| `GPU_WORKSPACE_ENCRYPTION_KEY` | Base64 32 byte ngẫu nhiên, AES-256-GCM mã hóa API key và secret workspace; giữ ổn định qua deploy và sao lưu an toàn. |
+| `GPU_WORKSPACE_PUBLIC_URL` | HTTPS origin công khai, agent Runpod truy cập được; không dùng localhost hoặc preview bị Vercel Authentication chặn. |
+| `RUNPOD_WORKSPACE_IMAGE` | Image mặc định đã push; admin có thể chỉnh qua template. |
+
+Không dùng `NEXT_PUBLIC_` cho secret. Tạo khóa trực tiếp vào file gitignored, không in ra log:
+
+```powershell
+node -e "require('fs').mkdirSync('.local',{recursive:true});require('fs').writeFileSync('.local/gpu-workspace-master.key',require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Đưa giá trị vào Vercel Secret đúng environment. QA/development dùng khóa và namespace riêng. Không ghi đè `.env`/credential cũ. Runpod API key nhập UI admin, không truyền key này cho Pod.
+
+## Vận hành
+
+1. Admin vào GPU Workspace, lưu Runpod key; server kiểm tra list Pod trước khi lưu. Không đổi key khi còn Pod/yêu cầu đang hoạt động.
+2. Cập nhật giá, chỉnh image/GPU/RAM/vCPU/disk/token và lưu template. Tạo bản sao để lưu biến thể cho đội khác.
+3. Chọn đội do thí sinh đã tạo và dataset của một vòng đã phát hành; vòng đang xem được gợi ý. Một đội chỉ có một yêu cầu/Pod đang hoạt động, kể cả chuyển vòng.
+4. Cấp GPU rồi Đối soát. Pod chạy khác với Jupyter/model/dataset sẵn sàng; UI hiển thị riêng và có thời điểm đối soát. Thí sinh tự đối soát Pod của mình mỗi 30 giây khi mở Workspace; admin đối soát từng Pod.
+5. Thành viên đã được duyệt vòng mở Chatbot và JupyterLab trong tab mới. `/workspace/data/public`, `/workspace/data/private`; đầu ra ở `/workspace/Final/Tac_vu_1`, `/workspace/Final/Tac_vu_2`. Admin không cần tham gia đội.
+6. Chat theo workspace/session, lịch sử TTL 30 ngày từ lượt gửi. Mỗi tab giữ session ID ở sessionStorage; mặc định hai máy cùng workspace dùng chung phiên, `/new` tạo phiên riêng. Token và quota được kiểm tra server, không tin lịch sử client.
+7. Admin Dừng/Chạy lại/Thu hồi. Thu hồi xóa volume, cần tải source/trọng số/Final trước. Không tự dừng Pod khi hết giờ; đóng tab không tắt kernel hay ngừng phí.
+
+## Dataset và private
+
+Agent lấy manifest bằng secret riêng, preload public từ Drive (`gdown`) hoặc Blob signed URL, kiểm tra số byte/SHA-256, từ chối ZIP traversal/symlink. Chỉ đọc assets của package, không đưa judge/gold vào manifest. ZIP tự giải nén và giữ bản tải gốc; tar/gz/7z chỉ tải, không tự giải nén.
+
+Private chưa tải plaintext trước giờ: chỉ có `PRIVATE_LOCKED.txt`. Server chỉ cấp link sau khi mở pha; agent kiểm tra mỗi 20 giây, tải/kiểm tra/giải nén rồi xóa ghi chú khóa. Không phải preload ZIP mã hóa rồi phát password. Drive public có thể bị người biết link chia sẻ ra ngoài; web không thu hồi bản đã tải.
+
+Đặt lại vòng đổi run ID: manifest cũ vô hiệu, chatbot/link mở notebook từ web bị chặn. Phiên Jupyter đang mở và dữ liệu đã tải không thể thu hồi chỉ bằng web; nên thu hồi Pod cũ trước lượt mới. Chế độ luyện tập không ngăn người có terminal gọi model trực tiếp, sửa agent, giữ URL Jupyter, pip hoặc Internet. Không mô tả như sandbox thi khóa chặt.
+
+## Chống trùng, chi phí và lỗi
+
+- Redis giữ active record nguyên tử, không TTL, trước POST tạo Pod. Allocation ID/name duy nhất; timeout không retry POST. Hai máy/admin/HTTP retry không tạo Pod thứ hai cho cùng đội.
+- Mất xác nhận: Chờ đối soát, tìm Pod qua tên. Không tự giải phóng khóa mơ hồ. Hủy yêu cầu lỗi chỉ khi Runpod từ chối rõ ràng và list Pod không thấy tên. Pending mơ hồ cần đối chiếu Runpod trước bảo trì thủ công, không xóa khóa để thử mù.
+- Chi phí ước tính đơn giá × thời gian quan sát; khi thiếu rate dùng quote. Dừng dùng ước tính volume $0,20/GB/tháng / 730 giờ; có thể lệch invoice do độ trễ đồng bộ, storage/container disk, thuế hoặc thay đổi giá. [Giá lưu trữ](https://docs.runpod.io/pods/pricing).
+- Lock chat chung workspace chống sinh đồng thời. Giữ token tối đa trước inference, hoàn phần output chưa dùng khi thành công. Timeout/mất xác nhận giữ ngân sách và đánh dấu phiên cần `/new`, không tự tái chạy. Xác nhận lại pha/quyền trước khi phát câu trả lời.
+- Không log prompt, provider payload, key, môi trường Pod hay signed URL. DTO bỏ secret/owner ID. API key mã hóa trong Redis, chỉ backend giải mã.
+
+## Kiểm tra
+
+```powershell
+npm run typecheck
+npm test
+npm run build
+python gpu-workspace/test_agent.py -v
+node --env-file=.env --import tsx scripts/qa-workspace-flow.ts
+```
+
+Script cuối tạo/dọn namespace `arena:qa:gpu:<uuid>` trên Redis; Runpod/Pod HTTP giả lập, không cấp GPU tính phí. `--keep` giữ fixture UI trong `.local/gpu-qa.json`, cần dọn sau kiểm tra. Python kiểm tra CPU/ASGI/ZIP, không chứng minh CUDA/model. Nghiệm thu thật cần admin cấp A40 và xác nhận model/tokenizer, hai kernel, dataset và inference trên GPU thực tế.

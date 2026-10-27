@@ -10,3 +10,5 @@ output/
 .note.txt
 .note2.txt
 .note*
+.playwright-cli/
+gpu-workspace/__pycache__/

@@ -1,0 +1,107 @@
+name: GPU Workspace image
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push the tested image to Docker Hub
+        type: boolean
+        default: true
+      image_tag:
+        description: Docker image tag
+        type: string
+        default: "2026.10.27"
+  push:
+    paths:
+      - "gpu-workspace/**"
+      - ".github/workflows/gpu-workspace-image.yml"
+  pull_request:
+    paths:
+      - "gpu-workspace/**"
+      - ".github/workflows/gpu-workspace-image.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.10"
+      - run: npm ci
+      - run: npm run typecheck && npm test && npm run build
+      - run: python -m pip install fastapi==0.115.11 httpx==0.28.1
+      - run: python gpu-workspace/test_agent.py -v
+
+  image:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      IMAGE: nguyenlong26/olpai-workspace
+      IMAGE_TAG: ${{ inputs.image_tag || '2026.10.27' }}
+      PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate tag and publishing credentials
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo 'Invalid image tag'; exit 1; }
+          if [[ "$PUBLISH" == 'true' && -z "$DOCKERHUB_TOKEN" ]]; then
+            echo '::error::Add repository secret DOCKERHUB_TOKEN (Docker Hub token with Write access for nguyenlong26/olpai-workspace), then re-run this workflow.'
+            exit 1
+          fi
+      - name: Make room on this disposable runner
+        run: |
+          # Only preinstalled toolchains on GitHub's fresh hosted runner are removed.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/swift
+          docker image prune --all --force
+          df -h /
+          available_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          if (( available_kb < 35000000 )); then
+            echo '::error::CUDA image needs at least 35 GB free on this runner. Use a larger GitHub-hosted runner.'
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to Docker Hub
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: nguyenlong26
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and optionally publish
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./gpu-workspace
+          file: ./gpu-workspace/Dockerfile
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          provenance: false
+          sbom: false
+      - name: Image reference for the Admin template
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf '### Published GPU Workspace image\n\n`%s@%s`\n\nTag: `%s:%s`\n' "$IMAGE" "$DIGEST" "$IMAGE" "$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"

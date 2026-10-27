@@ -355,6 +355,15 @@ export function StatementView({ data, go, report }: Props) {
           Dữ liệu
         </button>
       </div>
+      <div className="statement-title">
+        <p>{data.contest?.title}</p>
+        <h2>
+          Tác vụ {task} -{" "}
+          {statements.find((t) => t.id === task)?.title ??
+            data.tasks.find((t) => t.id === task)?.title ??
+            "Đang tải đề thi…"}
+        </h2>
+      </div>
       <div className="prose">
         {statements.length ? (
           <Markdown remarkPlugins={[remarkGfm]}>

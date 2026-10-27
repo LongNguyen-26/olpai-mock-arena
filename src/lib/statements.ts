@@ -1,9 +1,17 @@
 import type { ContestPackage, TaskStatement } from "./types";
 function webTask(task: TaskStatement): TaskStatement {
   const content = task.content
-    .split(/^#{1,6}[ \t]+Phụ lục[ \t]+Giấy phép và ghi công[^\n]*$/mi)[0]
+    .split(/^#{1,6}[ \t]+Phụ lục[ \t]+Giấy phép và ghi công[^\n]*$/im)[0]
     .trimEnd()
     .replace(/\n[ \t]*---$/, "")
+    .replace(
+      /^(#{1,6}[ \t]+Tác vụ[ \t]+\d+)[ \t]+(?![-:.–—])([^\n]+)/gim,
+      "$1 - $2",
+    )
+    .replace(
+      /^(#{1,6}[ \t]+\d+(?:\.\d+)*)(?![\d.])[ \t]+(?![-:.–—])([^\n]+)/gm,
+      "$1. $2",
+    )
     .trimEnd();
   return { ...task, content };
 }
