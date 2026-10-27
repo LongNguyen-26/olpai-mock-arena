@@ -77,6 +77,8 @@ node -e "require('fs').mkdirSync('.local',{recursive:true});require('fs').writeF
 
 ## Vận hành
 
+Trong UI quản trị, chọn **Dịch vụ trên Pod** trước khi chỉnh template. Mỗi chế độ (Chatbot + JupyterLab, Chỉ Chatbot, Chỉ JupyterLab) có template đã lưu và bản nháp riêng. Tài nguyên tính toán và môi trường/lưu trữ được nhóm riêng; ngân sách token chỉ hiện ở chế độ có Chatbot. Lưu template đúng chế độ trước khi cấp Pod. Server từ chối ghép template đã gắn một chế độ với dịch vụ khác. Template cũ không có trường dịch vụ vẫn tương thích; UI đặt chúng trong nhóm kết hợp. Việc lưu template không thay đổi cấu hình đã chụp trên Pod đang dùng.
+
 1. Admin vào GPU Workspace, lưu Runpod key; server kiểm tra list Pod trước khi lưu. Không đổi key khi còn Pod/yêu cầu đang hoạt động.
 2. Cập nhật giá, chỉnh image/GPU/RAM/vCPU/disk/token và lưu template. Tạo bản sao để lưu biến thể cho đội khác.
 3. Chọn đội do thí sinh đã tạo và dataset của một vòng đã phát hành; vòng đang xem được gợi ý. Một đội chỉ có một yêu cầu/Pod đang hoạt động, kể cả chuyển vòng.

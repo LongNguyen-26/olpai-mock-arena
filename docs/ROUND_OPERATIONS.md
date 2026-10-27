@@ -2,7 +2,7 @@
 
 ## Thí sinh
 
-1. Đăng ký tài khoản cá nhân và đăng nhập.
+1. Đăng ký tài khoản cá nhân bằng email và đăng nhập. Tài khoản cũ tiếp tục dùng tên đăng nhập hiện có; không tự đổi định danh hoặc mật khẩu cũ.
 2. Danh sách Vòng luyện hiển thị các vòng đã được quản trị viên phát hành, kể cả chưa bắt đầu.
 3. Bấm Đăng ký tham gia. Mặc định được duyệt ngay; nếu vòng dùng duyệt thủ công thì chờ admin duyệt.
 4. Bấm Vào vòng luyện. Đề và dữ liệu vẫn khóa cho đến thời điểm mở. Chưa đăng ký/đang chờ duyệt không đọc được tài nguyên qua API dù biết URL.
@@ -21,6 +21,8 @@ Private chưa mở: không phát input/link Drive và chưa hiển thị BXH pri
 - Mở vô thời hạn: public giữ mở đến khi admin mở private; private giữ mở đến khi admin kết thúc.
 - Đặt lại / mở lượt mới: trở về chưa mở, quota và BXH lượt mới trống. Đăng ký và bộ đề giữ nguyên. Lượt cũ vẫn lưu ở các khóa Redis theo run ID.
 - Có thể duyệt hoặc thu hồi quyền tham gia từng người. Đổi chế độ tự duyệt chỉ áp dụng cho đăng ký mới; đăng ký đang chờ vẫn cần admin xử lý.
+- Khi public hoặc private đang mở, **Tăng quota cho tất cả đội** cộng thêm 1–100 lượt cho mỗi tác vụ của bộ kiểm thử đã chọn. Tổng hạn mức tối đa 1.000. Các đội giữ số lượt đã dùng; lượt tăng áp dụng cả đội mới tham gia sau đó. Yêu cầu cùng ID chỉ cộng một lần, yêu cầu độc lập đồng thời không làm mất phần tăng của nhau, yêu cầu từ lượt luyện cũ bị từ chối.
+- Luồng giai đoạn giữ nguyên: mở private thì đóng public. Tăng quota không đổi mốc giờ hoặc mở lại bộ kiểm thử đã khóa.
 
 ## Nạp bộ đề tiếp theo
 

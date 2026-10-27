@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import {
   Clock3,
   Play,
@@ -21,8 +22,8 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
     end = contestEnd(c);
   return (
     <>
-      <div className="admin-grid">
-        <section className="panel">
+      <div className="admin-grid round-admin-grid">
+        <section className="panel round-control-panel">
           <div className="section-title">
             <h2>
               <Play size={19} />
@@ -33,7 +34,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             </span>
           </div>
           <h3>{c.title}</h3>
-          <dl className="round-times">
+          <dl className="round-times round-time-grid">
             <div>
               <dt>Bắt đầu</dt>
               <dd>{c.startAt ? when(c.startAt) : "Chưa đặt"}</dd>
@@ -51,7 +52,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
               </dd>
             </div>
           </dl>
-          <div className="action-row">
+          <div className="action-row round-control-actions">
             {waiting && (
               <button
                 className="btn primary"
@@ -156,10 +157,15 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             </form>
           )}
         </section>
-        <section className="panel">
-          <h2>Cấu hình</h2>
+        <section className="panel round-config-panel">
+          <div className="section-title">
+            <h2>Cấu hình vòng luyện</h2>
+            <span className="pill neutral">
+              {waiting ? "Có thể chỉnh sửa" : "Đã áp dụng"}
+            </span>
+          </div>
           <form
-            key={`${c.id}-${c.publicSeconds}-${c.privateSeconds}-${c.unlimited}-${c.autoApprove}`}
+            key={`${c.id}-${c.publicSeconds}-${c.privateSeconds}-${c.publicLimit}-${c.privateLimit}-${c.unlimited}-${c.autoApprove}`}
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -212,26 +218,28 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
                   />
                 </label>
                 <label>
-                  Quota public / tác vụ
+                  Quota public
                   <input
                     name="publicLimit"
                     type="number"
                     min="1"
-                    max="100"
+                    max="1000"
                     defaultValue={c.publicLimit}
                     required
                   />
+                  <small className="field-unit">lượt / tác vụ / đội</small>
                 </label>
                 <label>
-                  Quota private / tác vụ
+                  Quota private
                   <input
                     name="privateLimit"
                     type="number"
                     min="1"
-                    max="20"
+                    max="1000"
                     defaultValue={c.privateLimit}
                     required
                   />
+                  <small className="field-unit">lượt / tác vụ / đội</small>
                 </label>
               </div>
               <label className="check-label">
@@ -253,6 +261,9 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
               <button className="btn">Lưu cấu hình</button>
             </fieldset>
           </form>
+          {open && (
+            <QuotaGrant key={c.id} data={data} busy={busy} action={action} />
+          )}
         </section>
       </div>
       <section className="panel">
@@ -292,7 +303,11 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
                   <tr key={r.userId}>
                     <td>
                       <b>{r.name}</b>
-                      <small>@{r.username}</small>
+                      <small>
+                        {r.username.includes("@")
+                          ? r.username
+                          : `@${r.username}`}
+                      </small>
                     </td>
                     <td>{when(r.registeredAt)}</td>
                     <td>
@@ -349,9 +364,12 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
           </table>
         </div>
       </section>
-      <div className="admin-grid">
-        <section className="panel">
-          <h3>Thông báo</h3>
+      <div className="admin-grid admin-bottom-grid">
+        <section className="panel admin-announcement-panel">
+          <h2>
+            <Bell size={20} />
+            Thông báo
+          </h2>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -374,7 +392,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             </button>
           </form>
         </section>
-        <section className="panel">
+        <section className="panel admin-export-panel">
           <h3>Kết quả vòng luyện</h3>
           <p>
             {data.submissions.length} bài nộp · {data.teams.length} đội
@@ -433,7 +451,7 @@ export function PublishRound({ data, busy, action }: ViewProps) {
             );
         }}
       >
-        <div className="field-grid">
+        <div className="field-grid publish-fields">
           <label>
             Bộ đề
             <select name="packageId" required>
@@ -454,15 +472,87 @@ export function PublishRound({ data, busy, action }: ViewProps) {
               required
             />
           </label>
+          <button
+            className="btn primary"
+            disabled={busy || !data.packages.length}
+          >
+            Xác nhận phát hành
+            <Plus size={16} />
+          </button>
         </div>
-        <button
-          className="btn primary"
-          disabled={busy || !data.packages.length}
-        >
-          Xác nhận phát hành
-          <Plus size={16} />
-        </button>
       </form>
     </section>
+  );
+}
+
+function QuotaGrant({ data, busy, action }: ViewProps) {
+  const c = data.contest!;
+  const [split, setSplit] = useState<"public" | "private">(
+    phaseOf(c, data.serverNow) === "private" ? "private" : "public",
+  );
+  const [amount, setAmount] = useState(5);
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    setRequestId(crypto.randomUUID());
+  }, [c.publicLimit, c.privateLimit]);
+  const current = split === "public" ? c.publicLimit : c.privateLimit;
+  return (
+    <form
+      className="quota-grant"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void action(
+          "admin/control",
+          { action: "grant-quota", runId: c.id, split, amount, requestId },
+          `Đã tăng ${amount} lượt ${split} cho mỗi tác vụ của tất cả đội.`,
+        );
+      }}
+    >
+      <div>
+        <h3>Tăng quota cho tất cả đội</h3>
+        <p>Cộng lượt cho mỗi tác vụ, giữ nguyên số lượt đã dùng.</p>
+      </div>
+      <fieldset disabled={busy} className="quota-fields">
+        <label>
+          Bộ kiểm thử
+          <select
+            value={split}
+            onChange={(e) => {
+              setSplit(e.target.value as "public" | "private");
+              setRequestId(crypto.randomUUID());
+            }}
+          >
+            <option value="public">Public</option>
+            <option value="private">Private</option>
+          </select>
+        </label>
+        <label>
+          Số lượt cộng thêm
+          <input
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            value={amount}
+            required
+            onChange={(e) => {
+              setAmount(Number(e.target.value));
+              setRequestId(crypto.randomUUID());
+            }}
+          />
+        </label>
+        <button className="btn primary" disabled={current + amount > 1000}>
+          <Plus size={17} />
+          Tăng quota
+        </button>
+      </fieldset>
+      <small>
+        Hạn mức {split}:{" "}
+        <b>
+          {current} → {current + amount}
+        </b>{" "}
+        lượt / tác vụ / đội.
+      </small>
+    </form>
   );
 }

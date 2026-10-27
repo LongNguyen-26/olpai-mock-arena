@@ -4,6 +4,7 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronRight,
+  ChevronLeft,
   Cpu,
   Database,
   LayoutDashboard,
@@ -232,7 +233,7 @@ export default function Arena() {
             A<span>·</span>
           </span>
           <span>
-            olpai<span className="brand-light">arena</span>
+            OlpAI<span className="brand-light"> Arena</span>
           </span>
         </a>
         <nav className="arena-nav" aria-label="Điều hướng chính">
@@ -245,7 +246,10 @@ export default function Arena() {
               >
                 <n.icon size={19} />
                 {labels[n.id]}
-                {n.id === "submit" && open && section !== "submit" ? (
+                {n.id === "submit" &&
+                !isAdmin &&
+                open &&
+                section !== "submit" ? (
                   <span className="nav-dot" />
                 ) : null}
               </button>
@@ -269,11 +273,17 @@ export default function Arena() {
           )}
           {inside && isAdmin && (
             <button
-              className={`nav-link ${section === "admin" ? "active" : ""}`}
+              className={`nav-link admin-nav-link ${section === "admin" ? "active" : ""}`}
               onClick={() => go("admin")}
             >
               <ShieldCheck size={19} />
               Quản trị vòng
+              {section !== "admin" && (
+                <span
+                  className="nav-dot admin-nav-dot"
+                  aria-label="Khu vực quản trị"
+                />
+              )}
             </button>
           )}
           <button
@@ -313,6 +323,7 @@ export default function Arena() {
                 go("rounds", "");
               }}
             >
+              <ChevronLeft size={17} aria-hidden="true" />
               Các vòng luyện
             </a>
             <ChevronRight size={16} />

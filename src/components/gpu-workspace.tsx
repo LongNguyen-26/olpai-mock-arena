@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import WorkspaceTemplateForm from "./workspace-template-form";
 import {
   Cpu,
   Activity,
@@ -63,11 +64,19 @@ export default function GpuWorkspace({ data }: ViewProps) {
     [allocationTab, setAllocationTab] = useState<"current" | "history">(
       "current",
     );
+  const templateDrafts = useRef<
+    Partial<Record<WorkspaceServices, WorkspaceTemplate>>
+  >({});
   const load = useCallback(async () => {
     try {
       const next: State = await api("workspace/state");
       setState(next);
-      setTemplate((t) => t ?? next.templates[0] ?? next.defaultTemplate);
+      setTemplate(
+        (t) =>
+          t ??
+          next.templates.find((t) => !t.services || t.services === "both") ??
+          next.defaultTemplate,
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -154,6 +163,30 @@ export default function GpuWorkspace({ data }: ViewProps) {
   ) {
     setTemplate((t) => (t ? { ...t, [field]: value } : t));
   }
+  function chooseServices(next: WorkspaceServices) {
+    if (next === services || !state) return;
+    const basis = template ?? state.defaultTemplate;
+    if (!basis) return;
+    if (template) templateDrafts.current[services] = template;
+    const label = serviceOptions.find((s) => s.id === next)!.label;
+    const target = templateDrafts.current[next] ??
+      state.templates.find((t) => (t.services ?? "both") === next) ?? {
+        ...basis,
+        ...(next === "jupyter"
+          ? {
+              sessionTokenLimit:
+                state.defaultTemplate?.sessionTokenLimit ?? 2000,
+              inputTokenLimit: state.defaultTemplate?.inputTokenLimit ?? 1800,
+              outputTokenLimit: state.defaultTemplate?.outputTokenLimit ?? 1024,
+            }
+          : {}),
+        id: crypto.randomUUID(),
+        services: next,
+        name: `${label} · ${basis.gpuTypeId}`.slice(0, 80),
+      };
+    setServices(next);
+    setTemplate(target);
+  }
   const chosen = prices?.gpus.find((g) => g.id === template?.gpuTypeId),
     hourly = priceOf(chosen, template);
   const hasActive = state?.workspaces.some(
@@ -169,6 +202,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
     !!state?.templates.some(
       (t) =>
         t.id === template.id &&
+        (t.services ?? "both") === services &&
         Object.entries(template).every(
           ([field, value]) => Reflect.get(t, field) === value,
         ),
@@ -352,159 +386,59 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </button>
             </form>
           </section>
-          <div className="gpu-admin-grid">
-            <section className="panel gpu-panel">
-              <h2>Template môi trường</h2>
-              {template && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void run(
-                      () => api("workspace/template", template),
-                      "Đã lưu template để dùng cho các đội.",
-                    );
-                  }}
+          <section className="panel gpu-panel gpu-service-picker">
+            <div>
+              <h2>Dịch vụ trên Pod</h2>
+              <p>Chọn dịch vụ để thiết lập template và cấp Pod tương ứng.</p>
+            </div>
+            <div
+              className="gpu-choice-grid gpu-choice-services"
+              aria-label="Dịch vụ trên Pod"
+            >
+              {serviceOptions.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-pressed={services === mode.id}
+                  onClick={() => chooseServices(mode.id)}
                 >
-                  <label>
-                    Template đã lưu
-                    <select
-                      value={
-                        state.templates.some((t) => t.id === template.id)
-                          ? template.id
-                          : ""
-                      }
-                      onChange={(e) => {
-                        const t = state.templates.find(
-                          (t) => t.id === e.target.value,
-                        );
-                        if (t) setTemplate(t);
-                      }}
-                    >
-                      <option value="" disabled>
-                        Cấu hình mới
-                      </option>
-                      {state.templates.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="gpu-form-grid">
-                    <label>
-                      Tên template
-                      <input
-                        value={template.name}
-                        maxLength={80}
-                        onChange={(e) => edit("name", e.target.value)}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Cloud
-                      <select
-                        value={template.cloudType}
-                        onChange={(e) =>
-                          edit(
-                            "cloudType",
-                            e.target.value as "COMMUNITY" | "SECURE",
-                          )
-                        }
-                      >
-                        <option value="COMMUNITY">Community · tiết kiệm</option>
-                        <option value="SECURE">Secure</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label>
-                    GPU
-                    <select
-                      value={template.gpuTypeId}
-                      onChange={(e) => edit("gpuTypeId", e.target.value)}
-                    >
-                      {!prices?.gpus.some(
-                        (g) => g.id === template.gpuTypeId,
-                      ) && (
-                        <option value={template.gpuTypeId}>
-                          {template.gpuTypeId}
-                        </option>
-                      )}
-                      {prices?.gpus.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name} · {g.memory} GB
-                          {g.price[
-                            template.cloudType === "SECURE"
-                              ? "secure"
-                              : "community"
-                          ] != null
-                            ? ` · ${money(g.price[template.cloudType === "SECURE" ? "secure" : "community"]!)}/h`
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Docker image / digest
-                    <input
-                      value={template.imageName}
-                      placeholder="nguyenlong26/olpai-workspace:2026.10.27"
-                      onChange={(e) => edit("imageName", e.target.value)}
-                      required
-                    />
-                    <small>
-                      Image cần được build và push trước khi cấp Pod. Xem
-                      docs/GPU_WORKSPACE.md.
-                    </small>
-                  </label>
-                  <div className="gpu-form-grid">
-                    {(
-                      [
-                        ["minRAMPerGPU", "RAM tối thiểu (GB)"],
-                        ["minVCPUPerGPU", "vCPU tối thiểu"],
-                        ["containerDiskInGb", "Container disk (GB)"],
-                        ["volumeInGb", "Workspace volume (GB)"],
-                        ["sessionTokenLimit", "Tổng token mỗi phiên"],
-                        ["inputTokenLimit", "Input tối đa / lượt"],
-                        ["outputTokenLimit", "Output tối đa / lượt"],
-                      ] as const
-                    ).map(([field, label]) => (
-                      <label key={field}>
-                        {label}
-                        <input
-                          type="number"
-                          value={template[field]}
-                          min={1}
-                          step={1}
-                          required
-                          onChange={(e) => edit(field, Number(e.target.value))}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <div className="gpu-actions">
-                    <button className="btn primary" disabled={busy}>
-                      <Save size={16} />
-                      Lưu template
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() =>
-                        setTemplate({
-                          ...template,
-                          id: crypto.randomUUID(),
-                          name: `${template.name} (bản sao)`.slice(0, 80),
-                        })
-                      }
-                      disabled={busy}
-                    >
-                      Tạo bản sao
-                    </button>
-                  </div>
-                </form>
-              )}
-            </section>
-            <section className="panel gpu-panel">
+                  <strong>{mode.label}</strong>
+                  <span>{mode.description}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+          <div className="gpu-admin-grid gpu-setup-grid">
+            {template && (
+              <WorkspaceTemplateForm
+                template={template}
+                templates={state.templates.filter(
+                  (t) => (t.services ?? "both") === services,
+                )}
+                services={services}
+                gpus={prices?.gpus ?? []}
+                busy={busy}
+                onEdit={edit}
+                onSelect={setTemplate}
+                onSave={() =>
+                  void run(async () => {
+                    const saved = { ...template, services };
+                    await api("workspace/template", saved);
+                    setTemplate(saved);
+                    templateDrafts.current[services] = saved;
+                  }, "Đã lưu template để dùng cho các đội.")
+                }
+                onClone={() =>
+                  setTemplate({
+                    ...template,
+                    services,
+                    id: crypto.randomUUID(),
+                    name: `${template.name} (bản sao)`.slice(0, 80),
+                  })
+                }
+              />
+            )}
+            <section className="panel gpu-panel gpu-deploy-panel">
               <h2>
                 <Zap size={21} />
                 Cấu hình Pod mới
@@ -584,22 +518,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     </button>
                   </div>
                 </fieldset>
-                <fieldset className="gpu-choices">
-                  <legend>Dịch vụ trên Pod</legend>
-                  <div className="gpu-choice-grid gpu-choice-services">
-                    {serviceOptions.map((mode) => (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        aria-pressed={services === mode.id}
-                        onClick={() => setServices(mode.id)}
-                      >
-                        <strong>{mode.label}</strong>
-                        <span>{mode.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
+
                 {scope === "all" && (
                   <p className="gpu-share-note">
                     Áp dụng cho mọi đội hiện có và đội được tạo sau này.{" "}

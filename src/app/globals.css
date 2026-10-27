@@ -2296,7 +2296,7 @@ td.mono {
   margin-left: auto;
 }
 .publish-panel {
-  max-width: 900px;
+  max-width: none;
   margin-top: 15px;
 }
 .publish-panel p {
@@ -2722,7 +2722,7 @@ td .filename {
 .result-score {
   font-family: "Be Vietnam Pro", Arial, sans-serif;
   font-variant-numeric: tabular-nums;
-  font-size: 40px;
+  font-size: 68px;
   font-weight: 800;
   color: #204e45;
 }
@@ -2745,7 +2745,9 @@ td .filename {
 }
 .submission-history th,
 .leaderboard th {
-  font-size: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #405566;
 }
 .submission-history td .filename {
   font-size: 15px;
@@ -2767,8 +2769,8 @@ td .filename {
 }
 .submission-history .valid,
 .submission-history .invalid {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
 }
 .submission-history .valid svg,
 .submission-history .invalid svg {

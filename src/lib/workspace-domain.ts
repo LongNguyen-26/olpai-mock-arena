@@ -10,6 +10,7 @@ import {
 export const templateSchema = z
   .object({
     id: z.string().uuid(),
+    services: z.enum(["both", "llm", "jupyter"]).optional(),
     name: z.string().trim().min(2).max(80),
     gpuTypeId: z.string().trim().min(1).max(100),
     cloudType: z.enum(["COMMUNITY", "SECURE"]),

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { registrationName, loginName } from "@/lib/auth-input";
 import { db, key, serverNow, storage } from "@/lib/db";
 import {
   ApiError,
@@ -78,7 +79,7 @@ async function handle(
     if (route === "auth/register" && req.method === "POST") {
       const value = z
         .object({
-          username: z.string().regex(/^[a-zA-Z0-9_]{3,24}$/),
+          username: registrationName,
           name: z.string().trim().min(2).max(60),
           password: z.string().min(10).max(128),
         })
@@ -108,7 +109,7 @@ async function handle(
     if (route === "auth/login" && req.method === "POST") {
       const value = z
         .object({
-          username: z.string().min(1).max(24),
+          username: loginName,
           password: z.string().max(128),
         })
         .parse(await payload(req));
@@ -226,7 +227,7 @@ async function handle(
           z.object({ action: z.literal("leave") }),
           z.object({
             action: z.literal("invite"),
-            username: z.string().min(3).max(24),
+            username: loginName,
           }),
           z.object({ action: z.literal("decline"), teamId: z.string().uuid() }),
         ])
@@ -314,12 +315,19 @@ async function handle(
             autoApprove: z.boolean().optional(),
             publicSeconds: z.number().int().min(30).max(43200),
             privateSeconds: z.number().int().min(30).max(7200),
-            publicLimit: z.number().int().min(1).max(100),
-            privateLimit: z.number().int().min(1).max(20),
+            publicLimit: z.number().int().min(1).max(1000),
+            privateLimit: z.number().int().min(1).max(1000),
           }),
           z.object({
             action: z.literal("approval-mode"),
             autoApprove: z.boolean(),
+          }),
+          z.object({
+            action: z.literal("grant-quota"),
+            runId: z.string().uuid(),
+            requestId: z.string().uuid(),
+            split: z.enum(["public", "private"]),
+            amount: z.number().int().min(1).max(100),
           }),
           z.object({
             action: z.literal("schedule"),

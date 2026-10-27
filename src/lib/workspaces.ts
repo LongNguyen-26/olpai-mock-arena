@@ -253,6 +253,11 @@ export async function deployWorkspace(
   if (scope === "team" && (!team || !team.members.length))
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
   if (!t) throw new ApiError("Chọn template đã lưu.");
+  if (t.services && t.services !== services)
+    throw new ApiError(
+      "Template không khớp dịch vụ đã chọn. Hãy chọn và lưu template tương ứng.",
+      409,
+    );
   if (
     services !== "both" &&
     [

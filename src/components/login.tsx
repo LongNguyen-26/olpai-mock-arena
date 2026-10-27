@@ -33,7 +33,7 @@ export default function Login() {
             A<span>·</span>
           </span>
           <span>
-            olpai<span className="brand-light">arena</span>
+            OlpAI<span className="brand-light"> Arena</span>
           </span>
         </a>
         <div className="auth-pitch">
@@ -112,15 +112,18 @@ export default function Login() {
               </label>
             )}
             <label>
-              Tên đăng nhập
+              {register ? "Email" : "Email hoặc tên đăng nhập"}
               <input
                 name="username"
                 required
-                minLength={3}
-                maxLength={24}
-                pattern="[a-zA-Z0-9_]+"
-                placeholder="Tên tài khoản của bạn"
+                type={register ? "email" : "text"}
+                maxLength={254}
+                placeholder={
+                  register ? "ban@example.com" : "Email hoặc tên tài khoản"
+                }
                 autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
               />
             </label>
             <label>
@@ -137,8 +140,7 @@ export default function Login() {
             </label>
             {register && (
               <small>
-                Tên đăng nhập gồm 3–24 chữ cái, số hoặc dấu _. Không cần xác
-                thực email.
+                Dùng email làm tên đăng nhập. Không cần xác thực email.
               </small>
             )}
             {error && (

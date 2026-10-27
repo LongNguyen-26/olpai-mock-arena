@@ -1,0 +1,485 @@
+/* Form, table and admin hierarchy. Scoped rules preserve statement typography. */
+.breadcrumbs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.topbar .live-indicator {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: #eef2f5;
+  white-space: nowrap;
+}
+.topbar .live-indicator.is-live {
+  color: #237a5b;
+  background: #e8f5ef;
+}
+.topbar .live-indicator i {
+  width: 8px;
+  height: 8px;
+}
+.admin-nav-link {
+  color: #e5aa87;
+}
+.admin-nav-dot {
+  background: #ed6745;
+  width: 7px;
+  height: 7px;
+}
+.submission-history table {
+  min-width: 710px;
+}
+.submission-history th,
+.leaderboard th {
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.submission-history
+  :is(th, td):is(:nth-child(2), :nth-child(3), :nth-child(4)) {
+  text-align: center;
+}
+.leaderboard :is(th, td):not(:nth-child(2)) {
+  text-align: center;
+}
+.leaderboard td.mono {
+  font-family: "Be Vietnam Pro", Arial, sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.35px;
+  color: #284f50;
+}
+.leaderboard td.total-score {
+  font-size: 24px;
+  font-weight: 800;
+}
+.submission-history td .filename {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 170px;
+}
+.submit-panel .section-title h2 {
+  font-size: 22px;
+}
+.submit-panel form label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.submit-panel form :is(input, select) {
+  font-size: 16px;
+}
+.submit-panel .dropzone {
+  padding: 27px 20px;
+}
+.submit-panel .dropzone b {
+  font-size: 18px;
+}
+.submit-panel .dropzone span {
+  font-size: 14px;
+  font-weight: 400;
+}
+.submit-panel .schema-line code {
+  font-size: 14px;
+}
+.submit-panel .submission-quota {
+  font-size: 17px;
+  font-weight: 700;
+}
+.submit-panel form > .btn.primary {
+  min-height: 58px;
+  font-size: 17px;
+  font-weight: 700;
+}
+.submission-result > .btn {
+  min-height: 54px;
+  padding: 13px 28px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.submission-result h3 {
+  font-size: 27px;
+}
+.submission-result .result-score {
+  line-height: 1.25;
+  letter-spacing: -2px;
+}
+.result-score small {
+  letter-spacing: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.publish-panel {
+  width: 100%;
+  max-width: 1180px;
+  margin-top: 26px;
+  padding: 27px 30px;
+}
+.publish-panel > p {
+  font-size: 14px;
+  color: #6b7b87;
+  max-width: 850px;
+}
+.publish-panel .publish-fields {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+}
+.publish-fields .btn {
+  margin: 0;
+  min-height: 50px;
+  white-space: nowrap;
+}
+.publish-fields > label {
+  margin: 0;
+}
+.publish-fields :is(input, select) {
+  min-height: 50px;
+}
+.round-admin-grid {
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.35fr);
+  align-items: start;
+}
+.round-control-panel > h3 {
+  margin: 8px 0 18px;
+  font-size: 20px;
+}
+.round-control-panel .round-time-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+.round-time-grid div {
+  display: block;
+  padding: 12px 10px;
+  border: 1px solid #e6ecef;
+  border-radius: 10px;
+  background: #f8fafb;
+}
+.round-time-grid dt {
+  font-size: 12px;
+  color: #70828f;
+  margin-bottom: 4px;
+}
+.round-time-grid dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.round-control-actions {
+  gap: 10px;
+}
+.round-control-actions .btn {
+  min-height: 46px;
+  font-size: 13px;
+}
+.round-control-panel .schedule-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 22px;
+}
+.round-config-panel > .section-title {
+  margin-bottom: 18px;
+}
+.round-config-panel form label {
+  font-size: 14px;
+}
+.round-config-panel .field-unit {
+  display: block;
+  margin-top: 4px;
+  color: #7a8b96;
+  font-size: 12px;
+  font-weight: 400;
+}
+.round-config-panel fieldset {
+  min-width: 0;
+}
+.round-config-panel form > fieldset > label.check-label {
+  display: inline-flex;
+  margin-right: 20px;
+}
+.round-config-panel form > fieldset > .btn {
+  display: block;
+}
+.quota-grant {
+  padding-top: 22px;
+  margin-top: 22px;
+  border-top: 1px solid #e4eaee;
+}
+.quota-grant h3 {
+  font-size: 18px;
+  margin: 0 0 5px;
+}
+.quota-grant p {
+  margin: 0 0 15px;
+  font-size: 13px;
+  color: #6b7c89;
+}
+.round-config-panel .quota-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  align-items: end;
+}
+.quota-fields label {
+  margin: 0;
+}
+.quota-fields .btn {
+  min-height: 47px;
+  white-space: nowrap;
+}
+.quota-grant > small {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #637782;
+}
+.admin-bottom-grid {
+  grid-template-columns: minmax(0, 1fr) 290px;
+  align-items: start;
+}
+.admin-announcement-panel h2 {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 21px;
+}
+.admin-announcement-panel textarea {
+  min-height: 125px;
+  font-size: 15px;
+}
+.admin-export-panel {
+  padding: 24px;
+}
+.admin-export-panel h3 {
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+.admin-export-panel p {
+  font-size: 13px;
+  margin-bottom: 15px;
+}
+.admin-export-panel .btn {
+  font-size: 13px;
+}
+.gpu-workspace .gpu-service-picker {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  align-items: center;
+  gap: 25px;
+}
+.gpu-service-picker h2 {
+  margin-bottom: 8px;
+}
+.gpu-service-picker p {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7c89;
+}
+.gpu-service-picker .gpu-choice-grid button {
+  padding: 17px;
+}
+.gpu-workspace .gpu-setup-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.9fr);
+}
+.gpu-template-panel .section-title {
+  gap: 12px;
+}
+.gpu-template-panel .section-title h2 {
+  margin: 0;
+}
+.gpu-template-panel .template-intro {
+  font-size: 13px;
+  color: #6b7c89;
+  margin-top: 10px;
+}
+.gpu-template-panel .template-group {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #e1e9ed;
+  border-radius: 12px;
+  background: #f9fbfc;
+  padding: 15px 17px 18px;
+  margin: 8px 0 0;
+  min-width: 0;
+}
+.template-group legend {
+  font-size: 15px;
+  font-weight: 700;
+  color: #385866;
+  padding: 0 6px;
+}
+.template-group legend svg {
+  vertical-align: -4px;
+  margin-right: 8px;
+}
+.template-group > p {
+  font-size: 12px;
+  color: #73828f;
+  margin: 0;
+}
+.gpu-template-panel .template-resource-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.gpu-template-panel label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.gpu-template-panel input,
+.gpu-template-panel select {
+  background: white;
+}
+.template-image summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #546d7d;
+}
+.template-image label {
+  display: block;
+  margin-top: 12px;
+}
+.gpu-template-panel .template-image input {
+  font-size: 12px;
+}
+.gpu-template-panel .gpu-actions {
+  margin-top: 4px;
+}
+.gpu-deploy-panel > p {
+  font-size: 14px;
+  color: #657b89;
+}
+.gpu-deploy-panel .gpu-quote {
+  margin: 18px 0;
+  padding: 18px;
+}
+.gpu-deploy-panel .gpu-quote strong {
+  font-size: 30px;
+}
+.gpu-deploy-panel .gpu-choices legend {
+  font-size: 14px;
+}
+.gpu-deploy-panel form > button {
+  min-height: 52px;
+  font-size: 15px;
+}
+@media (max-width: 1100px) {
+  .gpu-workspace .gpu-setup-grid {
+    grid-template-columns: 1fr;
+  }
+  .gpu-workspace .gpu-service-picker {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+@media (max-width: 1200px) {
+  .round-admin-grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+  .round-config-panel .quota-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .quota-fields .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .round-control-panel .round-time-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .round-time-grid div {
+    display: flex;
+    justify-content: space-between;
+    padding: 9px 0;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid #edf0f3;
+    border-radius: 0;
+  }
+  .round-time-grid dt {
+    margin: 0;
+  }
+}
+@media (max-width: 900px) {
+  .round-admin-grid,
+  .admin-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+  .round-control-panel .round-time-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .round-time-grid div {
+    display: block;
+    border: 0;
+    background: #f8fafb;
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .publish-panel .publish-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .publish-fields .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+@media (max-width: 600px) {
+  .topbar .live-indicator {
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+  .topbar .live-indicator i {
+    width: 7px;
+    height: 7px;
+  }
+  .submission-result .result-score {
+    font-size: 52px;
+  }
+  .result-score small {
+    font-size: 15px;
+  }
+  .submission-result h3 {
+    font-size: 23px;
+  }
+  .publish-panel {
+    padding: 22px;
+  }
+  .publish-panel .publish-fields {
+    grid-template-columns: 1fr;
+  }
+  .publish-fields .btn {
+    width: 100%;
+  }
+  .round-control-panel .schedule-form {
+    grid-template-columns: 1fr;
+  }
+  .round-config-panel .quota-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .quota-fields .btn {
+    width: 100%;
+  }
+  .round-time-grid dd {
+    font-size: 12px;
+  }
+  .gpu-template-panel .template-resource-grid,
+  .gpu-template-panel .template-identity {
+    grid-template-columns: 1fr;
+  }
+  .gpu-template-panel .section-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .gpu-template-panel .template-group {
+    padding: 14px;
+  }
+}

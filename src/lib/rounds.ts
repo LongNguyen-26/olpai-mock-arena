@@ -3,6 +3,7 @@ import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
 import { canRead, phaseOf, rankTeams, visibleSubmission } from "./domain";
 import { taskStatements } from "./statements";
+import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import type {
   Contest,
   ContestPackage,
@@ -281,6 +282,10 @@ export async function control(
     action?: string;
     scheduledAt?: string;
     text?: string;
+    runId?: string;
+    split?: "public" | "private";
+    amount?: number;
+    requestId?: string;
   },
   id: string,
 ) {
@@ -288,6 +293,36 @@ export async function control(
     now = await serverNow(),
     phase = phaseOf(c, now);
   let next = { ...c };
+  if (action === "grant-quota") {
+    if (
+      values.runId !== c.id ||
+      !values.requestId ||
+      !["public", "private"].includes(values.split ?? "") ||
+      !Number.isInteger(values.amount) ||
+      values.amount! < 1 ||
+      values.amount! > 100
+    )
+      throw new ApiError(
+        "Yêu cầu tăng quota không hợp lệ hoặc lượt luyện đã thay đổi.",
+        409,
+      );
+    const fingerprint = `${c.id}:${values.split}:${values.amount}`;
+    const result = await db().eval<unknown[], string>(
+      GRANT_QUOTA_SCRIPT,
+      [roundKey(c), key(`quota-grant:${c.id}:${values.requestId}`)],
+      [c.id, values.split!, String(values.amount), fingerprint],
+    );
+    if (result !== "ok")
+      throw new ApiError(
+        result === "closed"
+          ? "Chỉ tăng quota khi vòng luyện đang mở."
+          : result === "limit"
+            ? "Quota tối đa là 1.000 lượt mỗi tác vụ."
+            : "Yêu cầu đã thay đổi hoặc lượt luyện đã được đặt lại. Hãy tải lại.",
+        409,
+      );
+    return;
+  }
   if (action === "announce") {
     await db().lpush(key(`announcements:${c.id}`), {
       id: randomUUID(),

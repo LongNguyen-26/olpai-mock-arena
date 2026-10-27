@@ -28,7 +28,9 @@ export function TeamView({ data, busy, action }: ViewProps) {
                     {m.name}
                     {m.id === data.user.id ? " (bạn)" : ""}
                   </b>
-                  <small>@{m.username}</small>
+                  <small>
+                    {m.username.includes("@") ? m.username : `@${m.username}`}
+                  </small>
                 </span>
                 <span className="pill neutral">
                   {m.id === data.team?.captainId ? "Đội trưởng" : "Thành viên"}
@@ -74,7 +76,12 @@ export function TeamView({ data, busy, action }: ViewProps) {
             >
               <label>
                 Tên đăng nhập
-                <input name="username" required minLength={3} maxLength={24} />
+                <input
+                  name="username"
+                  required
+                  maxLength={254}
+                  placeholder="Email hoặc tên đăng nhập"
+                />
               </label>
               <button className="btn primary" disabled={busy}>
                 <Send size={16} />
@@ -179,7 +186,10 @@ export function ProfileView({ data, busy, action }: ViewProps) {
     <section className="panel narrow-panel">
       <h2>Tài khoản</h2>
       <p>
-        {data.user.name} · @{data.user.username}
+        {data.user.name} ·{" "}
+        {data.user.username.includes("@")
+          ? data.user.username
+          : `@${data.user.username}`}
       </p>
       <form
         onSubmit={(e) => {

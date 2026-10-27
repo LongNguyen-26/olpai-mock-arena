@@ -248,7 +248,7 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Bản nộp / thời gian</th>
+                <th>Bản nộp/Thời gian</th>
                 <th>Tác vụ</th>
                 <th>Bộ kiểm thử</th>
                 <th>Điểm</th>
@@ -294,7 +294,6 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
                             <AlertCircle size={16} />
                             Không hợp lệ
                           </span>
-                          <small className="submission-error">{s.error}</small>
                         </>
                       ) : (
                         <span className="valid">
