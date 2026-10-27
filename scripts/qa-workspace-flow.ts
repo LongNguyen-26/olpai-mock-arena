@@ -184,6 +184,7 @@ async function main() {
     assets: [
       {
         key: "qa-public",
+        workspaceLayout: "task-root",
         name: "public.zip",
         bytes: 10,
         sha256: "a".repeat(64),
@@ -486,6 +487,7 @@ async function main() {
       `Bearer ${decryptSecret(jupyterRecord.secret)}`,
     );
     assert.equal(jupyterManifest.assets.length, 1);
+    assert.equal(jupyterManifest.assets[0].workspaceLayout, "task-root");
     assert.equal(jupyterManifest.llmEnabled, false);
 
     const commonSession = randomUUID();
@@ -528,6 +530,25 @@ async function main() {
     );
     await controlWorkspace(admin, sharedJupyter.id, "terminate");
     await controlWorkspace(admin, dedicated.id, "terminate");
+    const emptyNotebook = await deployWorkspace(
+      admin,
+      null,
+      c.roundId!,
+      t.id,
+      0.75,
+      { scope: "all", services: "jupyter", loadDataset: false },
+    );
+    const emptyRecord = await getWorkspace(emptyNotebook.id);
+    const emptyManifest = await agentManifest(
+      emptyRecord.id,
+      `Bearer ${decryptSecret(emptyRecord.secret)}`,
+    );
+    assert.equal(emptyRecord.loadDataset, false);
+    assert.equal(emptyManifest.loadDataset, false);
+    assert.equal(emptyManifest.assets.length, 0);
+    assert.equal(emptyManifest.active, true);
+    assert.equal(emptyManifest.llmEnabled, false);
+    await controlWorkspace(admin, emptyNotebook.id, "terminate");
     assert.equal(await db().exists(key(`gpu:active:${team.id}`)), 0);
     console.log(
       "PASS: shared/private coexistence, future teams, team-isolated chat, single-service access/manifest, legacy reservation compatibility, atomic concurrent deployment, lifecycle, phase gates and token accounting.",

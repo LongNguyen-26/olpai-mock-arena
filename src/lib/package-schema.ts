@@ -60,6 +60,7 @@ export const packageSchema = z
           .refine((s) => new URL(s).hostname === "drive.google.com")
           .optional(),
         task: taskId.optional(),
+        workspaceLayout: z.literal("task-root").optional(),
       }),
     ),
     judges: z.object({ "1": pair, "2": pair, "3": pair.optional() }),

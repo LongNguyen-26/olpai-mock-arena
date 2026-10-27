@@ -72,6 +72,7 @@ export interface Workspace {
   teamId: string | null;
   scope?: WorkspaceScope;
   services?: WorkspaceServices;
+  loadDataset?: boolean;
   reservationVersion?: 2;
   teamName: string;
   roundId: string;

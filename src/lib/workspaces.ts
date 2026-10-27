@@ -241,7 +241,11 @@ export async function deployWorkspace(
   roundId: string,
   templateId: string,
   maxHourlyUsd: number,
-  options: { scope?: WorkspaceScope; services?: WorkspaceServices } = {},
+  options: {
+    scope?: WorkspaceScope;
+    services?: WorkspaceServices;
+    loadDataset?: boolean;
+  } = {},
 ) {
   const scope = options.scope ?? "team",
     services = options.services ?? "both";
@@ -270,7 +274,11 @@ export async function deployWorkspace(
       "Image trong template này chưa hỗ trợ tách dịch vụ. Hãy tải lại và chọn template đã cập nhật.",
       409,
     );
-  if (services !== "llm" && !(await getPackage(c)))
+  if (
+    services !== "llm" &&
+    options.loadDataset !== false &&
+    !(await getPackage(c))
+  )
     throw new ApiError("Vòng này chưa có dataset.");
   const controlUrl = process.env.GPU_WORKSPACE_PUBLIC_URL;
   if (!controlUrl || new URL(controlUrl).protocol !== "https:")
@@ -303,6 +311,7 @@ export async function deployWorkspace(
     services,
     reservationVersion: 2,
     roundId,
+    loadDataset: services !== "llm" && options.loadDataset !== false,
     runId: c.id,
     roundTitle: c.title,
     ownerId: user.id,
@@ -565,7 +574,10 @@ export async function agentManifest(id: string, authorization: string | null) {
   const pkg = await getPackage(c);
   // Public is provisioned before the start; private URLs are never sent before its server-side phase gate.
   const assets = await Promise.all(
-    (hasService(w, "jupyter") ? (pkg?.assets ?? []) : [])
+    (hasService(w, "jupyter") && w.loadDataset !== false
+      ? (pkg?.assets ?? [])
+      : []
+    )
       .filter(
         (a) =>
           /\.(zip|ipynb|py|csv|json|parquet|tar|gz|7z)$/i.test(a.name) &&
@@ -576,6 +588,7 @@ export async function agentManifest(id: string, authorization: string | null) {
         phase: a.phase,
         sha256: a.sha256,
         bytes: a.bytes,
+        ...(a.workspaceLayout ? { workspaceLayout: a.workspaceLayout } : {}),
         ...(a.driveUrl
           ? { driveId: driveFileId(a.driveUrl) }
           : {
@@ -590,6 +603,7 @@ export async function agentManifest(id: string, authorization: string | null) {
     runId: c.id,
     phase: phaseOf(c, now),
     assets,
+    loadDataset: hasService(w, "jupyter") && w.loadDataset !== false,
     privateLocked: !canRead(c, now, "private"),
     llmEnabled: chatbotOpen(w, c, now),
   };

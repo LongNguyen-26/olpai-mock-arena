@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
+import { gpuTelemetry } from "@/lib/gpu-telemetry";
 import {
   Cpu,
   Activity,
@@ -52,6 +53,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
     [teamId, setTeamId] = useState(""),
     [scope, setScope] = useState<WorkspaceScope>("team"),
     [services, setServices] = useState<WorkspaceServices>("both"),
+    [loadDataset, setLoadDataset] = useState(true),
     [roundId, setRoundId] = useState(
       data.contest?.roundId ?? data.rounds[0]?.id ?? "",
     );
@@ -67,6 +69,11 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const templateDrafts = useRef<
     Partial<Record<WorkspaceServices, WorkspaceTemplate>>
   >({});
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const load = useCallback(async () => {
     try {
       const next: State = await api("workspace/state");
@@ -218,10 +225,17 @@ export default function GpuWorkspace({ data }: ViewProps) {
         <div>
           <p>Truy cập Chatbot và JupyterLab của đội tại đây.</p>
         </div>
-        <button className="btn" onClick={() => void load()} disabled={busy}>
-          <RefreshCw size={16} />
-          Làm mới
-        </button>
+        <div className="gpu-head-actions">
+          {notice && (
+            <span className="gpu-inline-notice" role="status">
+              {notice}
+            </span>
+          )}
+          <button className="btn" onClick={() => void load()} disabled={busy}>
+            <RefreshCw size={16} />
+            Làm mới
+          </button>
+        </div>
       </div>
       {error && (
         <div className="alert error" role="alert">
@@ -231,11 +245,6 @@ export default function GpuWorkspace({ data }: ViewProps) {
       {syncWarning && (
         <div className="alert" role="status">
           {syncWarning}
-        </div>
-      )}
-      {notice && (
-        <div className="alert success" role="status">
-          {notice}
         </div>
       )}
       {!state && <p role="status">Đang tải GPU Workspace…</p>}
@@ -261,10 +270,6 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 Đã thu hồi <span>{history.length}</span>
               </button>
             </div>
-            <span>
-              Ước tính tổng{" "}
-              {money(state.workspaces.reduce((n, w) => n + w.estimatedUsd, 0))}
-            </span>
           </div>
           {allocationTab === "current" && !current.length && (
             <EmptyWorkspace
@@ -489,11 +494,12 @@ export default function GpuWorkspace({ data }: ViewProps) {
                         teamId: scope === "team" ? teamId : null,
                         scope,
                         services,
+                        loadDataset: services !== "llm" && loadDataset,
                         roundId,
                         templateId: template.id,
                         maxHourlyUsd,
                       }),
-                    "Đã ghi nhận yêu cầu. Đối soát để cập nhật trạng thái Pod.",
+                    "Đã gửi yêu cầu cấp Pod.",
                   );
                 }}
               >
@@ -559,7 +565,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 <label>
                   {services === "llm"
                     ? "Vòng luyện áp dụng giờ Chatbot"
-                    : "Dataset và lịch của vòng luyện"}
+                    : "Vòng luyện áp dụng quyền truy cập"}
                   <select
                     value={roundId}
                     required
@@ -576,10 +582,28 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     ))}
                   </select>
                 </label>
+                {services !== "llm" && (
+                  <label>
+                    Dữ liệu trên JupyterLab
+                    <select
+                      value={loadDataset ? "round" : "none"}
+                      onChange={(e) =>
+                        setLoadDataset(e.target.value === "round")
+                      }
+                    >
+                      <option value="round">
+                        Nạp dataset của vòng đã chọn
+                      </option>
+                      <option value="none">Không nạp dataset</option>
+                    </select>
+                  </label>
+                )}
                 <p className="gpu-hint">
                   {services === "llm"
                     ? "Pod chỉ nạp model, không tải dataset hoặc mở JupyterLab. Lịch sử và ngân sách chat tách theo đội."
-                    : "Nạp dataset public của vòng đã chọn; private chỉ tải khi mở private. Reset vòng tự gắn lượt mới, giữ Pod và tệp."}
+                    : loadDataset
+                      ? "Public được nạp sẵn; private chỉ nạp khi vòng mở private."
+                      : "Mở JupyterLab trống. Quyền truy cập vẫn theo lịch vòng đã chọn."}
                 </p>
                 <label>
                   Giá GPU tối đa chấp nhận (USD/giờ)
@@ -693,6 +717,7 @@ function WorkspaceCard({
 }) {
   const active = w.status !== "terminated";
   const running = w.status === "running";
+  const telemetry = gpuTelemetry(w.health?.gpu);
   return (
     <article className={`panel gpu-card ${running ? "gpu-card-running" : ""}`}>
       <div className="gpu-card-main">
@@ -720,10 +745,40 @@ function WorkspaceCard({
             <Activity size={15} />
             Thông số GPU
           </span>
-          <code className="gpu-metrics">
-            {w.health?.gpu ||
-              (running ? "Đang chờ dữ liệu từ GPU…" : "GPU chưa hoạt động")}
-          </code>
+          {telemetry ? (
+            <dl className="gpu-metric-grid">
+              <div className="gpu-metric-name">
+                <dt>GPU</dt>
+                <dd>{telemetry.name}</dd>
+              </div>
+              <div>
+                <dt>VRAM đang dùng / tổng</dt>
+                <dd>
+                  {telemetry.usedMiB !== null && telemetry.totalMiB !== null
+                    ? `${(telemetry.usedMiB / 1024).toFixed(1)} / ${(telemetry.totalMiB / 1024).toFixed(1)} GiB`
+                    : "Chưa có số liệu"}
+                </dd>
+              </div>
+              <div>
+                <dt>Mức sử dụng GPU</dt>
+                <dd>
+                  {telemetry.utilization !== null
+                    ? `${telemetry.utilization}%`
+                    : "Chưa có số liệu"}
+                </dd>
+              </div>
+              {telemetry.temperature !== null && (
+                <div>
+                  <dt>Nhiệt độ</dt>
+                  <dd>{telemetry.temperature}°C</dd>
+                </div>
+              )}
+            </dl>
+          ) : (
+            <p className="gpu-metrics">
+              {running ? "Đang chờ dữ liệu từ GPU…" : "GPU chưa hoạt động"}
+            </p>
+          )}
           <Uptime
             seconds={w.uptimeSeconds ?? null}
             observedAt={w.uptimeObservedAt ?? null}
@@ -761,11 +816,14 @@ function WorkspaceCard({
       </div>
       <div className="gpu-card-foot">
         <div className="gpu-card-notes">
-          {hasService(w, "jupyter") && (
+          {hasService(w, "jupyter") && w.loadDataset !== false && (
             <span>
               Public: {w.health?.publicReady ? "đã nạp" : "đang chờ"} · Private:{" "}
               {w.health?.privateReady ? "đã nạp" : "đang khóa / chưa nạp"}
             </span>
+          )}
+          {hasService(w, "jupyter") && w.loadDataset === false && (
+            <span>Dataset: không nạp</span>
           )}
           {w.scope === "all" && hasService(w, "jupyter") && (
             <span>Các đội dùng chung tệp, kernel và GPU.</span>
@@ -774,8 +832,13 @@ function WorkspaceCard({
             {w.podId ? `Pod ${w.podId}` : "Chưa nhận Pod ID"} ·{" "}
             {w.syncedAt ? `Đối soát ${when(w.syncedAt)}` : "Chưa đối soát"}
           </small>
-          {w.health?.stage && <span>{w.health.stage}</span>}
-          {w.accessMessage && <span role="status">{w.accessMessage}</span>}
+          {(w.health?.stage || w.accessMessage) && (
+            <details className="gpu-status-detail">
+              <summary>Chi tiết trạng thái</summary>
+              {w.health?.stage && <span>{w.health.stage}</span>}
+              {w.accessMessage && <span>{w.accessMessage}</span>}
+            </details>
+          )}
           {(w.error || w.health?.error) && (
             <span role="status">{w.error ?? w.health?.error}</span>
           )}
@@ -827,7 +890,7 @@ function WorkspaceCard({
         <div className="gpu-confirm">
           <p>
             Thu hồi sẽ xóa Pod và volume. Hãy tải mã nguồn, trọng số và thư mục
-            Final trước khi xác nhận.
+            bài làm trước khi xác nhận.
             {w.scope === "all" &&
               " Tất cả các đội sẽ mất quyền truy cập Pod dùng chung này."}
           </p>

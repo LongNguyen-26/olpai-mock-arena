@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -72,7 +73,7 @@ def manifest():
         response.raise_for_status()
         return response.json()
 
-def safe_extract(archive: Path, destination: Path):
+def safe_extract(archive: Path, destination: Path, task_root=False):
     """Reject ZIP traversal, symlinks and archives exceeding the extraction budget."""
     with zipfile.ZipFile(archive) as bundle:
         members = bundle.infolist()
@@ -80,6 +81,8 @@ def safe_extract(archive: Path, destination: Path):
             raise ValueError("Archive too large")
         for member in members:
             path = PurePosixPath(member.filename.replace("\\", "/"))
+            if task_root and (not path.parts or not re.fullmatch(r"Tac_vu_[1-3]", path.parts[0])):
+                raise ValueError("Invalid task root")
             if path.is_absolute() or ".." in path.parts or any(":" in p for p in path.parts) or stat.S_ISLNK(member.external_attr >> 16):
                 raise ValueError("Unsafe ZIP entry")
             target = (destination / str(path)).resolve()
@@ -91,7 +94,8 @@ def load_asset(asset: dict):
     name = asset["name"]
     if Path(name).name != name or "\\" in name or name in (".", ".."):
         raise ValueError("Invalid asset name")
-    destination = ROOT / "data" / asset["phase"]
+    task_root = asset.get("workspaceLayout") == "task-root"
+    destination = ROOT if task_root else ROOT / "data" / asset["phase"]
     destination.mkdir(parents=True, exist_ok=True)
     cache = ROOT / ".arena" / "downloads"
     cache.mkdir(parents=True, exist_ok=True)
@@ -119,8 +123,11 @@ def load_asset(asset: dict):
         if temp.stat().st_size != asset["bytes"] or digest.hexdigest() != asset["sha256"]:
             raise ValueError("Dataset checksum mismatch")
         if name.lower().endswith(".zip"):
-            safe_extract(temp, destination)
-        shutil.move(str(temp), str(destination / name))
+            safe_extract(temp, destination, task_root=task_root)
+        if task_root:
+            shutil.move(str(temp), str(cache / name))
+        else:
+            shutil.move(str(temp), str(destination / name))
         marker.write_text(json.dumps({"sha256": asset["sha256"]}))
     finally:
         temp.unlink(missing_ok=True)
@@ -137,6 +144,10 @@ def dataset_loop():
                 continue
             if not HAS_JUPYTER:
                 STATE.update(publicReady=False, privateReady=False, stage="Pod dành cho Chatbot", error=None)
+                STOP.wait(20)
+                continue
+            if policy.get("loadDataset") is False:
+                STATE.update(publicReady=False, privateReady=False, stage="Không nạp dataset", error=None)
                 STOP.wait(20)
                 continue
             for asset in policy["assets"]:
@@ -227,7 +238,7 @@ async def health():
         llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health") if HAS_LLM else asyncio.sleep(0,result=False), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True) if HAS_JUPYTER else asyncio.sleep(0,result=False))
     gpu = ""
     try:
-        gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader"], timeout=3, text=True).strip()
+        gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"], timeout=3, text=True).strip()
     except (OSError, subprocess.SubprocessError):
         pass
     return {**STATE, "services": SERVICES, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}

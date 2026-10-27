@@ -124,6 +124,7 @@ async function handle(
             teamId: z.string().uuid().nullable().optional(),
             scope: z.enum(["team", "all"]).default("team"),
             services: z.enum(["both", "llm", "jupyter"]).default("both"),
+            loadDataset: z.boolean().default(true),
             roundId: z.string().uuid(),
             templateId: z.string().uuid(),
             maxHourlyUsd: z.number().positive().max(100),
@@ -140,7 +141,11 @@ async function handle(
             p.roundId,
             p.templateId,
             p.maxHourlyUsd,
-            { scope: p.scope, services: p.services },
+            {
+              scope: p.scope,
+              services: p.services,
+              loadDataset: p.loadDataset,
+            },
           ),
         );
       }

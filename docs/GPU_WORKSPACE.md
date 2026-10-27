@@ -6,6 +6,10 @@ Image tách dịch vụ đã được [GitHub Actions build/push thành công](h
 
 ## Pod chung, Pod riêng và loại dịch vụ
 
+- Khi có JupyterLab, admin chọn **Nạp dataset của vòng đã chọn** hoặc **Không nạp dataset**. Vòng vẫn quyết định lịch/quyền truy cập; tùy chọn không nạp được lưu trên Pod và manifest không cấp URL dữ liệu public/private.
+- Gói chuẩn hóa có `workspaceLayout: task-root`: giải nén thành `/workspace/Tac_vu_N/baseline.ipynb` và `dataset/{train,public_test,private_test}`. Private chỉ được cấp khi pha cho phép. ZIP tải về nằm trong `.arena/downloads` ẩn; runtime mới không tạo sẵn `data/` hoặc `Final/`. Gói/Pod cũ giữ cấu trúc cũ, không di chuyển hoặc xóa tệp đang dùng.
+- Thông số GPU có nhãn VRAM, mức sử dụng và nhiệt độ khi có số liệu. Web đọc được telemetry CSV cũ; Pod mới gửi thêm nhiệt độ. Chi phí giữ ở từng Pod, thông tin khởi động chi tiết được thu gọn.
+
 - Chọn **Riêng một đội** hoặc **Chung tất cả đội** trong form cấp phát. Pod chung là một tài nguyên duy nhất, không tạo một Pod cho mỗi đội; đội có Pod riêng vẫn thấy và dùng được Pod chung.
 - Pod chung cấp quyền cho thành viên thật của mọi đội, kể cả đội tạo sau; không cần đăng ký riêng để nhận quyền chia sẻ này. Người chưa có đội không được truy cập. Pod riêng giữ yêu cầu đăng ký được duyệt. Cả hai vẫn theo lịch public/private của vòng đã chọn.
 - **Chỉ Chatbot**: không khởi động Jupyter, không mở cổng 8888, không tải dataset. Model và ngân sách token theo template; lịch sử và quota phiên tách theo đội, kể cả khi các đội dùng trùng session ID. GPU xử lý một yêu cầu chat mỗi lần.

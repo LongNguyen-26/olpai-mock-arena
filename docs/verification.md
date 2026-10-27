@@ -69,3 +69,10 @@
 - Ba unit tests mới đạt; typecheck và bộ test hiện có đạt. Playwright kiểm tra hai tab cùng browser, browser context riêng, refresh, chat mới, `/new`, lịch sử và tab còn lại trên localhost và production. API chat giả lập, không gọi model hay tạo Pod. Script tái sử dụng: `scripts/qa-chat-sessions.js`.
 - Production SHA `2d85f21d59634c23d1ee8925e76bfe95fa53012e`, deployment `dpl_EQbanhaPxHRMAQDWjeYXJj4Qey3M` đã `READY`; smoke login/API/config thật đạt. Không đổi Docker image, Redis schema hoặc Pod đang chạy. Hướng dẫn build/deploy/QA và các lưu ý vận hành đã bổ sung trong `AGENTS.md`.
 
+## GPU layout và gói task-root — 28/10/2026
+
+- Typecheck, 49 kiểm thử TypeScript, production build và 15 kiểm thử runtime Python CPU đều qua.
+- `qa-workspace-flow.ts`: Redis namespace riêng, Runpod/agent giả lập; kiểm tra không nạp dataset trả assets rỗng, vẫn giữ quyền/lịch và chuyển metadata task-root. Không tạo GPU thật.
+- `qa-gpu-layout-ui.js`: Edge desktop 1600px/mobile 390px, login QA thật, provider giả lập. Kiểm tra telemetry Pod cũ có nhãn/đơn vị, trạng thái thu gọn mở được, thông báo cạnh Làm mới, bỏ tổng chi phí rời và payload không nạp dataset; không tràn ngang, không có pageerror.
+- Bản chuẩn hóa dưới `statements/Arena_01|02/web_ready/release_20261028`: 5 notebook đã chạy public/private trên CPU, không training; CSV đủ ID/schema, dữ liệu/bộ chấm/weights đối chiếu nguồn, PDF được render kiểm tra. Nguồn cũ giữ nguyên, bản mới chỉ nạp catalogue quản trị, không tự phát hành vòng.
+

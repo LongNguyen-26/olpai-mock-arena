@@ -44,6 +44,7 @@ export interface Asset {
   description: string;
   driveUrl?: string;
   task?: TaskId;
+  workspaceLayout?: "task-root";
 }
 export interface TaskStatement {
   id: TaskId;

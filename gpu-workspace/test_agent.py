@@ -32,7 +32,8 @@ class ServiceModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ,{"JUPYTER_TOKEN":"qa-jupyter-token"}):
             commands=startup.launch_plan(Path(temp),"jupyter")
             self.assertEqual([c[0] for c in commands],["jupyter","uvicorn"])
-            self.assertTrue((Path(temp)/"data/public").exists())
+            self.assertFalse((Path(temp)/"data").exists())
+            self.assertFalse((Path(temp)/"Final").exists())
 
     def test_jupyter_mode_never_enables_model_worker(self):
         with patch.object(agent,"HAS_LLM",False), patch.object(agent,"stop_model"), patch.object(agent,"MODEL_ENABLED",__import__("threading").Event()):
@@ -40,6 +41,31 @@ class ServiceModeTests(unittest.TestCase):
             self.assertFalse(agent.MODEL_ENABLED.is_set())
 
 class ArchiveTests(unittest.TestCase):
+    def test_task_archives_merge_public_and_private_at_workspace_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for split in ("public_test", "private_test"):
+                archive = root / (split + ".zip")
+                with zipfile.ZipFile(archive, "w") as bundle:
+                    bundle.writestr("Tac_vu_1/dataset/" + split + "/samples.csv", "id\n1\n")
+                agent.safe_extract(archive, root / "workspace", task_root=True)
+            self.assertTrue((root / "workspace/Tac_vu_1/dataset/public_test/samples.csv").exists())
+            self.assertTrue((root / "workspace/Tac_vu_1/dataset/private_test/samples.csv").exists())
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr(".arena/policy.json", "{}")
+            with self.assertRaises(ValueError):
+                agent.safe_extract(archive, root / "workspace", task_root=True)
+
+    def test_no_dataset_policy_never_downloads_even_if_assets_are_present(self):
+        stop = Mock()
+        stop.is_set.side_effect = [False, True]
+        with patch.object(agent, "STOP", stop), patch.object(agent, "HAS_JUPYTER", True), patch.object(agent, "manifest", return_value={"active": True, "loadDataset": False, "assets": [{"name": "unused.zip"}]}), patch.object(agent, "apply_policy"), patch.object(agent, "load_asset") as load:
+            agent.dataset_loop()
+        load.assert_not_called()
+        self.assertFalse(agent.STATE["publicReady"])
+        self.assertFalse(agent.STATE["privateReady"])
+        self.assertEqual(agent.STATE["stage"], "Không nạp dataset")
+
     def test_public_reopens_model_after_private_and_new_run(self):
         with patch.object(agent,"stop_model") as stop, patch.object(agent,"MODEL_RUN_ID",None), patch.object(agent,"MODEL_ENABLED", __import__("threading").Event()):
             agent.apply_policy({"active":True,"llmEnabled":True,"runId":"run1"})

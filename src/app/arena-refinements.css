@@ -1,4 +1,83 @@
 /* Form, table and admin hierarchy. Scoped rules preserve statement typography. */
+.gpu-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+.gpu-inline-notice {
+  font-size: 13px;
+  color: #26765e;
+  max-width: 470px;
+}
+.gpu-card .gpu-card-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 15px;
+  align-items: center;
+  padding-top: 16px;
+  margin-top: 18px;
+}
+.gpu-card .gpu-card-notes {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 22px;
+  font-size: 12px;
+}
+.gpu-card .gpu-card-notes > small {
+  font-size: 12px;
+  margin: 0;
+}
+.gpu-status-detail {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+.gpu-status-detail summary {
+  color: #5e788a;
+  cursor: pointer;
+}
+.gpu-status-detail span {
+  display: block;
+  margin-top: 5px;
+}
+.gpu-metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 10px;
+  margin: 16px 0 0;
+}
+.gpu-metric-grid div {
+  min-width: 0;
+}
+.gpu-metric-grid .gpu-metric-name {
+  grid-column: 1 / -1;
+}
+.gpu-metric-grid dt {
+  font-size: 11px;
+  color: #718694;
+}
+.gpu-metric-grid dd {
+  margin: 3px 0 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: #315965;
+}
+@media (max-width: 700px) {
+  .gpu-head-actions {
+    flex-wrap: wrap;
+  }
+  .gpu-inline-notice {
+    max-width: 220px;
+    font-size: 12px;
+  }
+  .gpu-card .gpu-card-notes {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
 .breadcrumbs a {
   display: inline-flex;
   align-items: center;

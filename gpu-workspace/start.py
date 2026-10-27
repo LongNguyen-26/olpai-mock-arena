@@ -14,9 +14,6 @@ def launch_plan(root: Path, services: str):
         return commands
     if not os.environ.get("JUPYTER_TOKEN"):
         raise ValueError("Jupyter token required")
-    for name in ("data/public", "data/private", "Final/Tac_vu_1", "Final/Tac_vu_2"):
-        (root / name).mkdir(parents=True, exist_ok=True)
-    (root / "data/private/PRIVATE_LOCKED.txt").write_text("Private chỉ được nạp sau khi vòng luyện mở private.\n", encoding="utf-8")
     config_dir = root / ".arena" / "jupyter"
     config_dir.mkdir(parents=True, exist_ok=True)
     # Expose only minimal readiness; authenticated status keeps Jupyter's schema.
