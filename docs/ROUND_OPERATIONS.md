@@ -16,6 +16,11 @@ Private chưa mở: không phát input/link Drive và chưa hiển thị BXH pri
 
 ## Quản trị
 
+- Trên mỗi thẻ vòng ở **Các vòng luyện**, admin có nút **Bắt đầu** (khi chưa mở/đã hẹn giờ) và **Ẩn vòng / Hiện vòng**. Các nút thao tác không kích hoạt link vào vòng ở nền thẻ.
+- Vòng ẩn vẫn hiện với nhãn **Đã ẩn** cho admin. Thí sinh không thấy trong danh sách và không truy cập được đề, dữ liệu, đăng ký, nộp bài hoặc Workspace của vòng qua web, kể cả biết link trực tiếp. Hiện lại giữ đăng ký, kết quả và lịch cũ; ẩn không đặt lại thời gian hoặc xóa Pod/tệp. Agent không cấp dữ liệu hay bật LLM cho vòng ẩn. Quyền được kiểm tra ở server; một bản nộp đang xử lý cũng bị chặn ở bước ghi Redis nếu vòng vừa ẩn.
+- Vòng xóa khỏi web có `deletedAt`, được gỡ khỏi index và trả 404 cho cả admin/thí sinh. Bản ghi, kết quả và package nguồn được giữ để có thể khôi phục; lịch sử GPU vẫn đọc được ở admin với quyền truy cập dịch vụ tắt.
+- Header hiển thị tên vòng và tên trang ở cạnh nút quay về danh sách; link vòng đã ẩn/xóa tự quay về danh sách để tránh giữ trang cũ.
+
 - Bắt đầu ngay hoặc hẹn giờ Việt Nam (UTC+7).
 - Mở private sớm: chuyển sang nhận private ngay; trong vòng có thời hạn, private kéo dài đúng số phút đã cấu hình tính từ lúc mở sớm.
 - Mở vô thời hạn: public giữ mở đến khi admin mở private; private giữ mở đến khi admin kết thúc.

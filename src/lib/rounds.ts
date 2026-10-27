@@ -4,6 +4,7 @@ import { ApiError } from "./auth";
 import { canRead, phaseOf, rankTeams, visibleSubmission } from "./domain";
 import { taskStatements } from "./statements";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
+import { roundVisible } from "./round-visibility";
 import type {
   Contest,
   ContestPackage,
@@ -20,7 +21,8 @@ export const registrationKey = (c: Contest) =>
   key(`registrations:${c.roundId ?? c.id}`);
 export async function getContest(id?: string) {
   const c = await db().get<Contest>(id ? key(`round:${id}`) : key("contest"));
-  if (!c) throw new ApiError("Không tìm thấy vòng luyện.", 404);
+  if (!c || !roundVisible(c, true))
+    throw new ApiError("Không tìm thấy vòng luyện.", 404);
   return c;
 }
 export async function getPackage(c?: Contest) {
@@ -36,6 +38,8 @@ export async function getSubmissions(id: string) {
   );
 }
 export async function requireRegistration(user: SafeUser, c: Contest) {
+  if (!roundVisible(c, user.admin))
+    throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (user.admin) return;
   const r = await db().hget<Registration>(registrationKey(c), user.id);
   if (r?.status !== "approved")
@@ -63,7 +67,7 @@ export async function snapshot(user: SafeUser, id?: string) {
     ),
   );
   const rounds = contests.flatMap((c, i) =>
-    c
+    c && roundVisible(c, user.admin)
       ? [
           {
             id: c.roundId ?? c.id,
@@ -77,6 +81,7 @@ export async function snapshot(user: SafeUser, id?: string) {
             privateSeconds: c.privateSeconds,
             unlimited: !!c.unlimited,
             autoApprove: c.autoApprove !== false,
+            hidden: !!c.hidden,
             registration: registrations[i]?.[user.id] ?? null,
             registrationCount: Object.values(registrations[i] ?? {}).filter(
               (r) => r.userId !== adminId && r.status !== "rejected",
@@ -105,6 +110,8 @@ export async function snapshot(user: SafeUser, id?: string) {
       }
     : null;
   const contest = id ? await getContest(id) : null;
+  if (contest && !roundVisible(contest, user.admin))
+    throw new ApiError("Không tìm thấy vòng luyện.", 404);
   const registration = contest
     ? await db().hget<Registration>(registrationKey(contest), user.id)
     : null;
@@ -220,9 +227,10 @@ export async function snapshot(user: SafeUser, id?: string) {
 }
 export async function registerRound(user: SafeUser, id: string) {
   const c = await getContest(id);
+  if (!roundVisible(c)) throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (user.admin) throw new ApiError("Tài khoản quản trị không cần đăng ký.");
-  await db().eval(
-    `local c=cjson.decode(redis.call('GET',KEYS[1]));local old=redis.call('HGET',KEYS[2],ARGV[1]);if old then local r=cjson.decode(old);if r.status=='approved' or r.status=='pending' then return 1 end end;local r=cjson.decode(ARGV[2]);if c.autoApprove==false then r.status='pending' else r.status='approved' end;redis.call('HSET',KEYS[2],ARGV[1],cjson.encode(r));return 1`,
+  const registered = await db().eval<unknown[], number>(
+    `local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local c=cjson.decode(raw);if c.hidden==true or (c.deletedAt and c.deletedAt~=cjson.null) then return 0 end;local old=redis.call('HGET',KEYS[2],ARGV[1]);if old then local r=cjson.decode(old);if r.status=='approved' or r.status=='pending' then return 1 end end;local r=cjson.decode(ARGV[2]);if c.autoApprove==false then r.status='pending' else r.status='approved' end;redis.call('HSET',KEYS[2],ARGV[1],cjson.encode(r));return 1`,
     [roundKey(c), registrationKey(c)],
     [
       user.id,
@@ -233,6 +241,7 @@ export async function registerRound(user: SafeUser, id: string) {
       }),
     ],
   );
+  if (!registered) throw new ApiError("Không tìm thấy vòng luyện.", 404);
 }
 export async function reviewRegistration(
   id: string,
@@ -331,7 +340,11 @@ export async function control(
     });
     return;
   }
-  if (action === "configure") {
+  if (action === "visibility") {
+    if (typeof values.hidden !== "boolean")
+      throw new ApiError("Chọn trạng thái hiển thị.");
+    next.hidden = values.hidden;
+  } else if (action === "configure") {
     if (!["waiting", "scheduled"].includes(phase))
       throw new ApiError("Chỉ sửa thời lượng và quota trước khi bắt đầu.");
     next = {

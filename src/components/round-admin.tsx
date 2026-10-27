@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, when, type ViewProps } from "./arena-client";
 import { phaseOf, privateStart, contestEnd } from "@/lib/domain";
+import RoundVisibilityButton from "./round-visibility-button";
 export default function RoundAdmin({ data, busy, action }: ViewProps) {
   const c = data.contest;
   if (!c) return null;
@@ -21,19 +22,37 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
     p = privateStart(c),
     end = contestEnd(c);
   return (
-    <>
-      <div className="admin-grid round-admin-grid">
-        <section className="panel round-control-panel">
-          <div className="section-title">
-            <h2>
-              <Play size={19} />
-              Điều khiển vòng luyện
-            </h2>
+    <div className="round-admin-layout">
+      <section className="panel round-control-panel">
+        <div className="section-title">
+          <h2>
+            <Play size={19} />
+            Điều khiển vòng luyện
+          </h2>
+          <div className="round-control-status">
             <span className="pill neutral">
               {open ? "Đang mở" : phase === "ended" ? "Đã kết thúc" : "Chưa mở"}
             </span>
+            <RoundVisibilityButton
+              hidden={!!c.hidden}
+              title={c.title}
+              busy={busy}
+              onChange={(hidden) =>
+                void action(
+                  "admin/control",
+                  { action: "visibility", hidden },
+                  hidden ? "Đã ẩn vòng luyện." : "Đã hiển thị vòng luyện.",
+                )
+              }
+            />
           </div>
-          <h3>{c.title}</h3>
+        </div>
+        {c.hidden && (
+          <p className="round-visibility-note">
+            Vòng đang ẩn với thí sinh. Dữ liệu và kết quả được giữ lại.
+          </p>
+        )}
+        <div className="round-control-body">
           <dl className="round-times round-time-grid">
             <div>
               <dt>Bắt đầu</dt>
@@ -52,221 +71,223 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
               </dd>
             </div>
           </dl>
-          <div className="action-row round-control-actions">
-            {waiting && (
-              <button
-                className="btn primary"
-                disabled={busy || !data.ready}
-                onClick={() => {
-                  if (confirm("Mở đề và public test cho người đã đăng ký?"))
-                    void action(
-                      "admin/control",
-                      { action: "start" },
-                      "Đã bắt đầu vòng luyện.",
-                    );
-                }}
-              >
-                <Play size={16} />
-                Bắt đầu ngay
-              </button>
-            )}
-            {phase === "public" && (
-              <button
-                className="btn primary"
-                disabled={busy}
-                onClick={() => {
-                  if (confirm("Khóa nộp public và mở private ngay?"))
-                    void action(
-                      "admin/control",
-                      { action: "open-private" },
-                      "Đã mở private.",
-                    );
-                }}
-              >
-                <Flag size={16} />
-                Mở private sớm
-              </button>
-            )}
-            {phase === "scheduled" && (
+          <div className="round-control-tools">
+            <div className="action-row round-control-actions">
+              {waiting && (
+                <button
+                  className="btn primary"
+                  disabled={busy || !data.ready}
+                  onClick={() => {
+                    if (confirm("Mở đề và public test cho người đã đăng ký?"))
+                      void action(
+                        "admin/control",
+                        { action: "start" },
+                        "Đã bắt đầu vòng luyện.",
+                      );
+                  }}
+                >
+                  <Play size={16} />
+                  Bắt đầu ngay
+                </button>
+              )}
+              {phase === "public" && (
+                <button
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("Khóa nộp public và mở private ngay?"))
+                      void action(
+                        "admin/control",
+                        { action: "open-private" },
+                        "Đã mở private.",
+                      );
+                  }}
+                >
+                  <Flag size={16} />
+                  Mở private sớm
+                </button>
+              )}
+              {phase === "scheduled" && (
+                <button
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => action("admin/control", { action: "cancel" })}
+                >
+                  Hủy lịch hẹn
+                </button>
+              )}
+              {open && (
+                <button
+                  className="btn danger-ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("Kết thúc vòng luyện và khóa nhận bài?"))
+                      void action("admin/control", { action: "finish" });
+                  }}
+                >
+                  Kết thúc
+                </button>
+              )}
               <button
                 className="btn"
                 disabled={busy}
-                onClick={() => action("admin/control", { action: "cancel" })}
-              >
-                Hủy lịch hẹn
-              </button>
-            )}
-            {open && (
-              <button
-                className="btn danger-ghost"
-                disabled={busy}
                 onClick={() => {
-                  if (confirm("Kết thúc vòng luyện và khóa nhận bài?"))
-                    void action("admin/control", { action: "finish" });
+                  if (
+                    confirm(
+                      "Đưa vòng luyện về trạng thái chưa mở? Lượt nộp hiện tại sẽ được lưu riêng, lượt mới bắt đầu với quota và bảng điểm trống. Đăng ký tham gia vẫn được giữ.",
+                    )
+                  )
+                    void action(
+                      "admin/control",
+                      { action: "reset" },
+                      "Đã đặt lại vòng luyện; đề chưa mở.",
+                    );
                 }}
               >
-                Kết thúc
+                <RotateCcw size={16} />
+                Đặt lại / mở lượt mới
               </button>
-            )}
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => {
-                if (
-                  confirm(
-                    "Đưa vòng luyện về trạng thái chưa mở? Lượt nộp hiện tại sẽ được lưu riêng, lượt mới bắt đầu với quota và bảng điểm trống. Đăng ký tham gia vẫn được giữ.",
-                  )
-                )
+            </div>
+            {waiting && (
+              <form
+                className="schedule-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const value = new FormData(e.currentTarget).get(
+                    "time",
+                  ) as string;
                   void action(
                     "admin/control",
-                    { action: "reset" },
-                    "Đã đặt lại vòng luyện; đề chưa mở.",
+                    {
+                      action: "schedule",
+                      scheduledAt: new Date(value + "+07:00").toISOString(),
+                    },
+                    "Đã hẹn giờ.",
                   );
-              }}
-            >
-              <RotateCcw size={16} />
-              Đặt lại / mở lượt mới
-            </button>
+                }}
+              >
+                <label>
+                  Hẹn giờ bắt đầu (UTC+7)
+                  <input name="time" type="datetime-local" required />
+                </label>
+                <button className="btn" disabled={busy || !data.ready}>
+                  <Clock3 size={16} />
+                  Hẹn giờ
+                </button>
+              </form>
+            )}
           </div>
-          {waiting && (
-            <form
-              className="schedule-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const value = new FormData(e.currentTarget).get(
-                  "time",
-                ) as string;
-                void action(
-                  "admin/control",
-                  {
-                    action: "schedule",
-                    scheduledAt: new Date(value + "+07:00").toISOString(),
-                  },
-                  "Đã hẹn giờ.",
-                );
-              }}
-            >
+        </div>
+      </section>
+      <section className="panel round-config-panel">
+        <div className="section-title">
+          <h2>Cấu hình vòng luyện</h2>
+          <span className="pill neutral">
+            {waiting ? "Có thể chỉnh sửa" : "Đã áp dụng"}
+          </span>
+        </div>
+        <form
+          key={`${c.id}-${c.publicSeconds}-${c.privateSeconds}-${c.publicLimit}-${c.privateLimit}-${c.unlimited}-${c.autoApprove}`}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void action("admin/control", {
+              action: "configure",
+              title: f.get("title"),
+              publicSeconds: Number(f.get("public")) * 60,
+              privateSeconds: Number(f.get("private")) * 60,
+              publicLimit: Number(f.get("publicLimit")),
+              privateLimit: Number(f.get("privateLimit")),
+              unlimited: f.get("unlimited") === "on",
+              autoApprove: f.get("autoApprove") === "on",
+            });
+          }}
+        >
+          <fieldset disabled={busy || !waiting}>
+            <label>
+              Tên vòng luyện
+              <input
+                name="title"
+                defaultValue={c.title}
+                minLength={3}
+                maxLength={100}
+                required
+              />
+            </label>
+            <div className="field-grid">
               <label>
-                Hẹn giờ bắt đầu (UTC+7)
-                <input name="time" type="datetime-local" required />
-              </label>
-              <button className="btn" disabled={busy || !data.ready}>
-                <Clock3 size={16} />
-                Hẹn giờ
-              </button>
-            </form>
-          )}
-        </section>
-        <section className="panel round-config-panel">
-          <div className="section-title">
-            <h2>Cấu hình vòng luyện</h2>
-            <span className="pill neutral">
-              {waiting ? "Có thể chỉnh sửa" : "Đã áp dụng"}
-            </span>
-          </div>
-          <form
-            key={`${c.id}-${c.publicSeconds}-${c.privateSeconds}-${c.publicLimit}-${c.privateLimit}-${c.unlimited}-${c.autoApprove}`}
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action("admin/control", {
-                action: "configure",
-                title: f.get("title"),
-                publicSeconds: Number(f.get("public")) * 60,
-                privateSeconds: Number(f.get("private")) * 60,
-                publicLimit: Number(f.get("publicLimit")),
-                privateLimit: Number(f.get("privateLimit")),
-                unlimited: f.get("unlimited") === "on",
-                autoApprove: f.get("autoApprove") === "on",
-              });
-            }}
-          >
-            <fieldset disabled={busy || !waiting}>
-              <label>
-                Tên vòng luyện
+                Public (phút)
                 <input
-                  name="title"
-                  defaultValue={c.title}
-                  minLength={3}
-                  maxLength={100}
+                  name="public"
+                  type="number"
+                  min="0.5"
+                  max="720"
+                  step="0.5"
+                  defaultValue={c.publicSeconds / 60}
                   required
                 />
               </label>
-              <div className="field-grid">
-                <label>
-                  Public (phút)
-                  <input
-                    name="public"
-                    type="number"
-                    min="0.5"
-                    max="720"
-                    step="0.5"
-                    defaultValue={c.publicSeconds / 60}
-                    required
-                  />
-                </label>
-                <label>
-                  Private (phút)
-                  <input
-                    name="private"
-                    type="number"
-                    min="0.5"
-                    max="120"
-                    step="0.5"
-                    defaultValue={c.privateSeconds / 60}
-                    required
-                  />
-                </label>
-                <label>
-                  Quota public
-                  <input
-                    name="publicLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    defaultValue={c.publicLimit}
-                    required
-                  />
-                  <small className="field-unit">lượt / tác vụ / đội</small>
-                </label>
-                <label>
-                  Quota private
-                  <input
-                    name="privateLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    defaultValue={c.privateLimit}
-                    required
-                  />
-                  <small className="field-unit">lượt / tác vụ / đội</small>
-                </label>
-              </div>
-              <label className="check-label">
+              <label>
+                Private (phút)
                 <input
-                  type="checkbox"
-                  name="unlimited"
-                  defaultChecked={c.unlimited}
+                  name="private"
+                  type="number"
+                  min="0.5"
+                  max="120"
+                  step="0.5"
+                  defaultValue={c.privateSeconds / 60}
+                  required
                 />
-                Mở vô thời hạn
               </label>
-              <label className="check-label">
+              <label>
+                Quota public
                 <input
-                  type="checkbox"
-                  name="autoApprove"
-                  defaultChecked={c.autoApprove !== false}
+                  name="publicLimit"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  defaultValue={c.publicLimit}
+                  required
                 />
-                Tự động duyệt đăng ký
+                <small className="field-unit">lượt / tác vụ / đội</small>
               </label>
-              <button className="btn">Lưu cấu hình</button>
-            </fieldset>
-          </form>
-          {open && (
-            <QuotaGrant key={c.id} data={data} busy={busy} action={action} />
-          )}
-        </section>
-      </div>
-      <section className="panel">
+              <label>
+                Quota private
+                <input
+                  name="privateLimit"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  defaultValue={c.privateLimit}
+                  required
+                />
+                <small className="field-unit">lượt / tác vụ / đội</small>
+              </label>
+            </div>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                name="unlimited"
+                defaultChecked={c.unlimited}
+              />
+              Mở vô thời hạn
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                name="autoApprove"
+                defaultChecked={c.autoApprove !== false}
+              />
+              Tự động duyệt đăng ký
+            </label>
+            <button className="btn">Lưu cấu hình</button>
+          </fieldset>
+        </form>
+        {open && (
+          <QuotaGrant key={c.id} data={data} busy={busy} action={action} />
+        )}
+      </section>
+      <section className="panel round-registrations-panel">
         <div className="section-title">
           <h2>
             <ShieldCheck size={19} />
@@ -364,61 +385,59 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
           </table>
         </div>
       </section>
-      <div className="admin-grid admin-bottom-grid">
-        <section className="panel admin-announcement-panel">
-          <h2>
-            <Bell size={20} />
-            Thông báo
-          </h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const form = e.currentTarget;
-              void action(
-                "admin/control",
-                { action: "announce", text: new FormData(form).get("text") },
-                "Đã đăng thông báo.",
-              );
-              form.reset();
-            }}
-          >
-            <label>
-              Nội dung
-              <textarea name="text" maxLength={1000} required />
-            </label>
-            <button className="btn primary" disabled={busy}>
-              <Bell size={16} />
-              Đăng thông báo
-            </button>
-          </form>
-        </section>
-        <section className="panel admin-export-panel">
-          <h3>Kết quả vòng luyện</h3>
-          <p>
-            {data.submissions.length} bài nộp · {data.teams.length} đội
-          </p>
-          <button
-            className="btn"
-            onClick={async () => {
-              const result = await api("admin/export", {}, c.roundId);
-              const url = URL.createObjectURL(
-                new Blob([JSON.stringify(result, null, 2)], {
-                  type: "application/json",
-                }),
-              );
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = "ket-qua-vong-luyen.json";
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            <ArrowDownToLine size={16} />
-            Xuất kết quả
+      <section className="panel admin-announcement-panel">
+        <h2>
+          <Bell size={20} />
+          Thông báo
+        </h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const form = e.currentTarget;
+            void action(
+              "admin/control",
+              { action: "announce", text: new FormData(form).get("text") },
+              "Đã đăng thông báo.",
+            );
+            form.reset();
+          }}
+        >
+          <label>
+            Nội dung
+            <textarea name="text" maxLength={1000} required />
+          </label>
+          <button className="btn primary" disabled={busy}>
+            <Bell size={16} />
+            Đăng thông báo
           </button>
-        </section>
-      </div>
-    </>
+        </form>
+      </section>
+      <section className="panel admin-export-panel">
+        <h3>Kết quả vòng luyện</h3>
+        <p>
+          {data.submissions.length} bài nộp · {data.teams.length} đội
+        </p>
+        <button
+          className="btn"
+          onClick={async () => {
+            const result = await api("admin/export", {}, c.roundId);
+            const url = URL.createObjectURL(
+              new Blob([JSON.stringify(result, null, 2)], {
+                type: "application/json",
+              }),
+            );
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "ket-qua-vong-luyen.json";
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          <ArrowDownToLine size={16} />
+          Xuất kết quả
+        </button>
+      </section>
+    </div>
   );
 }
 export function PublishRound({ data, busy, action }: ViewProps) {

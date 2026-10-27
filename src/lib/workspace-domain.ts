@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { phaseOf } from "./domain";
+import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
 import {
   hasService,
@@ -122,7 +123,8 @@ export function workspaceAccess(
   registered = true,
 ) {
   const phase = phaseOf(c, now);
-  const current = w.runId === c.id && w.status === "running";
+  const current =
+    w.runId === c.id && w.status === "running" && roundVisible(c, admin);
   const notebookWindow =
     admin || (registered && ["public", "private"].includes(phase));
   const chatWindow = (admin || registered) && chatbotOpen(w, c, now);
@@ -173,7 +175,10 @@ export function chatbotOpen(
   now: number,
 ) {
   return (
-    hasService(w, "llm") && w.runId === c.id && phaseOf(c, now) === "public"
+    roundVisible(c) &&
+    hasService(w, "llm") &&
+    w.runId === c.id &&
+    phaseOf(c, now) === "public"
   );
 }
 export function outputBudget(

@@ -308,6 +308,7 @@ async function handle(
       await rateLimit(`admin:${user.id}`, 30, 60);
       const value = z
         .discriminatedUnion("action", [
+          z.object({ action: z.literal("visibility"), hidden: z.boolean() }),
           z.object({
             action: z.literal("configure"),
             title: z.string().trim().min(3).max(100),

@@ -25,6 +25,8 @@ export interface Contest {
   privateAt?: number | null;
   unlimited?: boolean;
   autoApprove?: boolean;
+  hidden?: boolean;
+  deletedAt?: number;
   taskCount?: number;
   title: string;
   startAt: number | null;

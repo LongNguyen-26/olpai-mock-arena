@@ -8,6 +8,7 @@ import {
   roundKey,
 } from "./rounds";
 import { canRead, phaseOf } from "./domain";
+import { roundVisible } from "./round-visibility";
 import {
   decryptSecret,
   encryptSecret,
@@ -124,6 +125,8 @@ async function currentRun(w: Workspace, c: Contest) {
 export async function accessWorkspace(user: SafeUser, id: string) {
   let w = await getWorkspace(id);
   const c = await getContest(w.roundId);
+  if (!roundVisible(c, user.admin))
+    throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (!user.admin) {
     const team = user.teamId
       ? await db().hget<Team>(key("teams"), user.teamId)
@@ -163,7 +166,22 @@ export async function workspaceState(user: SafeUser) {
               (member && (isShared(w) || w.teamId === user.teamId)),
           )
           .map(async (record) => {
-            const c = await getContest(record.roundId);
+            let c: Contest;
+            try {
+              c = await getContest(record.roundId);
+            } catch (error) {
+              if (!(error instanceof ApiError) || error.status !== 404)
+                throw error;
+              return user.admin
+                ? {
+                    ...workspaceView(record, now),
+                    notebookEnabled: false,
+                    chatbotEnabled: false,
+                    accessMessage: "Vòng luyện đã được xóa.",
+                  }
+                : null;
+            }
+            if (!roundVisible(c, user.admin)) return null;
             const w = await currentRun(record, c);
             let registered = true;
             try {
@@ -177,7 +195,9 @@ export async function workspaceState(user: SafeUser) {
             };
           }),
       )
-    ).sort((a, b) => b.createdAt - a.createdAt),
+    )
+      .filter((w) => w !== null)
+      .sort((a, b) => b.createdAt - a.createdAt),
     templates: user.admin ? Object.values(templates ?? {}) : [],
     defaultTemplate: user.admin
       ? {
@@ -566,8 +586,28 @@ export async function agentManifest(id: string, authorization: string | null) {
   let w = await getWorkspace(id);
   if (!matchesSecret(authorization, decryptSecret(w.secret)))
     throw new ApiError("Không có quyền truy cập.", 401);
-  const c = await getContest(w.roundId),
-    now = await serverNow();
+  let c: Contest;
+  try {
+    c = await getContest(w.roundId);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+    return {
+      active: false,
+      phase: "ended",
+      assets: [],
+      privateLocked: true,
+      llmEnabled: false,
+    };
+  }
+  if (c.hidden)
+    return {
+      active: false,
+      phase: "ended",
+      assets: [],
+      privateLocked: true,
+      llmEnabled: false,
+    };
+  const now = await serverNow();
   w = await currentRun(w, c);
   if (w.runId !== c.id || w.status === "terminated")
     return { active: false, phase: "ended", assets: [], privateLocked: true };

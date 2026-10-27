@@ -576,7 +576,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                       <option key={r.id} value={r.id}>
                         {r.title}
                         {r.id === data.contest?.roundId
-                          ? " · vòng đang xem (gợi ý)"
+                          ? " (vòng đang xem)"
                           : ""}
                       </option>
                     ))}

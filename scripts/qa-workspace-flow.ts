@@ -490,6 +490,29 @@ async function main() {
     assert.equal(jupyterManifest.assets[0].workspaceLayout, "task-root");
     assert.equal(jupyterManifest.llmEnabled, false);
 
+    const visibleRound = await db().get<Contest>(key(`round:${c.roundId}`));
+    assert.ok(visibleRound);
+    await db().set(key(`round:${c.roundId}`), {
+      ...visibleRound,
+      hidden: true,
+    });
+    assert.equal(
+      (
+        await agentManifest(
+          llmRecord.id,
+          `Bearer ${decryptSecret(llmRecord.secret)}`,
+        )
+      ).active,
+      false,
+    );
+    await assert.rejects(
+      () => accessWorkspace(member, sharedLlm.id),
+      /Không tìm thấy vòng/,
+    );
+    assert.equal((await workspaceState(member)).workspaces.length, 0);
+    assert.ok((await workspaceState(admin)).workspaces.length >= 3);
+    await db().set(key(`round:${c.roundId}`), visibleRound);
+
     const commonSession = randomUUID();
     await sendChat(member, sharedLlm.id, commonSession, randomUUID(), "Đội A");
     assert.equal(
@@ -549,6 +572,28 @@ async function main() {
     assert.equal(emptyManifest.active, true);
     assert.equal(emptyManifest.llmEnabled, false);
     await controlWorkspace(admin, emptyNotebook.id, "terminate");
+    const archivedRound = await db().get<Contest>(key(`round:${c.roundId}`));
+    assert.ok(archivedRound);
+    await db().set(key(`round:${c.roundId}`), {
+      ...archivedRound,
+      deletedAt: Date.now(),
+    });
+    assert.ok(
+      (await workspaceState(admin)).workspaces.every(
+        (w) => !w.notebookEnabled && !w.chatbotEnabled,
+      ),
+    );
+    assert.equal((await workspaceState(member)).workspaces.length, 0);
+    assert.equal(
+      (
+        await agentManifest(
+          emptyRecord.id,
+          `Bearer ${decryptSecret(emptyRecord.secret)}`,
+        )
+      ).active,
+      false,
+    );
+    await db().set(key(`round:${c.roundId}`), archivedRound);
     assert.equal(await db().exists(key(`gpu:active:${team.id}`)), 0);
     console.log(
       "PASS: shared/private coexistence, future teams, team-isolated chat, single-service access/manifest, legacy reservation compatibility, atomic concurrent deployment, lifecycle, phase gates and token accounting.",

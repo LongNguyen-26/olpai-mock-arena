@@ -1,5 +1,14 @@
 "use client";
-import { ArrowRight, BookOpen, Clock3, Layers3, Users } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Clock3,
+  Layers3,
+  Users,
+  Play,
+  EyeOff,
+} from "lucide-react";
+import RoundVisibilityButton from "./round-visibility-button";
 import { duration, type ArenaData } from "./arena-client";
 import { roundTiming } from "@/lib/round-presentation";
 
@@ -23,10 +32,18 @@ export default function RoundCard({
   round: r,
   now,
   onEnter,
+  admin = false,
+  busy = false,
+  onStart,
+  onVisibility,
 }: {
   round: ArenaData["rounds"][number];
   now: number;
   onEnter: () => void;
+  admin?: boolean;
+  busy?: boolean;
+  onStart?: () => void;
+  onVisibility?: (hidden: boolean) => void;
 }) {
   const timing = roundTiming(r, now);
   const live = timing.phase === "public" || timing.phase === "private";
@@ -54,6 +71,12 @@ export default function RoundCard({
             <span className="round-registration">
               <i aria-hidden="true" />
               Đã đăng ký
+            </span>
+          )}
+          {r.hidden && (
+            <span className="pill round-hidden-badge">
+              <EyeOff size={13} />
+              Đã ẩn
             </span>
           )}
           {r.registration?.status === "pending" && (
@@ -109,6 +132,31 @@ export default function RoundCard({
             <ArrowRight size={19} />
           </button>
         </div>
+        {admin && (
+          <div
+            className="round-admin-actions"
+            role="group"
+            aria-label={`Quản trị ${r.title}`}
+          >
+            {["waiting", "scheduled"].includes(timing.phase) && (
+              <button
+                type="button"
+                className="btn small-btn"
+                disabled={busy}
+                onClick={onStart}
+              >
+                <Play size={15} />
+                Bắt đầu
+              </button>
+            )}
+            <RoundVisibilityButton
+              hidden={r.hidden}
+              title={r.title}
+              busy={busy}
+              onChange={(value) => onVisibility?.(value)}
+            />
+          </div>
+        )}
       </div>
     </article>
   );

@@ -33,10 +33,12 @@ export const SUBMIT_SCRIPT = `
 local cached=redis.call('GET',KEYS[4]);if cached then return cached end
 local raw=redis.call('GET',KEYS[1]);if not raw then return 'run' end
 local c=cjson.decode(raw);if c.id~=ARGV[1] then return 'run' end
+if c.deletedAt and c.deletedAt~=cjson.null then return 'run' end
 local user=cjson.decode(redis.call('GET',KEYS[5]));local admin=redis.call('GET',KEYS[7])==user.id
 local tm=redis.call('TIME');local now=tonumber(tm[1])*1000+math.floor(tonumber(tm[2])/1000)
 local s=cjson.decode(ARGV[3]);if s.adminTest and not admin then return 'role' end
 if not admin then
+ if c.hidden==true then return 'closed' end
  local phase='closed';if c.startAt~=cjson.null and now>=c.startAt then
   local p=c.privateAt;if p==nil or p==cjson.null then if c.unlimited then p=nil else p=c.startAt+c.publicSeconds*1000 end end
   if p==nil or now<p then phase='public' elseif c.unlimited or now<p+c.privateSeconds*1000 then phase='private' end

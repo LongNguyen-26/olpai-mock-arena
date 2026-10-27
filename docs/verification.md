@@ -78,3 +78,11 @@
 - `check-standardized-baselines.ts`: cả 10 CSV được bộ chấm web hiện tại chấp nhận, mỗi tệp dưới 3 MB. Đây là kiểm tra pipeline/schema và nhãn chấm, không khẳng định chất lượng mô hình hoặc benchmark GPU.
 - CI runtime [40574925727](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40574925727) build/push thành công; digest `sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf` đã ghim trên env production và template tương lai. Danh tính, image và vòng gắn trên record Pod hiện tại không đổi.
 
+## Quản lý hiển thị và bố cục vòng — 28/10/2026
+
+- Typecheck, 49 kiểm thử TypeScript và production build đạt. Runtime Python/image không thay đổi.
+- `qa-round-visibility.ts`: HTTP/Redis thật trong namespace QA riêng, kiểm tra admin-only, boolean validation, danh sách và link tài nguyên ẩn trả 404, đăng ký bị chặn, bản nộp đang xử lý bị chặn trước khi trừ quota, hiện lại giữ đăng ký; vòng đã xóa trả 404 với cả admin.
+- `qa-workspace-flow.ts`: Runpod giả lập, kiểm tra Workspace vòng ẩn không hiện cho thí sinh, agent inactive, lịch sử Pod của vòng đã xóa vẫn đọc được cho admin. Không tạo hoặc điều khiển GPU thật.
+- `qa-round-management-ui.js`: desktop 1600px/mobile 390px; tên vòng trên header, link quay về rõ hơn, ô datetime và nút Hẹn giờ thẳng hàng, timestamp UTC+7 đúng, ẩn/hiện/bắt đầu nhanh trên thẻ, nhãn vòng đang xem. Bố cục quản trị gồm điều khiển ngang, cấu hình, thông báo, kết quả và danh sách đăng ký; kiểm tra không tràn ngang.
+- Xóa khỏi web đúng hai vòng dùng package cũ: `a544c419-8b06-4e1f-ac6e-e56444075003` (Bộ đề 01 cũ) và `eb708a8f-5cbd-4c9a-bf27-b7e062786b78` (Bộ đề 02 cũ), theo yêu cầu người dùng. Script vận hành xác minh package binding, không còn Pod đang cấp, dùng CAS cho cả hai vòng; không đổi vòng dùng package chuẩn hóa hoặc xóa source package, đăng ký/kết quả/Pod.
+

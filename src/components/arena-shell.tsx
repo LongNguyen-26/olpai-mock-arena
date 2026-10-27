@@ -3,8 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
-  ChevronRight,
-  ChevronLeft,
+  ArrowLeft,
   Cpu,
   Database,
   LayoutDashboard,
@@ -92,11 +91,28 @@ export default function Arena() {
     controller.current = abort;
     try {
       const started = Date.now();
-      const response = await fetch(endpoint("arena", id), {
+      let response = await fetch(endpoint("arena", id), {
         cache: "no-store",
         signal: abort.signal,
       });
-      const next = await response.json();
+      let next = await response.json();
+      if (response.status === 404 && id && seq === sequence.current) {
+        selected.current = "";
+        const url = new URL(window.location.href);
+        url.searchParams.delete("round");
+        url.hash = "rounds";
+        window.history.replaceState({}, "", url);
+        setSection("rounds");
+        setData(null);
+        setError(
+          "Vòng luyện không còn hiển thị. Đã quay về danh sách vòng luyện.",
+        );
+        response = await fetch(endpoint("arena"), {
+          cache: "no-store",
+          signal: abort.signal,
+        });
+        next = await response.json();
+      }
       if (!response.ok) throw new Error(next.error);
       if (seq === sequence.current) {
         setData(next);
@@ -323,11 +339,17 @@ export default function Arena() {
                 go("rounds", "");
               }}
             >
-              <ChevronLeft size={17} aria-hidden="true" />
+              {section !== "rounds" && (
+                <ArrowLeft size={19} aria-hidden="true" />
+              )}
               Các vòng luyện
             </a>
-            <ChevronRight size={16} />
-            <span>{labels[section]}</span>
+            {section !== "rounds" && (
+              <div className="header-round-context">
+                {inside && <strong title={c.title}>{c.title}</strong>}
+                <span>{labels[section]}</span>
+              </div>
+            )}
           </div>
           <div className="topbar-right">
             {c && (
@@ -389,6 +411,31 @@ export default function Arena() {
                     round={r}
                     now={clock + offset}
                     onEnter={() => go("overview", r.id)}
+                    admin={isAdmin}
+                    busy={busy}
+                    onVisibility={(hidden) =>
+                      void action(
+                        "admin/control",
+                        { action: "visibility", hidden },
+                        hidden
+                          ? "Đã ẩn vòng luyện."
+                          : "Đã hiển thị vòng luyện.",
+                        r.id,
+                      )
+                    }
+                    onStart={() => {
+                      if (
+                        confirm(
+                          `Bắt đầu ${r.title} và mở đề/public test cho thí sinh đã đăng ký?`,
+                        )
+                      )
+                        void action(
+                          "admin/control",
+                          { action: "start" },
+                          "Đã bắt đầu vòng luyện.",
+                          r.id,
+                        );
+                    }}
                   />
                 ))}
               </div>

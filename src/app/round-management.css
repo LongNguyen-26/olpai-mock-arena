@@ -1,0 +1,305 @@
+.topbar .breadcrumbs {
+  min-width: 0;
+  gap: 22px;
+}
+.topbar .breadcrumbs > a {
+  flex-shrink: 0;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.header-round-context {
+  border-left: 1px solid #dfe6eb;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.header-round-context strong {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #294554;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.header-round-context > span {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.topbar-right {
+  flex-shrink: 0;
+}
+
+.round-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  grid-template-areas: "control control" "config announcement" "config results" "registrations registrations";
+  gap: 22px;
+  align-items: start;
+}
+.round-admin-layout > .panel {
+  margin: 0;
+  min-width: 0;
+  padding: 24px;
+}
+.round-admin-layout .section-title h2,
+.round-admin-layout .admin-announcement-panel h2 {
+  font-size: 18px;
+  line-height: 1.4;
+}
+.round-control-panel {
+  grid-area: control;
+}
+.round-config-panel {
+  grid-area: config;
+}
+.round-registrations-panel {
+  grid-area: registrations;
+}
+.admin-announcement-panel {
+  grid-area: announcement;
+}
+.admin-export-panel {
+  grid-area: results;
+}
+.round-control-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.round-control-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 28px;
+  align-items: start;
+}
+.round-admin-layout .round-time-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  gap: 10px;
+}
+.round-admin-layout .round-time-grid > div {
+  display: block;
+  border: 1px solid #e6ecef;
+  border-radius: 10px;
+  background: #f8fafb;
+  padding: 14px 12px;
+}
+.round-admin-layout .round-time-grid dd {
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+.round-control-tools {
+  min-width: 0;
+}
+.round-admin-layout .schedule-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  padding: 16px 0 0;
+  margin: 16px 0 0;
+  gap: 12px;
+}
+.round-admin-layout .schedule-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+}
+.round-admin-layout .schedule-form input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  margin: 0;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+.round-admin-layout .schedule-form > .btn {
+  height: 48px;
+  min-height: 48px;
+  margin: 0;
+  white-space: nowrap;
+  padding: 0 18px;
+}
+.round-admin-layout .round-config-panel .field-grid {
+  gap: 14px 18px;
+}
+.round-admin-layout .round-config-panel .field-grid > label {
+  margin-bottom: 0;
+}
+.round-admin-layout .round-config-panel .check-label {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.round-admin-layout .round-config-panel > form > fieldset > .btn {
+  margin: 0;
+}
+.round-admin-layout .admin-announcement-panel textarea {
+  min-height: 145px;
+}
+.round-admin-layout .admin-export-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 18px;
+  align-items: center;
+}
+.round-admin-layout .admin-export-panel h3 {
+  margin: 0;
+}
+.round-admin-layout .admin-export-panel p {
+  margin: 0;
+  grid-column: 1;
+}
+.round-admin-layout .admin-export-panel .btn {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+.round-visibility-note {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: #997135;
+}
+.round-hidden-badge {
+  gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  background: #f4ecdd;
+  color: #8a6329;
+}
+.round-card:has(.round-hidden-badge) {
+  border-style: dashed;
+  background: #fcfcfa;
+}
+.round-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid #e9edef;
+  padding-top: 12px;
+}
+.round-admin-actions .btn {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 1200px) {
+  .round-control-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .round-control-tools {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: end;
+  }
+  .round-admin-layout .schedule-form {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .round-admin-layout .admin-export-panel {
+    display: block;
+  }
+  .round-admin-layout .admin-export-panel p {
+    margin: 8px 0 14px;
+  }
+}
+@media (max-width: 960px) {
+  .round-admin-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "control" "config" "announcement" "results" "registrations";
+  }
+  .topbar .breadcrumbs {
+    gap: 14px;
+  }
+  .header-round-context {
+    padding-left: 14px;
+  }
+  .topbar .breadcrumbs > a {
+    font-size: 15px;
+  }
+}
+@media (max-width: 700px) {
+  .topbar {
+    min-height: 90px;
+    height: auto;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .topbar .breadcrumbs {
+    flex: 1 1 100%;
+    font-size: 15px;
+    white-space: normal;
+  }
+  .header-round-context {
+    flex: 1;
+  }
+  .header-round-context strong {
+    white-space: normal;
+    font-size: 12px;
+  }
+  .header-round-context > span {
+    font-size: 11px;
+  }
+  .topbar-right {
+    margin-left: auto;
+    gap: 14px;
+  }
+  .round-admin-layout {
+    gap: 16px;
+  }
+  .round-admin-layout > .panel {
+    padding: 20px;
+  }
+  .round-control-panel .section-title {
+    align-items: flex-start;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .round-control-status {
+    justify-content: flex-start;
+  }
+  .round-control-tools {
+    display: block;
+  }
+  .round-admin-layout .schedule-form {
+    margin-top: 18px;
+    grid-template-columns: 1fr;
+  }
+  .round-admin-layout .round-time-grid {
+    gap: 6px;
+  }
+  .round-admin-layout .round-time-grid > div {
+    padding: 10px 8px;
+  }
+  .round-admin-layout .round-time-grid dd {
+    font-size: 12px;
+  }
+  .round-admin-layout .round-time-grid dt {
+    font-size: 11px;
+  }
+  .round-admin-layout .round-control-actions .btn {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+  .round-admin-layout .round-registrations-panel .section-title {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}

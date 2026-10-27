@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./arena-refinements.css";
+import "./round-management.css";
 export const metadata: Metadata = {
   title: "OlpAI Arena",
   description: "Môi trường ôn luyện mô phỏng Olympic AI 2026.",
