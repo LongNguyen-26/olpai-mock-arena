@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { phaseOf } from "./domain";
 import type { Contest } from "./types";
+import {
+  hasService,
+  type WorkspaceScope,
+  type WorkspaceServices,
+} from "./workspace-options";
 
 export const templateSchema = z
   .object({
@@ -63,7 +68,10 @@ export interface RuntimeHealth {
 }
 export interface Workspace {
   id: string;
-  teamId: string;
+  teamId: string | null;
+  scope?: WorkspaceScope;
+  services?: WorkspaceServices;
+  reservationVersion?: 2;
   teamName: string;
   roundId: string;
   runId: string;
@@ -89,8 +97,15 @@ export interface Workspace {
 }
 export type WorkspaceView = Omit<
   Workspace,
-  "secret" | "jupyterSecret" | "ownerId"
+  | "secret"
+  | "jupyterSecret"
+  | "ownerId"
+  | "reservationVersion"
+  | "scope"
+  | "services"
 > & {
+  scope: WorkspaceScope;
+  services: WorkspaceServices;
   estimatedUsd: number;
   notebookEnabled?: boolean;
   chatbotEnabled?: boolean;
@@ -110,18 +125,26 @@ export function workspaceAccess(
     admin || (registered && ["public", "private"].includes(phase));
   const chatWindow = (admin || registered) && chatbotOpen(w, c, now);
   return {
-    notebookEnabled: current && notebookWindow && !!w.health?.jupyter,
+    notebookEnabled:
+      hasService(w, "jupyter") &&
+      current &&
+      notebookWindow &&
+      !!w.health?.jupyter,
     chatbotEnabled:
-      current && chatWindow && !!w.health?.llm && !w.health?.chatLocked,
+      hasService(w, "llm") &&
+      current &&
+      chatWindow &&
+      !!w.health?.llm &&
+      !w.health?.chatLocked,
     accessMessage: !current
       ? "Pod chưa sẵn sàng cho lượt thi hiện tại."
       : !registered && !admin
         ? "Bạn cần được duyệt tham gia vòng luyện này."
-        : !notebookWindow
+        : hasService(w, "jupyter") && !notebookWindow
           ? "Notebook mở trong giai đoạn public và private."
-          : !w.health?.jupyter
+          : hasService(w, "jupyter") && !w.health?.jupyter
             ? "JupyterLab đang khởi động; chưa mở truy cập."
-            : chatWindow && !w.health?.llm
+            : hasService(w, "llm") && chatWindow && !w.health?.llm
               ? (w.health?.modelStage ?? "Đang tải hoặc khởi động DeepSeek.")
               : "",
   };
@@ -143,11 +166,13 @@ export const emptySession = (): ChatSession => ({
   outputTokens: 0,
 });
 export function chatbotOpen(
-  w: Pick<Workspace, "runId">,
+  w: Pick<Workspace, "runId" | "services">,
   c: Contest,
   now: number,
 ) {
-  return w.runId === c.id && phaseOf(c, now) === "public";
+  return (
+    hasService(w, "llm") && w.runId === c.id && phaseOf(c, now) === "public"
+  );
 }
 export function outputBudget(
   t: WorkspaceTemplate,
@@ -193,12 +218,23 @@ export function meter(
   };
 }
 export function workspaceView(w: Workspace, now: number): WorkspaceView {
-  const { secret: _s, jupyterSecret: _j, ownerId: _o, ...safe } = w;
+  const {
+    secret: _s,
+    jupyterSecret: _j,
+    ownerId: _o,
+    reservationVersion: _r,
+    ...safe
+  } = w;
   if (!w.podId) {
     safe.meterRate = 0;
     safe.accruedUsd = 0;
   }
-  return { ...safe, estimatedUsd: estimatedCost(safe, now) };
+  return {
+    ...safe,
+    scope: w.scope ?? "team",
+    services: w.services ?? "both",
+    estimatedUsd: estimatedCost(safe, now),
+  };
 }
 export function driveFileId(value: string) {
   const url = new URL(value);

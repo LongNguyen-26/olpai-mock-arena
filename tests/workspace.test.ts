@@ -21,6 +21,7 @@ import {
 } from "../src/lib/workspace-crypto";
 import { podOrigin, Runpod, RunpodError } from "../src/lib/runpod";
 import type { Contest } from "../src/lib/types";
+import { hasService, servicesOverlap } from "../src/lib/workspace-options";
 test("chatbot closes at private boundary, early private, end and round reset", () => {
   const c: Contest = {
     id: "run",
@@ -72,6 +73,51 @@ test("service links follow phase, registration and actual service readiness", ()
   );
   w.runId = "old";
   assert.equal(workspaceAccess(w, c, 1500).chatbotEnabled, false);
+});
+
+test("single-service Pods never advertise access to a disabled service", () => {
+  const c = {
+    id: "run",
+    startAt: 1000,
+    publicSeconds: 100,
+    privateSeconds: 10,
+    forcedEndAt: null,
+  } as Contest;
+  const w = {
+    runId: "run",
+    status: "running",
+    health: { jupyter: true, llm: true },
+    services: "llm",
+  } as Workspace;
+  assert.equal(workspaceAccess(w, c, 2000).notebookEnabled, false);
+  assert.equal(workspaceAccess(w, c, 2000).chatbotEnabled, true);
+  w.services = "jupyter";
+  assert.equal(workspaceAccess(w, c, 2000).notebookEnabled, true);
+  assert.equal(workspaceAccess(w, c, 2000).chatbotEnabled, false);
+  assert.equal(chatbotOpen(w, c, 2000), false);
+  assert.equal(hasService({}, "jupyter"), true);
+  assert.equal(servicesOverlap("llm", "jupyter"), false);
+  assert.equal(servicesOverlap("both", "llm"), true);
+});
+
+test("LLM-only Pod exposes its agent without a Jupyter port", async () => {
+  const rp = new Runpod("fake", (async (_url, init) => {
+    const input = JSON.parse(String(init?.body)).variables.input;
+    assert.equal(input.ports, "8000/http");
+    assert.ok(
+      !input.env.some((v: { key: string }) => v.key === "JUPYTER_TOKEN"),
+    );
+    return Response.json({
+      data: {
+        podFindAndDeployOnDemand: {
+          id: "testpod123",
+          name: "llm",
+          desiredStatus: "RUNNING",
+        },
+      },
+    });
+  }) as typeof fetch);
+  await rp.create("llm", defaultTemplate, { ARENA_WORKSPACE_SERVICES: "llm" });
 });
 
 test("token budget includes repeated prompt/history and bounds the generated maximum", () => {

@@ -121,19 +121,26 @@ async function handle(
       if (path === "deploy") {
         const p = z
           .object({
-            teamId: z.string().uuid(),
+            teamId: z.string().uuid().nullable().optional(),
+            scope: z.enum(["team", "all"]).default("team"),
+            services: z.enum(["both", "llm", "jupyter"]).default("both"),
             roundId: z.string().uuid(),
             templateId: z.string().uuid(),
             maxHourlyUsd: z.number().positive().max(100),
+          })
+          .refine((p) => p.scope === "all" || !!p.teamId, {
+            message: "Chọn đội được cấp GPU.",
+            path: ["teamId"],
           })
           .parse(v);
         return json(
           await deployWorkspace(
             user,
-            p.teamId,
+            p.teamId ?? null,
             p.roundId,
             p.templateId,
             p.maxHourlyUsd,
+            { scope: p.scope, services: p.services },
           ),
         );
       }

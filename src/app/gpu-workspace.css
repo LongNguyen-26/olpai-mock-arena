@@ -2,6 +2,88 @@
   display: grid;
   gap: 24px;
 }
+.gpu-choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.gpu-choices legend {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 9px;
+}
+.gpu-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.gpu-choice-services {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.gpu-choice-grid button {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  border: 1px solid var(--line, #dfe5ed);
+  background: white;
+  color: inherit;
+  border-radius: 12px;
+  padding: 13px;
+  min-width: 0;
+  cursor: pointer;
+}
+.gpu-choice-grid button[aria-pressed="true"] {
+  border-color: #d76b30;
+  background: #fff5ec;
+  box-shadow: inset 0 0 0 1px #d76b30;
+}
+.gpu-choice-grid button:focus-visible {
+  outline: 3px solid #f5b889;
+  outline-offset: 2px;
+}
+.gpu-choice-grid strong {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.gpu-choice-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.gpu-share-note {
+  background: #f0f6fa;
+  border-left: 3px solid #638aa1;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.gpu-allocation-group {
+  margin-top: 24px;
+}
+.gpu-allocation-group > h3 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+.gpu-allocation-group > h3 small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.gpu-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+@media (max-width: 600px) {
+  .gpu-choice-services {
+    grid-template-columns: 1fr;
+  }
+  .gpu-choice-grid button {
+    padding: 12px;
+  }
+}
 .gpu-intro {
   display: flex;
   align-items: center;

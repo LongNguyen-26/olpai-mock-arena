@@ -13,6 +13,13 @@ import { api, when, type ViewProps } from "./arena-client";
 import type { workspaceState } from "@/lib/workspaces";
 import type { GpuPrice } from "@/lib/runpod";
 import type { WorkspaceTemplate, WorkspaceView } from "@/lib/workspace-domain";
+import {
+  hasService,
+  serviceOptions,
+  servicesOverlap,
+  type WorkspaceScope,
+  type WorkspaceServices,
+} from "@/lib/workspace-options";
 type State = Awaited<ReturnType<typeof workspaceState>>;
 const money = (n: number) =>
   new Intl.NumberFormat("en-US", {
@@ -39,6 +46,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const [apiKey, setApiKey] = useState(""),
     [template, setTemplate] = useState<WorkspaceTemplate | null>(null),
     [teamId, setTeamId] = useState(""),
+    [scope, setScope] = useState<WorkspaceScope>("team"),
+    [services, setServices] = useState<WorkspaceServices>("both"),
     [roundId, setRoundId] = useState(
       data.contest?.roundId ?? data.rounds[0]?.id ?? "",
     );
@@ -83,17 +92,24 @@ export default function GpuWorkspace({ data }: ViewProps) {
   useEffect(() => {
     if (data.contest?.roundId) setRoundId(data.contest.roundId);
   }, [data.contest?.roundId]);
-  // Contestant's own Pod is refreshed automatically. Admin can reconcile each allocation explicitly.
+  const syncIds =
+    state?.workspaces
+      .filter((w) => !["terminated", "failed"].includes(w.status))
+      .map((w) => w.id)
+      .join(",") ?? "";
+  // Refresh shared and private Pods, not just the first allocation.
   useEffect(() => {
     if (data.user.admin) return;
-    const id = state?.workspaces.find(
-      (w) => !["terminated", "failed"].includes(w.status),
-    )?.id;
-    if (!id) return;
+    const ids = syncIds ? syncIds.split(",") : [];
+    if (!ids.length) return;
     let active = true;
     const refresh = async () => {
       try {
-        await api("workspace/sync", { id });
+        const results = await Promise.allSettled(
+          ids.map((id) => api("workspace/sync", { id })),
+        );
+        const failed = results.find((r) => r.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
         if (active) {
           setSyncWarning("");
           await load();
@@ -111,12 +127,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       active = false;
       clearInterval(timer);
     };
-  }, [
-    data.user.admin,
-    state?.workspaces.find((w) => !["terminated", "failed"].includes(w.status))
-      ?.id,
-    load,
-  ]);
+  }, [data.user.admin, syncIds, load]);
   async function run(fn: () => Promise<unknown>, message: string) {
     setBusy(true);
     setError("");
@@ -140,7 +151,12 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const chosen = prices?.gpus.find((g) => g.id === template?.gpuTypeId),
     hourly = priceOf(chosen, template);
   const hasActive = state?.workspaces.some(
-    (w) => w.teamId === teamId && w.status !== "terminated",
+    (w) =>
+      w.scope === scope &&
+      (scope === "all" || w.teamId === teamId) &&
+      w.roundId === roundId &&
+      servicesOverlap(w.services, services) &&
+      w.status !== "terminated",
   );
   const templateSaved =
     !!template &&
@@ -159,11 +175,11 @@ export default function GpuWorkspace({ data }: ViewProps) {
         </div>
         <div>
           <span className="eyebrow">TEAM COMPUTE</span>
-          <h2>Một GPU. Cả đội cùng làm bài.</h2>
+          <h2>GPU chung hoặc riêng. Dịch vụ theo nhu cầu.</h2>
           <p>
-            Chatbot DeepSeek 32B và JupyterLab dùng chung GPU của đội. Mỗi phiên
-            chat mặc định 2.000 token input + output; chatbot khóa khi chuyển
-            sang private.
+            Dùng Pod của đội và Pod chung trên cùng một trang. Mỗi Pod có thể
+            chạy Chatbot, JupyterLab hoặc cả hai; Chatbot mở theo giờ public của
+            vòng luyện.
           </p>
         </div>
         <button className="btn" onClick={() => void load()} disabled={busy}>
@@ -394,11 +410,14 @@ export default function GpuWorkspace({ data }: ViewProps) {
             <section className="panel gpu-panel">
               <h2>
                 <Zap size={21} />
-                Cấp GPU cho đội
+                Cấu hình Pod mới
               </h2>
               <p>
-                Mặc định A40 48 GB + DeepSeek Q4_K_M (~19,9 GB trọng số). VRAM
-                còn lại và tốc độ thực tế phụ thuộc cả notebook đang chạy.
+                {services === "jupyter"
+                  ? "Chỉ chạy JupyterLab, không tải hoặc nạp LLM. GPU dành cho notebook của người dùng."
+                  : services === "llm"
+                    ? "Chạy DeepSeek 32B Q4, không khởi động JupyterLab. Các yêu cầu chat dùng chung GPU."
+                    : "DeepSeek 32B Q4 và JupyterLab dùng chung GPU. VRAM còn lại và tốc độ phụ thuộc notebook đang chạy."}
               </p>
               <button
                 className="btn"
@@ -425,7 +444,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     <small>/giờ GPU</small>
                   </strong>
                   <span>
-                    6 giờ: {money(hourly * 6)} / đội, cộng phí lưu trữ và thuế.
+                    6 giờ: {money(hourly * 6)} / Pod, cộng lưu trữ và thuế.
                   </span>
                 </div>
               )}
@@ -436,7 +455,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   void run(
                     () =>
                       api("workspace/deploy", {
-                        teamId,
+                        teamId: scope === "team" ? teamId : null,
+                        scope,
+                        services,
                         roundId,
                         templateId: template.id,
                         maxHourlyUsd,
@@ -445,28 +466,84 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   );
                 }}
               >
-                <label>
-                  Đội thi
-                  <select
-                    required
-                    value={teamId}
-                    onChange={(e) => setTeamId(e.target.value)}
-                  >
-                    <option value="">Chọn đội đã được tạo</option>
-                    {state.teams.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} · {t.members} thành viên
-                      </option>
+                <fieldset className="gpu-choices">
+                  <legend>Phạm vi sử dụng</legend>
+                  <div className="gpu-choice-grid">
+                    <button
+                      type="button"
+                      aria-pressed={scope === "team"}
+                      onClick={() => setScope("team")}
+                    >
+                      <strong>Riêng một đội</strong>
+                      <span>Chỉ thành viên đội được truy cập</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={scope === "all"}
+                      onClick={() => setScope("all")}
+                    >
+                      <strong>Chung tất cả đội</strong>
+                      <span>Một Pod, mọi đội cùng sử dụng</span>
+                    </button>
+                  </div>
+                </fieldset>
+                <fieldset className="gpu-choices">
+                  <legend>Dịch vụ trên Pod</legend>
+                  <div className="gpu-choice-grid gpu-choice-services">
+                    {serviceOptions.map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        aria-pressed={services === mode.id}
+                        onClick={() => setServices(mode.id)}
+                      >
+                        <strong>{mode.label}</strong>
+                        <span>{mode.description}</span>
+                      </button>
                     ))}
-                  </select>
-                </label>
-                {!state.teams.length && (
-                  <p>
-                    Chưa có đội. Thí sinh cần tạo đội trước khi admin cấp GPU.
+                  </div>
+                </fieldset>
+                {scope === "all" && (
+                  <p className="gpu-share-note">
+                    Áp dụng cho mọi đội hiện có và đội được tạo sau này.{" "}
+                    {services !== "llm"
+                      ? "Jupyter chung chia sẻ tệp, kernel và GPU giữa các đội."
+                      : "Các đội dùng chung GPU; lịch sử và token chat tách theo đội."}
+                    {services === "both" &&
+                      " Lịch sử và token chat tách theo đội."}
+                    {services !== "jupyter" &&
+                      " Chatbot xử lý một yêu cầu tại một thời điểm."}
                   </p>
                 )}
+                {scope === "team" && (
+                  <>
+                    <label>
+                      Đội thi
+                      <select
+                        required
+                        value={teamId}
+                        onChange={(e) => setTeamId(e.target.value)}
+                      >
+                        <option value="">Chọn đội đã được tạo</option>
+                        {state.teams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} · {t.members} thành viên
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!state.teams.length && (
+                      <p>
+                        Chưa có đội. Thí sinh cần tạo đội trước khi admin cấp
+                        GPU.
+                      </p>
+                    )}
+                  </>
+                )}
                 <label>
-                  Dataset của vòng luyện
+                  {services === "llm"
+                    ? "Vòng luyện áp dụng giờ Chatbot"
+                    : "Dataset và lịch của vòng luyện"}
                   <select
                     value={roundId}
                     required
@@ -484,9 +561,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   </select>
                 </label>
                 <p className="gpu-hint">
-                  Agent tải public từ Drive/Blob và đối chiếu SHA-256. Private
-                  chỉ được tải sau khi vòng thi mở private. Khóa theo cùng lượt
-                  thi; đặt lại vòng cần thu hồi và cấp workspace mới.
+                  {services === "llm"
+                    ? "Pod chỉ nạp model, không tải dataset hoặc mở JupyterLab. Lịch sử và ngân sách chat tách theo đội."
+                    : "Nạp dataset public của vòng đã chọn; private chỉ tải khi mở private. Reset vòng tự gắn lượt mới, giữ Pod và tệp."}
                 </p>
                 <label>
                   Giá GPU tối đa chấp nhận (USD/giờ)
@@ -505,7 +582,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   disabled={
                     busy ||
                     !state.hasCredential ||
-                    !teamId ||
+                    (scope === "team" && !teamId) ||
                     !roundId ||
                     !template ||
                     !templateSaved ||
@@ -514,7 +591,11 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   }
                 >
                   <Cpu size={17} />
-                  {hasActive ? "Đội đã có yêu cầu / Pod" : "Cấp 1 GPU cho đội"}
+                  {hasActive
+                    ? "Dịch vụ đã có Pod / yêu cầu chờ"
+                    : scope === "all"
+                      ? "Cấp 1 GPU dùng chung"
+                      : "Cấp 1 GPU riêng cho đội"}
                 </button>
                 {(!prices || !templateSaved) && (
                   <small>Cập nhật giá và lưu template trước khi cấp GPU.</small>
@@ -544,36 +625,58 @@ export default function GpuWorkspace({ data }: ViewProps) {
               <p>
                 {data.user.admin
                   ? "Các yêu cầu cấp phát và chi phí sẽ xuất hiện tại đây."
-                  : "Admin cấp Pod theo đội. Hai máy dùng chung workspace và GPU."}
+                  : "Pod riêng của đội và Pod chung sẽ xuất hiện tại đây."}
               </p>
             </section>
           )}
-          <div className="gpu-card-grid">
-            {state.workspaces.map((w) => (
-              <WorkspaceCard
-                key={w.id}
-                w={w}
-                observedNow={state.serverNow}
-                admin={data.user.admin}
-                busy={busy}
-                confirm={confirmId === w.id}
-                onConfirm={() => setConfirmId(w.id)}
-                onCancel={() => setConfirmId("")}
-                sync={() =>
-                  void run(
-                    () => api("workspace/sync", { id: w.id }),
-                    "Đã đối soát trạng thái.",
-                  )
-                }
-                control={(action) =>
-                  void run(async () => {
-                    await api("workspace/control", { id: w.id, action });
-                    setConfirmId("");
-                  }, "Đã xử lý yêu cầu điều khiển Pod.")
-                }
-              />
-            ))}
-          </div>
+          {(["all", "team"] as const).map((group) => {
+            const items = state.workspaces.filter((w) => w.scope === group);
+            if (!items.length) return null;
+            return (
+              <section className="gpu-allocation-group" key={group}>
+                <h3>
+                  {group === "all"
+                    ? "Pod dùng chung"
+                    : data.user.admin
+                      ? "Pod riêng theo đội"
+                      : "Pod riêng của đội bạn"}{" "}
+                  <small>({items.length})</small>
+                </h3>
+                {group === "all" && (
+                  <p className="gpu-hint">
+                    Chi phí là của toàn Pod chung, không nhân theo số đội. Các
+                    đội dùng chung tài nguyên xử lý.
+                  </p>
+                )}
+                <div className="gpu-card-grid">
+                  {items.map((w) => (
+                    <WorkspaceCard
+                      key={w.id}
+                      w={w}
+                      observedNow={state.serverNow}
+                      admin={data.user.admin}
+                      busy={busy}
+                      confirm={confirmId === w.id}
+                      onConfirm={() => setConfirmId(w.id)}
+                      onCancel={() => setConfirmId("")}
+                      sync={() =>
+                        void run(
+                          () => api("workspace/sync", { id: w.id }),
+                          "Đã đối soát trạng thái.",
+                        )
+                      }
+                      control={(action) =>
+                        void run(async () => {
+                          await api("workspace/control", { id: w.id, action });
+                          setConfirmId("");
+                        }, "Đã xử lý yêu cầu điều khiển Pod.")
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
           <p className="gpu-hint">
             Chi phí là ước tính theo đơn giá × thời gian quan sát, có thể khác
             hóa đơn Runpod. Dừng Pod vẫn có phí volume; thu hồi Pod xóa dữ liệu
@@ -665,26 +768,47 @@ function WorkspaceCard({
       <p>
         {w.roundTitle} · {w.template.gpuTypeId}
       </p>
+      <div className="gpu-badges">
+        <span className="pill neutral">
+          {w.scope === "all" ? "Dùng chung · Tất cả đội" : "Riêng cho đội"}
+        </span>
+        <span className="pill neutral">
+          {serviceOptions.find((s) => s.id === w.services)?.label}
+        </span>
+      </div>
+      {w.scope === "all" && hasService(w, "jupyter") && (
+        <p className="gpu-hint">
+          Các đội dùng chung tệp, kernel và GPU của JupyterLab này.
+        </p>
+      )}
       <div className="gpu-services">
-        <span className={w.health?.jupyter ? "is-ready" : ""}>
-          ● JupyterLab {w.health?.jupyter ? "sẵn sàng" : "chưa sẵn sàng"}
-        </span>
-        <span className={w.health?.llm ? "is-ready" : ""}>
-          ● DeepSeek{" "}
-          {w.health?.chatLocked
-            ? "đã khóa theo giờ"
-            : w.health?.llm
-              ? "sẵn sàng"
-              : "chưa sẵn sàng"}
-        </span>
-        <span>
-          Public: {w.health?.publicReady ? "đã nạp" : "đang chờ"} · Private:{" "}
-          {w.health?.privateReady ? "đã mở và nạp" : "đang khóa / chưa nạp"}
-        </span>
+        {hasService(w, "jupyter") && (
+          <span className={w.health?.jupyter ? "is-ready" : ""}>
+            ● JupyterLab {w.health?.jupyter ? "sẵn sàng" : "chưa sẵn sàng"}
+          </span>
+        )}
+        {hasService(w, "llm") && (
+          <span className={w.health?.llm ? "is-ready" : ""}>
+            ● DeepSeek{" "}
+            {w.health?.chatLocked
+              ? "đã khóa theo giờ"
+              : w.health?.llm
+                ? "sẵn sàng"
+                : "chưa sẵn sàng"}
+          </span>
+        )}
+        {hasService(w, "jupyter") && (
+          <span>
+            Public: {w.health?.publicReady ? "đã nạp" : "đang chờ"} · Private:{" "}
+            {w.health?.privateReady ? "đã mở và nạp" : "đang khóa / chưa nạp"}
+          </span>
+        )}
       </div>
       {w.health?.gpu && <code className="gpu-metrics">{w.health.gpu}</code>}
       {w.health?.stage && <p>{w.health.stage}</p>}
-      {w.health?.modelStage && <p>{w.health.modelStage}</p>}
+      {hasService(w, "llm") && w.health?.modelStage && (
+        <p>{w.health.modelStage}</p>
+      )}
       {(w.error || w.health?.error) && (
         <p role="status" className="gpu-hint">
           {w.error ?? w.health?.error}
@@ -712,30 +836,34 @@ function WorkspaceCard({
         </p>
       )}
       <div className="gpu-actions">
-        <a
-          className={`btn primary ${!w.chatbotEnabled ? "disabled-link" : ""}`}
-          href={w.chatbotEnabled ? `/workspace/chat?id=${w.id}` : undefined}
-          aria-disabled={!w.chatbotEnabled}
-          tabIndex={w.chatbotEnabled ? undefined : -1}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Chatbot
-          <ExternalLink size={15} />
-        </a>
-        <a
-          className={`btn ${!w.notebookEnabled ? "disabled-link" : ""}`}
-          href={
-            w.notebookEnabled ? `/api/workspace/launch?id=${w.id}` : undefined
-          }
-          aria-disabled={!w.notebookEnabled}
-          tabIndex={w.notebookEnabled ? undefined : -1}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          JupyterLab
-          <ExternalLink size={15} />
-        </a>
+        {hasService(w, "llm") && (
+          <a
+            className={`btn primary ${!w.chatbotEnabled ? "disabled-link" : ""}`}
+            href={w.chatbotEnabled ? `/workspace/chat?id=${w.id}` : undefined}
+            aria-disabled={!w.chatbotEnabled}
+            tabIndex={w.chatbotEnabled ? undefined : -1}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Chatbot
+            <ExternalLink size={15} />
+          </a>
+        )}
+        {hasService(w, "jupyter") && (
+          <a
+            className={`btn ${!w.notebookEnabled ? "disabled-link" : ""}`}
+            href={
+              w.notebookEnabled ? `/api/workspace/launch?id=${w.id}` : undefined
+            }
+            aria-disabled={!w.notebookEnabled}
+            tabIndex={w.notebookEnabled ? undefined : -1}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            JupyterLab
+            <ExternalLink size={15} />
+          </a>
+        )}
         {active && (
           <button className="btn" onClick={sync} disabled={busy}>
             <RefreshCw size={15} />
@@ -751,7 +879,7 @@ function WorkspaceCard({
               disabled={busy}
               onClick={() => control("stop")}
             >
-              Dừng Pod
+              {w.scope === "all" ? "Dừng Pod chung" : "Dừng Pod"}
             </button>
           )}
           {w.status === "stopped" && (
@@ -784,6 +912,8 @@ function WorkspaceCard({
           <p>
             Thu hồi sẽ xóa Pod và volume. Hãy tải mã nguồn, trọng số và thư mục
             Final trước khi xác nhận.
+            {w.scope === "all" &&
+              " Tất cả các đội sẽ mất quyền truy cập Pod dùng chung này."}
           </p>
           <button
             className="btn danger-btn"

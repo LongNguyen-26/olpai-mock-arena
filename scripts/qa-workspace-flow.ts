@@ -348,8 +348,189 @@ async function main() {
     assert.match(rejected.error!, /GPU trống/);
     await controlWorkspace(admin, rejected.id, "cancel-failed");
     assert.equal(await db().exists(key(`gpu:active:${team.id}`)), 0);
+    mode = "ok";
+    const dedicated = await deployWorkspace(
+      admin,
+      team.id,
+      c.roundId!,
+      t.id,
+      0.75,
+    );
+    // Reproduce a pre-feature allocation without slot metadata. It must coexist
+    // with shared Pods, while still preventing duplicate private services.
+    const legacy = { ...(await getWorkspace(dedicated.id)) };
+    delete legacy.reservationVersion;
+    delete legacy.scope;
+    delete legacy.services;
+    await db().set(key(`gpu:workspace:${legacy.id}`), legacy);
+    await db().del(
+      ...["llm", "jupyter"].map((service) =>
+        key(`gpu:active:v2:team:${team.id}:${c.roundId}:${service}`),
+      ),
+    );
+    await db().set(key(`gpu:active:${team.id}`), legacy.id);
+    await assert.rejects(
+      () =>
+        deployWorkspace(admin, team.id, c.roundId!, t.id, 0.75, {
+          services: "jupyter",
+        }),
+      /đã có Pod/,
+    );
+
+    const beforeShared = creates;
+    const sharedAttempts = await Promise.allSettled([
+      deployWorkspace(admin, null, c.roundId!, t.id, 0.75, {
+        scope: "all",
+        services: "llm",
+      }),
+      deployWorkspace(admin, null, c.roundId!, t.id, 0.75, {
+        scope: "all",
+        services: "llm",
+      }),
+    ]);
+    assert.equal(
+      sharedAttempts.filter((r) => r.status === "fulfilled").length,
+      1,
+    );
+    assert.equal(creates, beforeShared + 1);
+    const sharedLlm = sharedAttempts.find(
+      (
+        r,
+      ): r is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof deployWorkspace>>
+      > => r.status === "fulfilled",
+    )!.value;
+    const sharedJupyter = await deployWorkspace(
+      admin,
+      null,
+      c.roundId!,
+      t.id,
+      0.75,
+      { scope: "all", services: "jupyter" },
+    );
+    await assert.rejects(
+      () =>
+        deployWorkspace(admin, null, c.roundId!, t.id, 0.75, {
+          scope: "all",
+          services: "both",
+        }),
+      /đã có Pod/,
+    );
+    await Promise.all([
+      syncWorkspace(admin, sharedLlm.id),
+      syncWorkspace(admin, sharedJupyter.id),
+      syncWorkspace(admin, dedicated.id),
+    ]);
+    const ownState = await workspaceState(member);
+    assert.equal(
+      ownState.workspaces.filter((w) => w.status === "running").length,
+      3,
+    );
+    assert.equal(
+      ownState.workspaces.filter((w) => w.scope === "all").length,
+      2,
+    );
+
+    const secondMember = { ...other, id: randomUUID(), teamId: randomUUID() };
+    const secondTeam: Team = {
+      ...team,
+      id: secondMember.teamId,
+      name: "Đội QA tạo sau Pod",
+      members: [secondMember.id],
+      captainId: secondMember.id,
+    };
+    await db().hset(key("teams"), { [secondTeam.id]: secondTeam });
+    // A shared grant includes new teams without copying records or requiring a
+    // registration. Private allocations continue to require registration.
+    const secondState = await workspaceState(secondMember);
+    assert.equal(secondState.workspaces.length, 2);
+    await assert.rejects(
+      () => accessWorkspace(secondMember, dedicated.id),
+      /không thuộc/,
+    );
+    await assert.rejects(
+      () => accessWorkspace({ ...secondMember, teamId: null }, sharedLlm.id),
+      /không thuộc/,
+    );
+    assert.equal(
+      (await workspaceState({ ...secondMember, teamId: null })).workspaces
+        .length,
+      0,
+    );
+    assert.ok(
+      (await launchNotebook(secondMember, sharedJupyter.id)).includes(
+        "8888.proxy.runpod.net",
+      ),
+    );
+    await assert.rejects(
+      () => launchNotebook(secondMember, sharedLlm.id),
+      /không cung cấp JupyterLab/,
+    );
+    await assert.rejects(
+      () => readChat(secondMember, sharedJupyter.id, randomUUID()),
+      /không cung cấp Chatbot/,
+    );
+    const llmRecord = await getWorkspace(sharedLlm.id),
+      jupyterRecord = await getWorkspace(sharedJupyter.id);
+    assert.equal(
+      (
+        await agentManifest(
+          llmRecord.id,
+          `Bearer ${decryptSecret(llmRecord.secret)}`,
+        )
+      ).assets.length,
+      0,
+    );
+    const jupyterManifest = await agentManifest(
+      jupyterRecord.id,
+      `Bearer ${decryptSecret(jupyterRecord.secret)}`,
+    );
+    assert.equal(jupyterManifest.assets.length, 1);
+    assert.equal(jupyterManifest.llmEnabled, false);
+
+    const commonSession = randomUUID();
+    await sendChat(member, sharedLlm.id, commonSession, randomUUID(), "Đội A");
+    assert.equal(
+      (await readChat(secondMember, sharedLlm.id, commonSession)).session
+        .messages.length,
+      0,
+    );
+    await sendChat(
+      secondMember,
+      sharedLlm.id,
+      commonSession,
+      randomUUID(),
+      "Đội B",
+    );
+    assert.equal(
+      (await readChat(member, sharedLlm.id, commonSession)).session.messages[0]
+        .content,
+      "Đội A",
+    );
+    assert.equal(
+      (await readChat(secondMember, sharedLlm.id, commonSession)).session
+        .messages[0].content,
+      "Đội B",
+    );
+    assert.equal(
+      (await readChat(admin, sharedLlm.id, commonSession)).session.messages
+        .length,
+      0,
+    );
+    await controlWorkspace(admin, sharedLlm.id, "terminate");
+    assert.equal(
+      await db().exists(key(`gpu:active:v2:all:all:${c.roundId}:llm`)),
+      0,
+    );
+    assert.equal(
+      await db().exists(key(`gpu:active:v2:all:all:${c.roundId}:jupyter`)),
+      1,
+    );
+    await controlWorkspace(admin, sharedJupyter.id, "terminate");
+    await controlWorkspace(admin, dedicated.id, "terminate");
+    assert.equal(await db().exists(key(`gpu:active:${team.id}`)), 0);
     console.log(
-      "PASS: credential encryption, real Redis atomic deployment, cross-team access, private manifest gate, chat/idempotency, run reset, stop/start/terminate, uncertain reconciliation, failed release.",
+      "PASS: shared/private coexistence, future teams, team-isolated chat, single-service access/manifest, legacy reservation compatibility, atomic concurrent deployment, lifecycle, phase gates and token accounting.",
     );
     if (process.argv.includes("--keep")) {
       mode = "ok";

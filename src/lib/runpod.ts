@@ -202,7 +202,10 @@ export class Runpod {
           containerDiskInGb: t.containerDiskInGb,
           volumeInGb: t.volumeInGb,
           volumeMountPath: "/workspace",
-          ports: "8888/http,8000/http",
+          ports:
+            env.ARENA_WORKSPACE_SERVICES === "llm"
+              ? "8000/http"
+              : "8888/http,8000/http",
           startSsh: false,
           startJupyter: false,
           env: Object.entries(env).map(([key, value]) => ({ key, value })),

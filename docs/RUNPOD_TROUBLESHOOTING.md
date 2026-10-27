@@ -1,0 +1,65 @@
+# Runpod: các lỗi đã gặp và cách tránh lặp lại
+
+Ghi nhận từ quá trình triển khai/nghiệm thu ngày 27/10/2026. Phân biệt lỗi đã có phản hồi thực tế, giả thuyết và trạng thái chưa kiểm chứng. Không lưu API key, token Jupyter/agent, cookie đăng nhập hoặc signed URL trong tài liệu/log/Git.
+
+## 1. Không có Pod dù web hiện đang đối soát
+
+- **Đã xác nhận:** A40 Community trả HTTP 200 nhưng có `errors[].extensions.code = SUPPLY_CONSTRAINT`, `data.podFindAndDeployOnDemand = null`. Catalog có giá không có nghĩa cloud đó còn máy. Cùng thời điểm A40 Secure cấp được với giá GPU $0,59/h.
+- **Cách xử lý:** kiểm tra cả status HTTP lẫn envelope GraphQL, phân loại lỗi hết tài nguyên là thất bại rõ ràng. Kiểm tra availability của đúng cloud/GPU và điều kiện RAM/vCPU/CUDA. Không âm thầm đổi cloud/giá hoặc gửi lại sau timeout.
+- Trước mỗi lần thử lại, đối soát danh sách tài khoản theo Pod ID hoặc tên cấp phát bền vững. Timeout/5xx/mất body có thể đã tạo Pod; giữ reservation khi chưa xác định được. Lỗi query không được biến thành danh sách Pod rỗng.
+- Từng gặp HTTP 400 với cấu hình REST v1. Enum v1 không nhận mọi phiên bản CUDA mới; host thực tế báo CUDA 13.2 trong khi bộ lọc cố định chỉ tới 13.0 sẽ loại host tương thích. Web hiện dùng GraphQL `podFindAndDeployOnDemand` với `minCudaVersion: "12.8"`. Không có raw body ban đầu để quy mọi HTTP 400 về cùng một nguyên nhân.
+- File Python SDK do người dùng đưa dùng GraphQL, còn script requests dùng REST v2. Khác biệt là endpoint, schema, lựa chọn cloud/tài nguyên và cách đọc lỗi; không kết luận thư viện HTTP tự nó gây lỗi. SDK có thể đổi API theo phiên bản: đối chiếu payload thực tế và tài liệu trước khi sửa.
+
+## 2. Web tính tiền nhưng chưa có Pod ID
+
+Đã có lỗi gán giá dự kiến cho yêu cầu `reconciling`, làm hiện chi phí $0,0054 dù Runpod chưa tạo Pod. Đã sửa: chưa xác nhận Pod ID thì meter rate và chi phí hiển thị bằng 0, kể cả record cũ. Chỉ bắt đầu ước tính sau xác nhận. Chi phí web vẫn là ước tính, không phải chứng từ hoặc bằng chứng đã có Pod.
+
+## 3. RUNNING / Jupyter đăng nhập được chưa đủ để báo sẵn sàng
+
+`desiredStatus = RUNNING` có thể xuất hiện khi image còn pull hoặc container chưa phục vụ xong; lúc này runtime telemetry có thể null. Trước đây probe `/login` trả 200 đã khiến web bật nút quá sớm.
+
+Kiểm chứng theo thứ tự:
+
+1. Pod thật tồn tại đúng tài khoản, đúng ID/name/image; xem system log pull/create/start và telemetry.
+2. Agent `/health` có xác thực phản hồi; Jupyter `/lab` có xác thực trả trang Lab, không phải trang login.
+3. Proxy port 8888 phản hồi `/api/status`. Runpod gọi route này không có token; trước đây route trả 403 nên dashboard hiện Initializing kéo dài.
+4. Chỉ route readiness `/api/status` được trả JSON tối thiểu không token. Khi có token vẫn giữ schema status chuẩn của Jupyter. `/api/contents`, `/api/kernels`, terminal vẫn phải xác thực; không tắt auth để làm dashboard xanh.
+5. Chờ **menu/file browser/launcher render đầy đủ**, rồi chạy phép tính qua kernel trong browser. Một `.jp-LabShell` xuất hiện hoặc screenshot còn splash/loading không chứng minh Lab đã dùng được.
+
+## 4. WebSocket 403 qua proxy dù HTTP 200
+
+**Đã xác nhận trong log:** Origin là domain `https://<pod-id>-8888.proxy.runpod.net`, nhưng Host được proxy chuyển thành IP:port nội bộ. Jupyter ghi `Blocking Cross Origin API request`; event stream và kernel browser có thể bị chặn dù GET có token vẫn đạt.
+
+Đã sửa config: `ServerApp.trust_xheaders = True`, `ServerApp.allow_origin` đúng domain của **chính Pod đó**, lấy từ `RUNPOD_POD_ID`. Không dùng wildcard, không tắt XSRF/auth. Phải kiểm tra bằng browser/cookie và WebSocket thật; request API có token có thể theo cơ chế kiểm tra Origin khác. Đã chạy `1 + 1` qua browser kernel và nhận `2`, sau đó xóa kernel QA.
+
+## 5. Reset/mở lại đề nhưng Notebook bị 403, Chatbot vẫn khóa
+
+Reset đổi `Contest.id` (run ID), còn round ID ổn định. Workspace từng giữ run ID cũ nên bị báo “Notebook chỉ mở trong lượt thi được cấp GPU”, manifest inactive và model bị tắt.
+
+Đã sửa: gắn Pod theo round, tự cập nhật run metadata nguyên tử, giữ Pod/volume và không ghi đè kết quả sync đồng thời. Chat/token tách theo run. UI và backend dùng cùng điều kiện quyền/pha/readiness; tab chat tự sync readiness dù không mở dashboard. Sau inference phải kiểm tra lại run/pha, không phát phản hồi của run cũ sau reset.
+
+## 6. GGUF tải đủ nhưng GPU vẫn 0 MiB, mở public không nạp lại model
+
+**Đã xác nhận:** file Q4_K_M đủ 19.851.335.840 byte, CUDA nhận A40 nhưng llama chưa chạy. Worker cũ chạy một lần, thoát khi gặp private/run không còn hợp lệ, nên không trở lại khi public mở.
+
+Đã sửa worker theo dõi policy liên tục: khởi động lại từ cache khi public mở, retry có khoảng nghỉ khi tải/start lỗi, dừng model để trả VRAM khi khóa. Xem riêng `.arena/llama.log` và `modelStage`, không quy mọi VRAM 0 về chưa download. Đã xác nhận model trên A40 khoảng 19,2 GiB VRAM và generate thật. Không khởi động worker hoặc tải GGUF cho Jupyter-only; LLM-only không khởi động Jupyter/tải dataset.
+
+## 7. Build/image không đồng bộ hoặc ổ C: đầy
+
+- Build local từng dừng I/O/ENOSPC; fasttext cũng từng thiếu `Python.h`. Base image cần `python3.10-dev`. Không lặp lại build CUDA nặng trên máy local đang thiếu dung lượng; dùng workflow GitHub Actions.
+- Sửa Python runtime dùng `Dockerfile.runtime` và `COPY --link`, kế thừa digest dependency đã kiểm chứng, tránh pull/build lại toàn bộ dependency khi chỉ đổi lớp runtime. Nếu đổi Dockerfile đầy đủ/requirements, dùng full build và cập nhật digest nền.
+- Image phải build/push thành công trước khi mở UI/API cần contract mới. Ghim digest trong env/template của **lần cấp mới**. Các digest Workspace cũ đã biết chưa hỗ trợ tách dịch vụ được chặn khi cấp LLM-only/Jupyter-only.
+- Cập nhật template/env không tự cập nhật image Pod đang chạy. Muốn sửa Pod hiện có: xác nhận ID, kiểm tra kernel đang dùng, kiểm tra mount `/workspace`, chỉ PATCH trường cần đổi rồi restart có kiểm soát. Không reset/terminate để chữa readiness; không tự restart liên tục khi model đang tải.
+- Ổ C: đầy còn làm **bộ duyệt tự động không khởi tạo được** (`os error 112`): action chưa chạy, không phải từ chối vì nguy hiểm. Không thử vòng qua approval; giải phóng đĩa rồi mới tiếp tục. Chỉ dọn cache QA đã xác định; không xóa dữ liệu cá nhân/dataset gốc/volume của đội.
+
+## 8. Pod chung và chế độ dịch vụ: tránh regression
+
+Pod cũ mặc định `scope=team`, `services=both`. Pod chung là một allocation cho mọi đội, không fan-out tạo từng Pod. Khóa cấp phát theo phạm vi/vòng/dịch vụ; giữ tương thích reservation cũ. Hai đội dùng trùng session ID vẫn phải có lịch sử/token tách biệt. Teamless hoặc người không còn là thành viên không được vào Pod chung. Jupyter chung thật sự chia sẻ tệp/kernel/GPU, phải ghi rõ trên UI.
+
+## Mốc kiểm chứng và giới hạn
+
+- Pod thật dùng để nghiệm thu ban đầu: `0fb95yqf1t0bka`. Không suy trạng thái hiện tại từ ghi chép này; luôn truy vấn lại trước thao tác.
+- Đã thấy lỗi frontend `Shared module @jupyter-widgets/base ...` của một extension chưa xác định. Launcher/kernel cơ bản vẫn hoạt động; chưa kết luận các widget/extension EDA đều đã được kiểm thử. Không nhầm lỗi này với lỗi Origin 403 đã xác định.
+- Test fake Runpod + Redis thật kiểm tra logic cấp phát/quyền/quota; không thay thế kiểm chứng CUDA, model, proxy và kernel thật. Build thành công không tự chứng minh runtime sẵn sàng.
+
+Tham khảo: [GraphQL Pod operations](https://docs.runpod.io/sdks/graphql/manage-pods), [REST v1 → v2](https://docs.runpod.io/api-reference-v2/migrate-from-v1), [Jupyter Server security](https://jupyter-server.readthedocs.io/en/latest/operators/security.html), [Docker COPY --link](https://docs.docker.com/reference/dockerfile/#copy---link). Cách cấu hình hiện tại: [GPU_WORKSPACE.md](GPU_WORKSPACE.md).

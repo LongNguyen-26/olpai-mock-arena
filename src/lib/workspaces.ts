@@ -29,10 +29,37 @@ import {
   type WorkspaceTemplate,
 } from "./workspace-domain";
 import type { Contest, SafeUser, Team } from "./types";
+import {
+  hasService,
+  isShared,
+  type WorkspaceScope,
+  type WorkspaceServices,
+} from "./workspace-options";
 
 const recordKey = (id: string) => key(`gpu:workspace:${id}`);
 const activeKey = (team: string) => key(`gpu:active:${team}`);
 const credentialKey = (id: string) => key(`gpu:credential:${id}`);
+function reservationKeys(w: Workspace) {
+  if (!w.reservationVersion) return [activeKey(w.teamId!)];
+  return (["llm", "jupyter"] as const)
+    .filter((s) => hasService(w, s))
+    .map((s) =>
+      key(`gpu:active:v2:${w.scope}:${w.teamId ?? "all"}:${w.roundId}:${s}`),
+    );
+}
+async function releaseReservation(w: Workspace) {
+  await db().eval(
+    "for i=1,#KEYS do if redis.call('GET',KEYS[i])==ARGV[1] then redis.call('DEL',KEYS[i]) end end;return 1",
+    reservationKeys(w),
+    [w.id],
+  );
+}
+function sessionKey(w: Workspace, user: SafeUser, sessionId: string) {
+  const audience = isShared(w)
+    ? `:${user.admin ? `admin-${user.id}` : `team-${user.teamId}`}`
+    : "";
+  return key(`gpu:chat:${w.id}:${w.runId}${audience}:${sessionId}`);
+}
 async function allWorkspaces() {
   const ids = await db().smembers<string[]>(key("gpu:workspaces"));
   return ids.length
@@ -101,9 +128,13 @@ export async function accessWorkspace(user: SafeUser, id: string) {
     const team = user.teamId
       ? await db().hget<Team>(key("teams"), user.teamId)
       : null;
-    if (!team || team.id !== w.teamId || !team.members.includes(user.id))
+    if (
+      !team ||
+      (!isShared(w) && team.id !== w.teamId) ||
+      !team.members.includes(user.id)
+    )
       throw new ApiError("Bạn không thuộc đội được cấp GPU này.", 403);
-    await requireRegistration(user, c);
+    if (!isShared(w)) await requireRegistration(user, c);
   }
   w = await currentRun(w, c);
   return { w, c };
@@ -117,17 +148,26 @@ export async function workspaceState(user: SafeUser) {
       : null,
     user.admin ? db().exists(credentialKey(user.id)) : false,
   ]);
+  const team =
+    !user.admin && user.teamId
+      ? await db().hget<Team>(key("teams"), user.teamId)
+      : null;
+  const member = !!team?.members.includes(user.id);
   return {
     workspaces: (
       await Promise.all(
         all
-          .filter((w) => user.admin || w.teamId === user.teamId)
+          .filter(
+            (w) =>
+              user.admin ||
+              (member && (isShared(w) || w.teamId === user.teamId)),
+          )
           .map(async (record) => {
             const c = await getContest(record.roundId);
             const w = await currentRun(record, c);
             let registered = true;
             try {
-              await requireRegistration(user, c);
+              if (!isShared(w)) await requireRegistration(user, c);
             } catch {
               registered = false;
             }
@@ -197,20 +237,36 @@ export async function gpuPrices(user: SafeUser) {
 }
 export async function deployWorkspace(
   user: SafeUser,
-  teamId: string,
+  teamId: string | null,
   roundId: string,
   templateId: string,
   maxHourlyUsd: number,
+  options: { scope?: WorkspaceScope; services?: WorkspaceServices } = {},
 ) {
+  const scope = options.scope ?? "team",
+    services = options.services ?? "both";
   const [team, c, t] = await Promise.all([
-    db().hget<Team>(key("teams"), teamId),
+    scope === "team" && teamId ? db().hget<Team>(key("teams"), teamId) : null,
     getContest(roundId),
     db().hget<WorkspaceTemplate>(key("gpu:templates"), templateId),
   ]);
-  if (!team || !team.members.length)
+  if (scope === "team" && (!team || !team.members.length))
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
   if (!t) throw new ApiError("Chọn template đã lưu.");
-  if (!(await getPackage(c))) throw new ApiError("Vòng này chưa có dataset.");
+  if (
+    services !== "both" &&
+    [
+      "sha256:22f21a6b87f728d87f9dedd68028985b7a10be0b451a843f52be751682bea817",
+      "sha256:47a5b56e4d1f90fccb472fcbdd8129e3d046418c2de0ef09e072ba544e4e75e2",
+      "sha256:f3ce6656c68b37f3d574c6b0f7f95243a4eef4de75363c22f2a07e020fd2bba5",
+    ].some((digest) => t.imageName.endsWith("@" + digest))
+  )
+    throw new ApiError(
+      "Image trong template này chưa hỗ trợ tách dịch vụ. Hãy tải lại và chọn template đã cập nhật.",
+      409,
+    );
+  if (services !== "llm" && !(await getPackage(c)))
+    throw new ApiError("Vòng này chưa có dataset.");
   const controlUrl = process.env.GPU_WORKSPACE_PUBLIC_URL;
   if (!controlUrl || new URL(controlUrl).protocol !== "https:")
     throw new ApiError(
@@ -236,8 +292,11 @@ export async function deployWorkspace(
     id = randomUUID();
   const w: Workspace = {
     id,
-    teamId,
-    teamName: team.name,
+    teamId: scope === "all" ? null : team!.id,
+    teamName: scope === "all" ? "Tất cả các đội" : team!.name,
+    scope,
+    services,
+    reservationVersion: 2,
     roundId,
     runId: c.id,
     roundTitle: c.title,
@@ -258,14 +317,24 @@ export async function deployWorkspace(
     health: null,
     error: null,
   };
+  const slots = reservationKeys(w),
+    checks = [...slots];
+  if (scope === "team") {
+    const legacyId = await db().get<string>(activeKey(team!.id));
+    const legacy = legacyId
+      ? await db().get<Workspace>(recordKey(legacyId))
+      : null;
+    if (legacyId && (!legacy || legacy.roundId === roundId))
+      checks.push(activeKey(team!.id));
+  }
   const reserved = await db().eval<unknown[], number>(
-    "if redis.call('EXISTS',KEYS[1])==1 then return 0 end redis.call('SET',KEYS[1],ARGV[1]);redis.call('SET',KEYS[2],ARGV[2]);redis.call('SADD',KEYS[3],ARGV[1]);return 1",
-    [activeKey(teamId), recordKey(id), key("gpu:workspaces")],
-    [id, JSON.stringify(w)],
+    "for i=1,tonumber(ARGV[1]) do if redis.call('EXISTS',KEYS[i])==1 then return 0 end end;for i=1,tonumber(ARGV[2]) do redis.call('SET',KEYS[i],ARGV[3]) end;redis.call('SET',KEYS[#KEYS-1],ARGV[4]);redis.call('SADD',KEYS[#KEYS],ARGV[3]);return 1",
+    [...checks, recordKey(id), key("gpu:workspaces")],
+    [checks.length, slots.length, id, JSON.stringify(w)],
   );
   if (!reserved)
     throw new ApiError(
-      "Đội đã có Pod hoặc yêu cầu cấp GPU đang chờ. Đối soát/thu hồi trước khi cấp lại.",
+      "Phạm vi này đã có Pod hoặc yêu cầu chờ cung cấp dịch vụ đã chọn trong vòng luyện. Đối soát/thu hồi trước khi cấp lại.",
       409,
     );
   try {
@@ -276,7 +345,10 @@ export async function deployWorkspace(
       ).toString(),
       ARENA_WORKSPACE_ID: id,
       ARENA_AGENT_TOKEN: decryptSecret(w.secret),
-      JUPYTER_TOKEN: decryptSecret(w.jupyterSecret),
+      ...(hasService(w, "jupyter")
+        ? { JUPYTER_TOKEN: decryptSecret(w.jupyterSecret) }
+        : {}),
+      ARENA_WORKSPACE_SERVICES: services,
       ARENA_CONTEXT_SIZE: String(t.sessionTokenLimit + 128),
     });
     if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
@@ -383,18 +455,24 @@ async function syncUnlocked(w: Workspace) {
       try {
         const [health, jupyter] = await Promise.all([
           runtime<RuntimeHealth>(w, "/health"),
-          fetch(`${podOrigin(w.podId!, 8888)}/api/status`, {
-            headers: {
-              Authorization: `token ${decryptSecret(w.jupyterSecret)}`,
-            },
-            signal: AbortSignal.timeout(5000),
-            redirect: "error",
-            cache: "no-store",
-          })
-            .then((r) => r.status === 200)
-            .catch(() => false),
+          hasService(w, "jupyter")
+            ? fetch(`${podOrigin(w.podId!, 8888)}/api/status`, {
+                headers: {
+                  Authorization: `token ${decryptSecret(w.jupyterSecret)}`,
+                },
+                signal: AbortSignal.timeout(5000),
+                redirect: "error",
+                cache: "no-store",
+              })
+                .then((r) => r.status === 200)
+                .catch(() => false)
+            : Promise.resolve(false),
         ]);
-        w.health = { ...health, jupyter: health.jupyter && jupyter };
+        w.health = {
+          ...health,
+          llm: hasService(w, "llm") && health.llm,
+          jupyter: health.jupyter && jupyter,
+        };
       } catch {
         w.health = null;
         w.error = "Pod đang chạy; đang chờ dịch vụ khởi động.";
@@ -403,23 +481,29 @@ async function syncUnlocked(w: Workspace) {
   }
   w.syncedAt = now;
   await save(w);
-  if (w.status === "terminated")
-    await db().eval(
-      "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",
-      [activeKey(w.teamId)],
-      [w.id],
-    );
+  if (w.status === "terminated") await releaseReservation(w);
   return w;
 }
 export async function syncWorkspace(user: SafeUser, id: string) {
-  await accessWorkspace(user, id);
-  return lock(`pod:${id}`, async () => {
-    const record = await getWorkspace(id),
-      w = await currentRun(record, await getContest(record.roundId)),
-      now = await serverNow();
-    if (w.syncedAt && now - w.syncedAt < 15000) return workspaceView(w, now);
-    return workspaceView(await syncUnlocked(w), await serverNow());
-  });
+  const { w: cached } = await accessWorkspace(user, id);
+  const now = await serverNow();
+  if (cached.syncedAt && now - cached.syncedAt < 15000)
+    return workspaceView(cached, now);
+  try {
+    return await lock(`pod:${id}`, async () => {
+      const record = await getWorkspace(id),
+        w = await currentRun(record, await getContest(record.roundId)),
+        now = await serverNow();
+      if (w.syncedAt && now - w.syncedAt < 15000) return workspaceView(w, now);
+      return workspaceView(await syncUnlocked(w), await serverNow());
+    });
+  } catch (error) {
+    // Concurrent viewers of a shared Pod can use the latest snapshot while one
+    // viewer is already refreshing it. Never coalesce mutations this way.
+    if (error instanceof ApiError && error.status === 409)
+      return workspaceView(await getWorkspace(id), await serverNow());
+    throw error;
+  }
 }
 export async function controlWorkspace(
   user: SafeUser,
@@ -460,12 +544,7 @@ export async function controlWorkspace(
       }
     }
     await save(w);
-    if (w.status === "terminated")
-      await db().eval(
-        "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",
-        [activeKey(w.teamId)],
-        [w.id],
-      );
+    if (w.status === "terminated") await releaseReservation(w);
     return workspaceView(w, await serverNow());
   });
 }
@@ -481,7 +560,7 @@ export async function agentManifest(id: string, authorization: string | null) {
   const pkg = await getPackage(c);
   // Public is provisioned before the start; private URLs are never sent before its server-side phase gate.
   const assets = await Promise.all(
-    (pkg?.assets ?? [])
+    (hasService(w, "jupyter") ? (pkg?.assets ?? []) : [])
       .filter(
         (a) =>
           /\.(zip|ipynb|py|csv|json|parquet|tar|gz|7z)$/i.test(a.name) &&
@@ -502,6 +581,7 @@ export async function agentManifest(id: string, authorization: string | null) {
   );
   return {
     active: true,
+    services: w.services ?? "both",
     runId: c.id,
     phase: phaseOf(c, now),
     assets,
@@ -512,6 +592,8 @@ export async function agentManifest(id: string, authorization: string | null) {
 export async function launchNotebook(user: SafeUser, id: string) {
   const { w, c } = await accessWorkspace(user, id),
     now = await serverNow();
+  if (!hasService(w, "jupyter"))
+    throw new ApiError("Pod này không cung cấp JupyterLab.", 409);
   if (
     !user.admin &&
     (w.runId !== c.id || !["public", "private"].includes(phaseOf(c, now)))
@@ -529,6 +611,8 @@ export async function launchNotebook(user: SafeUser, id: string) {
 }
 export async function readChat(user: SafeUser, id: string, sessionId: string) {
   let { w, c } = await accessWorkspace(user, id);
+  if (!hasService(w, "llm"))
+    throw new ApiError("Pod này không cung cấp Chatbot.", 409);
   let now = await serverNow();
   // A chat tab must recover on its own when the model finishes loading or the
   // round reopens, even if nobody has the GPU dashboard open.
@@ -547,7 +631,7 @@ export async function readChat(user: SafeUser, id: string, sessionId: string) {
     now = await serverNow();
   }
   const session =
-    (await db().get<ChatSession>(key(`gpu:chat:${id}:${c.id}:${sessionId}`))) ??
+    (await db().get<ChatSession>(sessionKey(w, user, sessionId))) ??
     emptySession();
   return {
     session,
@@ -575,7 +659,7 @@ export async function sendChat(
     async () => {
       const { w, c } = await accessWorkspace(user, id),
         now = await serverNow(),
-        k = key(`gpu:chat:${id}:${c.id}:${sessionId}`);
+        k = sessionKey(w, user, sessionId);
       const s = (await db().get<ChatSession>(k)) ?? emptySession();
       if (s.lastRequestId === requestId) return { session: s };
       if (!chatbotOpen(w, c, now))
