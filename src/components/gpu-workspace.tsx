@@ -34,6 +34,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
+    [syncWarning, setSyncWarning] = useState(""),
     [busy, setBusy] = useState(false);
   const [apiKey, setApiKey] = useState(""),
     [template, setTemplate] = useState<WorkspaceTemplate | null>(null),
@@ -93,9 +94,15 @@ export default function GpuWorkspace({ data }: ViewProps) {
     const refresh = async () => {
       try {
         await api("workspace/sync", { id });
-        if (active) await load();
-      } catch {
-        /* The saved status and last sync time remain visible. */
+        if (active) {
+          setSyncWarning("");
+          await load();
+        }
+      } catch (e) {
+        if (active)
+          setSyncWarning(
+            `Chưa cập nhật được trạng thái Pod: ${(e as Error).message} Thời điểm đối soát cuối vẫn được hiển thị bên dưới.`,
+          );
       }
     };
     void refresh();
@@ -167,6 +174,11 @@ export default function GpuWorkspace({ data }: ViewProps) {
       {error && (
         <div className="alert error" role="alert">
           {error}
+        </div>
+      )}
+      {syncWarning && (
+        <div className="alert" role="status">
+          {syncWarning}
         </div>
       )}
       {notice && (

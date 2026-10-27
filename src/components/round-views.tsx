@@ -367,7 +367,10 @@ export function StatementView({ data, go, report }: Props) {
       <div className="prose">
         {statements.length ? (
           <Markdown remarkPlugins={[remarkGfm]}>
-            {statements.find((t) => t.id === task)?.content ?? ""}
+            {(statements.find((t) => t.id === task)?.content ?? "").replace(
+              /^#[ \t]+Tác vụ[ \t]+\d+[^\n]*(?:\n|$)/gim,
+              "",
+            )}
           </Markdown>
         ) : (
           <p>Đang tải đề thi…</p>
