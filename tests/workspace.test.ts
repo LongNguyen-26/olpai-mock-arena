@@ -144,16 +144,24 @@ test("template validates resource and token limits", () => {
     false,
   );
 });
-test("Runpod creates exactly one GPU, exposes only required ports and never retries a timed-out create", async () => {
+test("Runpod uses SDK GraphQL contract and never retries a timed-out create", async () => {
   let calls = 0;
   const transport = (async (url, options) => {
     calls++;
-    assert.equal(url, "https://rest.runpod.io/v1/pods");
-    const body = JSON.parse(options?.body as string);
+    assert.equal(url, "https://api.runpod.io/graphql");
+    const request = JSON.parse(options?.body as string);
+    assert.match(request.query, /podFindAndDeployOnDemand\(input: \$input\)/);
+    const body = request.variables.input;
     assert.equal(body.gpuCount, 1);
-    assert.deepEqual(body.allowedCudaVersions, ["12.8", "12.9", "13.0"]);
-    assert.equal(body.interruptible, false);
-    assert.deepEqual(body.ports, ["8888/http", "8000/http"]);
+    assert.equal(body.minCudaVersion, "12.8");
+    assert.equal(body.allowedCudaVersions, undefined);
+    assert.equal(body.gpuTypeId, "NVIDIA A40");
+    assert.equal(body.minMemoryInGb, defaultTemplate.minRAMPerGPU);
+    assert.equal(body.minVcpuCount, defaultTemplate.minVCPUPerGPU);
+    assert.equal(body.ports, "8888/http,8000/http");
+    assert.deepEqual(body.env, [
+      { key: "TEST_TOKEN", value: "fake-agent-token" },
+    ]);
     assert.equal(
       new Headers(options?.headers).get("authorization"),
       "Bearer fake-test-key",
@@ -165,7 +173,7 @@ test("Runpod creates exactly one GPU, exposes only required ports and never retr
       new Runpod("fake-test-key", transport).create(
         "allocation",
         defaultTemplate,
-        {},
+        { TEST_TOKEN: "fake-agent-token" },
       ),
     (e: unknown) =>
       e instanceof RunpodError &&
@@ -174,12 +182,17 @@ test("Runpod creates exactly one GPU, exposes only required ports and never retr
   );
   assert.equal(calls, 1);
 });
-test("Runpod accepts empty stop responses and refuses to leak provider error text", async () => {
-  const empty = new Runpod(
-    "fake",
-    (async () => new Response(null, { status: 200 })) as typeof fetch,
-  );
+test("Runpod accepts GraphQL control responses and refuses to leak provider error text", async () => {
+  const empty = new Runpod("fake", (async (_url, options) => {
+    const query = JSON.parse(options?.body as string).query as string;
+    return Response.json({
+      data: query.includes("ArenaTerminate")
+        ? { podTerminate: null }
+        : { podStop: { id: "testpod123", desiredStatus: "EXITED" } },
+    });
+  }) as typeof fetch);
   await empty.stop("testpod123");
+  await empty.terminate("testpod123");
   const denied = new Runpod(
     "fake",
     (async () =>
@@ -193,6 +206,60 @@ test("Runpod accepts empty stop responses and refuses to leak provider error tex
       e instanceof RunpodError &&
       !e.uncertain &&
       !e.message.includes("secret env"),
+  );
+});
+
+test("unconfirmed allocations never display phantom costs, including old records", () => {
+  const w = {
+    podId: null,
+    status: "reconciling",
+    meterAt: 0,
+    meterRate: 0.35,
+    accruedUsd: 2,
+  } as Workspace;
+  const view = workspaceView(w, 3600000);
+  assert.equal(view.estimatedUsd, 0);
+  assert.equal(view.meterRate, 0);
+  assert.equal(view.accruedUsd, 0);
+});
+
+test("Runpod HTTP 200 SUPPLY_CONSTRAINT is rejected; unknown mutation errors remain uncertain", async () => {
+  for (const [code, uncertain] of [
+    ["SUPPLY_CONSTRAINT", false],
+    ["INTERNAL_SERVER_ERROR", true],
+  ] as const) {
+    const rp = new Runpod("fake", (async () =>
+      Response.json({
+        data: { podFindAndDeployOnDemand: null },
+        errors: [{ message: "private-token", extensions: { code } }],
+      })) as typeof fetch);
+    await assert.rejects(
+      () => rp.create("test", defaultTemplate, {}),
+      (e: unknown) =>
+        e instanceof RunpodError &&
+        e.uncertain === uncertain &&
+        (uncertain || e.message.includes("GPU trống")) &&
+        !e.message.includes("private-token"),
+    );
+  }
+});
+
+test("Runpod query failures cannot be mistaken for an empty Pod list", async () => {
+  const rp = new Runpod("fake", (async () =>
+    Response.json({
+      errors: [{ message: "secret", extensions: { code: "FORBIDDEN" } }],
+    })) as typeof fetch);
+  await assert.rejects(
+    () => rp.list(),
+    (e: unknown) =>
+      e instanceof RunpodError && e.status === 403 && !e.uncertain,
+  );
+  const timeout = new Runpod("fake", (async () => {
+    throw new Error("network");
+  }) as typeof fetch);
+  await assert.rejects(
+    () => timeout.list(),
+    (e: unknown) => e instanceof RunpodError && !e.uncertain,
   );
 });
 

@@ -1,7 +1,7 @@
 import type { WorkspaceTemplate } from "./workspace-domain";
-// REST v1 validates this enum before scheduling a Pod. Do not invent newer
-// versions based on CUDA releases; they must be accepted by the Runpod API.
-export const WORKSPACE_CUDA_VERSIONS = ["12.8", "12.9", "13.0"] as const;
+// The image uses CUDA 12.8. Use the scheduler's minimum rather than a frozen
+// REST v1 enum, which excludes otherwise compatible hosts advertising 13.2.
+export const WORKSPACE_MIN_CUDA = "12.8";
 const diagnosticFields = new Set([
   "allowedCudaVersions",
   "gpuTypeIds",
@@ -56,13 +56,18 @@ export class RunpodError extends Error {
     public status: number,
     public uncertain = false,
     invalidFields: string[] = [],
+    reason?: "capacity" | "balance",
   ) {
     super(
-      status === 401 || status === 403
-        ? "Runpod từ chối API key hoặc quyền truy cập."
-        : status === 400 && invalidFields.length
-          ? `Runpod từ chối cấu hình Pod (HTTP 400). Trường không hợp lệ: ${invalidFields.join(", ")}.`
-          : `Runpod chưa thực hiện được yêu cầu (HTTP ${status}).`,
+      reason === "capacity"
+        ? "Runpod hiện không có GPU trống đáp ứng cấu hình/cloud đã chọn. Hãy đổi cloud hoặc tài nguyên rồi cấp lại."
+        : reason === "balance"
+          ? "Số dư Runpod không đủ để cấp Pod. Kiểm tra Billing trên Runpod."
+          : status === 401 || status === 403
+            ? "Runpod từ chối API key hoặc quyền truy cập."
+            : status === 400 && invalidFields.length
+              ? `Runpod từ chối cấu hình Pod (HTTP 400). Trường không hợp lệ: ${invalidFields.join(", ")}.`
+              : `Runpod chưa thực hiện được yêu cầu (HTTP ${status}).`,
     );
   }
 }
@@ -72,29 +77,26 @@ export class Runpod {
     private transport: typeof fetch = fetch,
   ) {}
   private async request<T>(
-    path: string,
+    url: string,
     method = "GET",
     body?: unknown,
-    catalog = false,
+    mutation = method !== "GET",
   ): Promise<T> {
     let response: Response;
     try {
-      response = await this.transport(
-        `${catalog ? "https://api.runpod.io/v2" : "https://rest.runpod.io/v1"}${path}`,
-        {
-          method,
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          cache: "no-store",
-          signal: AbortSignal.timeout(45000),
-          redirect: "error",
+      response = await this.transport(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
         },
-      );
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(45000),
+        redirect: "error",
+      });
     } catch {
-      throw new RunpodError(504, method !== "GET");
+      throw new RunpodError(504, mutation);
     }
     if (!response.ok) {
       // Expose only allowlisted field names, never provider text, env or credentials.
@@ -104,7 +106,7 @@ export class Runpod {
           : [];
       throw new RunpodError(
         response.status,
-        method !== "GET" && (response.status >= 500 || response.status === 408),
+        mutation && (response.status >= 500 || response.status === 408),
         fields,
       );
     }
@@ -113,56 +115,129 @@ export class Runpod {
       const text = await response.text();
       return (text ? JSON.parse(text) : undefined) as T;
     } catch {
-      throw new RunpodError(502, method !== "GET");
+      throw new RunpodError(502, mutation);
     }
   }
-  list() {
-    return this.request<RunpodPod[]>("/pods");
+  private async graphql<T>(
+    query: string,
+    variables: object,
+    field: string,
+    mutation = false,
+  ): Promise<T> {
+    const result = await this.request<{
+      data?: Record<string, T | null>;
+      errors?: { message?: string; extensions?: { code?: string } }[];
+    }>("https://api.runpod.io/graphql", "POST", { query, variables }, mutation);
+    // Only request safe Pod fields. Never return/log env or raw GraphQL errors.
+    if (
+      result?.data &&
+      Object.hasOwn(result.data, field) &&
+      (result.data[field] != null ||
+        (field === "podTerminate" && !result.errors?.length))
+    )
+      return result.data[field] as T;
+    const errors = Array.isArray(result?.errors) ? result.errors : [];
+    const messages = errors
+      .map((e) => (typeof e.message === "string" ? e.message : ""))
+      .join(" ");
+    const codes = errors.map((e) => e.extensions?.code);
+    const capacity =
+      codes.includes("SUPPLY_CONSTRAINT") ||
+      /no (?:longer any )?(?:instances|gpus?|resources|machines)(?:\s+are)? available|could not find.*(?:instance|gpu|machine)|no available (?:instances|gpus?|machines)|out of stock/i.test(
+        messages,
+      );
+    const balance =
+      /insufficient (?:funds|balance|credit)|not enough (?:funds|balance|credit)/i.test(
+        messages,
+      );
+    const invalid = codes.some((code) =>
+      [
+        "GRAPHQL_PARSE_FAILED",
+        "GRAPHQL_VALIDATION_FAILED",
+        "BAD_USER_INPUT",
+      ].includes(code ?? ""),
+    );
+    const denied = codes.some((code) =>
+      ["UNAUTHENTICATED", "FORBIDDEN"].includes(code ?? ""),
+    );
+    throw new RunpodError(
+      denied ? 403 : capacity || balance || invalid ? 400 : 502,
+      mutation && !capacity && !balance && !invalid && !denied,
+      [],
+      capacity ? "capacity" : balance ? "balance" : undefined,
+    );
   }
-  get(id: string) {
-    return this.request<RunpodPod>(`/pods/${encodeURIComponent(id)}`);
+  async list() {
+    const result = await this.graphql<{ pods: RunpodPod[] }>(
+      "query ArenaPods { myself { pods { id name desiredStatus costPerHr } } }",
+      {},
+      "myself",
+    );
+    if (!Array.isArray(result.pods)) throw new RunpodError(502);
+    return result.pods;
+  }
+  async get(id: string) {
+    // Listing also distinguishes an absent Pod from a failed GraphQL query.
+    const pod = (await this.list()).find((p) => p.id === id);
+    if (!pod) throw new RunpodError(404);
+    return pod;
   }
   create(name: string, t: WorkspaceTemplate, env: Record<string, string>) {
-    // Deliberately no retry: a timeout can still mean that a billable Pod was created.
-    return this.request<RunpodPod>("/pods", "POST", {
-      name,
-      imageName: t.imageName,
-      cloudType: t.cloudType,
-      computeType: "GPU",
-      gpuCount: 1,
-      allowedCudaVersions: WORKSPACE_CUDA_VERSIONS,
-      gpuTypeIds: [t.gpuTypeId],
-      interruptible: false,
-      minRAMPerGPU: t.minRAMPerGPU,
-      minVCPUPerGPU: t.minVCPUPerGPU,
-      containerDiskInGb: t.containerDiskInGb,
-      volumeInGb: t.volumeInGb,
-      volumeMountPath: "/workspace",
-      ports: ["8888/http", "8000/http"],
-      env,
-    });
+    // Same operation as the Python GraphQL SDK. Never fall back/retry a mutation
+    // after a timeout: it may have created a billable Pod despite a lost reply.
+    return this.graphql<RunpodPod>(
+      "mutation ArenaCreate($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id name desiredStatus costPerHr } }",
+      {
+        input: {
+          name,
+          imageName: t.imageName,
+          cloudType: t.cloudType,
+          computeType: "GPU",
+          gpuCount: 1,
+          minCudaVersion: WORKSPACE_MIN_CUDA,
+          gpuTypeId: t.gpuTypeId,
+          minMemoryInGb: t.minRAMPerGPU,
+          minVcpuCount: t.minVCPUPerGPU,
+          containerDiskInGb: t.containerDiskInGb,
+          volumeInGb: t.volumeInGb,
+          volumeMountPath: "/workspace",
+          ports: "8888/http,8000/http",
+          startSsh: false,
+          startJupyter: false,
+          env: Object.entries(env).map(([key, value]) => ({ key, value })),
+        },
+      },
+      "podFindAndDeployOnDemand",
+      true,
+    );
   }
   stop(id: string) {
-    return this.request<unknown>(
-      `/pods/${encodeURIComponent(id)}/stop`,
-      "POST",
+    return this.graphql<unknown>(
+      "mutation ArenaStop($input: PodStopInput!) { podStop(input: $input) { id desiredStatus } }",
+      { input: { podId: id } },
+      "podStop",
+      true,
     );
   }
   start(id: string) {
-    return this.request<unknown>(
-      `/pods/${encodeURIComponent(id)}/start`,
-      "POST",
+    return this.graphql<unknown>(
+      "mutation ArenaResume($input: PodResumeInput!) { podResume(input: $input) { id desiredStatus } }",
+      { input: { podId: id, gpuCount: 1 } },
+      "podResume",
+      true,
     );
   }
   terminate(id: string) {
-    return this.request<unknown>(`/pods/${encodeURIComponent(id)}`, "DELETE");
+    return this.graphql<unknown>(
+      "mutation ArenaTerminate($input: PodTerminateInput!) { podTerminate(input: $input) }",
+      { input: { podId: id } },
+      "podTerminate",
+      true,
+    );
   }
   async prices() {
     const result = await this.request<{ gpus: GpuPrice[] }>(
-      "/catalog/gpus",
-      "GET",
-      undefined,
-      true,
+      "https://api.runpod.io/v2/catalog/gpus",
     );
     return result.gpus;
   }

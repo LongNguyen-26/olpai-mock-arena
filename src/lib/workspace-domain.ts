@@ -33,7 +33,7 @@ export const defaultTemplate: WorkspaceTemplate = {
   id: "00000000-0000-4000-8000-000000000040",
   name: "A40 · DeepSeek 32B Q4 · Luyện tập",
   gpuTypeId: "NVIDIA A40",
-  cloudType: "COMMUNITY",
+  cloudType: "SECURE",
   imageName: "",
   minRAMPerGPU: 48,
   minVCPUPerGPU: 8,
@@ -156,7 +156,11 @@ export function meter(
 }
 export function workspaceView(w: Workspace, now: number): WorkspaceView {
   const { secret: _s, jupyterSecret: _j, ownerId: _o, ...safe } = w;
-  return { ...safe, estimatedUsd: estimatedCost(w, now) };
+  if (!w.podId) {
+    safe.meterRate = 0;
+    safe.accruedUsd = 0;
+  }
+  return { ...safe, estimatedUsd: estimatedCost(safe, now) };
 }
 export function driveFileId(value: string) {
   const url = new URL(value);

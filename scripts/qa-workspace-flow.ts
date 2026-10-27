@@ -57,37 +57,47 @@ async function main() {
           },
         ],
       });
-    if (url.startsWith("https://rest.runpod.io/v1/pods")) {
-      const path = new URL(url).pathname.split("/").slice(2);
-      if (path.length === 1 && init?.method === "POST") {
+    if (url === "https://api.runpod.io/graphql") {
+      const request = JSON.parse(init?.body as string);
+      const input = request.variables?.input;
+      if (request.query.includes("ArenaCreate")) {
         creates++;
-        if (mode === "reject") return json({ error: "denied" }, 400);
-        const body = JSON.parse(init.body as string),
-          pod = {
-            id: `qapod${creates}abc`,
-            name: body.name,
-            desiredStatus: "RUNNING",
-            costPerHr: 0.604,
-          };
+        if (mode === "reject")
+          return json({
+            data: { podFindAndDeployOnDemand: null },
+            errors: [
+              {
+                message: "No instances available",
+                extensions: { code: "SUPPLY_CONSTRAINT" },
+              },
+            ],
+          });
+        const pod = {
+          id: `qapod${creates}abc`,
+          name: input.name,
+          desiredStatus: "RUNNING",
+          costPerHr: 0.604,
+        };
         pods.push(pod);
         if (mode === "timeout")
           throw new Error("Simulated lost create response");
-        return json(pod);
+        return json({ data: { podFindAndDeployOnDemand: pod } });
       }
-      if (path.length === 1) return json(pods);
-      const pod = pods.find((p) => p.id === path[1]);
+      if (request.query.includes("ArenaPods"))
+        return json({ data: { myself: { pods } } });
+      const pod = pods.find((p) => p.id === input.podId);
       if (!pod) return json({}, 404);
-      if (init?.method === "DELETE") {
+      if (request.query.includes("ArenaTerminate")) {
         pods.splice(pods.indexOf(pod), 1);
-        return new Response(null, { status: 204 });
+        return json({ data: { podTerminate: null } });
       }
-      if (path[2] === "stop") {
+      if (request.query.includes("ArenaStop")) {
         pod.desiredStatus = "EXITED";
-        return new Response(null, { status: 204 });
+        return json({ data: { podStop: pod } });
       }
-      if (path[2] === "start") {
+      if (request.query.includes("ArenaResume")) {
         pod.desiredStatus = "RUNNING";
-        return new Response(null, { status: 204 });
+        return json({ data: { podResume: pod } });
       }
       return json(pod);
     }
@@ -301,6 +311,8 @@ async function main() {
       0.75,
     );
     assert.equal(uncertain.status, "reconciling");
+    assert.equal(uncertain.meterRate, 0);
+    assert.equal(uncertain.estimatedUsd, 0);
     await assert.rejects(
       () => deployWorkspace(admin, team.id, c.roundId!, t.id, 0.75),
       /đã có Pod/,
@@ -319,6 +331,7 @@ async function main() {
       0.75,
     );
     assert.equal(rejected.status, "failed");
+    assert.match(rejected.error!, /GPU trống/);
     await controlWorkspace(admin, rejected.id, "cancel-failed");
     assert.equal(await db().exists(key(`gpu:active:${team.id}`)), 0);
     console.log(

@@ -236,15 +236,16 @@ export async function deployWorkspace(
       JUPYTER_TOKEN: decryptSecret(w.jupyterSecret),
       ARENA_CONTEXT_SIZE: String(t.sessionTokenLimit + 128),
     });
-    if (!pod.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
+    if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
       throw new RunpodError(502, true);
     w.podId = pod.id;
     w.meterRate = pod.costPerHr ?? price;
+    w.meterAt = await serverNow();
     w.status = "provisioning";
   } catch (e) {
     w.status =
       e instanceof RunpodError && !e.uncertain ? "failed" : "reconciling";
-    w.meterRate = w.status === "reconciling" ? price : 0;
+    w.meterRate = 0;
     w.error =
       w.status === "reconciling"
         ? "Chưa nhận được xác nhận từ Runpod. Bấm Đối soát; hệ thống không tự tạo Pod thứ hai."
@@ -293,6 +294,8 @@ async function runtime<T>(
 }
 async function syncUnlocked(w: Workspace) {
   if (w.status === "terminated") return w;
+  // Repair records written before we stopped metering unconfirmed allocations.
+  if (!w.podId) w = { ...w, meterRate: 0, accruedUsd: 0 };
   const rp = await provider(w.ownerId);
   let pod: RunpodPod | undefined;
   // Names are unique per durable allocation; reconcile even explicit provider errors before releasing the reservation.
@@ -309,8 +312,9 @@ async function syncUnlocked(w: Workspace) {
       w = meter(w, now, "terminated", 0);
       w.error = "Pod không còn tồn tại trên Runpod.";
     } else {
-      w.error =
-        "Chưa tìm thấy Pod. Giữ khóa cấp phát để tránh tạo trùng. Nếu bị từ chối rõ ràng, admin có thể hủy yêu cầu lỗi.";
+      if (w.status !== "failed")
+        w.error =
+          "Chưa tìm thấy Pod. Chưa tính chi phí; giữ khóa cấp phát để tránh tạo trùng. Đối soát lại sau.";
     }
   } else {
     w.podId = pod.id;

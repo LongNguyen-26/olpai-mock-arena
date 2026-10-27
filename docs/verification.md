@@ -37,3 +37,11 @@
 - ZIP gốc không được thay đổi. Train/validation, JSON và baseline đóng gói chờ Astra theo quyết định người dùng.
 - Drive: tải public 359652506 byte và private 9500906 byte; xác nhận chia sẻ Viewer / bất kỳ ai có liên kết. URL chỉ lưu trong metadata Redis, không commit vào Git.
 - Giao diện đăng nhập, danh sách vòng và quản trị được xem trong trình duyệt. Không benchmark tải đồng thời lớn; ứng dụng phục vụ luyện nhóm nhỏ.
+# Sửa cấp GPU thực tế — 27/10/2026
+
+- Chuyển quản lý Pod sang GraphQL với cùng mutation như Python SDK GraphQL; truyền cấu hình qua variables, chỉ lấy id/name/status/rate. Giữ catalog giá REST v2.
+- Kiểm tra trực tiếp: A40 Community trả `SUPPLY_CONSTRAINT` trong HTTP 200 và không tạo Pod. Đã cấp đúng một A40 Secure cho BKDN.AVENGERS, Pod `0fb95yqf1t0bka`, Runpod xác nhận RUNNING và $0,59/h. Chưa kết luận dịch vụ trong container/model sẵn sàng chỉ từ desiredStatus.
+- Dùng CUDA tối thiểu 12.8 thay enum REST v1 cố định; catalog thực tế báo host CUDA 13.2. Mặc định và template đã lưu dùng Secure.
+- Sửa ước tính chi phí khi chưa nhận Pod ID về $0, kể cả dữ liệu cũ; không tự gửi lại khi mất xác nhận. Giữ thông báo hết tài nguyên khi đối soát yêu cầu bị từ chối.
+- Typecheck và 26 unit tests đạt. Script tích hợp Redis thật, Runpod giả lập đạt: cấp đồng thời, mất xác nhận, SUPPLY_CONSTRAINT, hủy yêu cầu lỗi, stop/start/terminate, quyền đội, private và token.
+

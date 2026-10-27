@@ -12,7 +12,9 @@ Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử, to
 
 [Model gốc](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B) và [GGUF cộng đồng của bartowski](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF): Q4_K_M khoảng 19,9 GB. Không khẳng định chất lượng tương đương BF16/cấu hình BTC. LLM và notebook tranh chấp VRAM/compute, không phân vùng GPU cứng; chưa benchmark A40 thực tế.
 
-[Giá Runpod](https://www.runpod.io/pricing) đối chiếu 27/10/2026: A40 48 GB $0,59/h; RTX 6000 Ada 48 GB $0,99/h; A100 PCIe 80 GB $1,79/h. Sáu giờ A40 khoảng $3,54 tiền GPU, cộng lưu trữ/thuế; giá và tồn kho thay đổi. Web dùng [REST Pods v1](https://docs.runpod.io/api-reference/pods/POST/pods) và [catalog giá v2](https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types), cache 60 giây. Trần USD/h admin nhập áp dụng giá GPU báo từ catalog, không phải hard cap hóa đơn.
+[Giá Runpod](https://www.runpod.io/pricing) đối chiếu 27/10/2026: A40 48 GB $0,59/h; RTX 6000 Ada 48 GB $0,99/h; A100 PCIe 80 GB $1,79/h. Sáu giờ A40 khoảng $3,54 tiền GPU, cộng lưu trữ/thuế; giá và tồn kho thay đổi. Web dùng [GraphQL quản lý Pod](https://docs.runpod.io/sdks/graphql/manage-pods), cùng mutation `podFindAndDeployOnDemand` như Python SDK GraphQL, và [catalog giá v2](https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types), cache 60 giây. Template mặc định chọn Secure Cloud. Trần USD/h admin nhập áp dụng giá GPU báo từ catalog, không phải hard cap hóa đơn.
+
+Đã xác minh trực tiếp ngày 27/10: A40 Community bị từ chối bằng GraphQL HTTP 200 với `errors[].extensions.code = SUPPLY_CONSTRAINT`; đây là hết tài nguyên, không phải yêu cầu đang chờ. A40 Secure cấp thành công ở $0,59/h. Host trong catalog báo CUDA 13.2; dùng `minCudaVersion: "12.8"` thay danh sách REST v1 cố định để không loại các host mới tương thích. Không tự thử lại hoặc đổi API/cloud sau timeout chưa rõ kết quả. Phản hồi lỗi GraphQL được chuyển thành thông báo an toàn, không đưa nội dung gốc/env/khóa ra UI.
 
 ## Build và publish image
 
@@ -82,7 +84,7 @@ Private chưa tải plaintext trước giờ: chỉ có `PRIVATE_LOCKED.txt`. Se
 
 - Redis giữ active record nguyên tử, không TTL, trước POST tạo Pod. Allocation ID/name duy nhất; timeout không retry POST. Hai máy/admin/HTTP retry không tạo Pod thứ hai cho cùng đội.
 - Mất xác nhận: Chờ đối soát, tìm Pod qua tên. Không tự giải phóng khóa mơ hồ. Hủy yêu cầu lỗi chỉ khi Runpod từ chối rõ ràng và list Pod không thấy tên. Pending mơ hồ cần đối chiếu Runpod trước bảo trì thủ công, không xóa khóa để thử mù.
-- Chi phí ước tính đơn giá × thời gian quan sát; khi thiếu rate dùng quote. Dừng dùng ước tính volume $0,20/GB/tháng / 730 giờ; có thể lệch invoice do độ trễ đồng bộ, storage/container disk, thuế hoặc thay đổi giá. [Giá lưu trữ](https://docs.runpod.io/pods/pricing).
+- Chi phí chỉ bắt đầu sau khi Runpod xác nhận Pod ID; yêu cầu thất bại/chờ đối soát chưa có Pod luôn hiển thị $0. Chi phí ước tính đơn giá × thời gian quan sát; khi thiếu rate dùng quote. Dừng dùng ước tính volume $0,20/GB/tháng / 730 giờ; có thể lệch invoice do độ trễ đồng bộ, storage/container disk, thuế hoặc thay đổi giá. [Giá lưu trữ](https://docs.runpod.io/pods/pricing).
 - Lock chat chung workspace chống sinh đồng thời. Giữ token tối đa trước inference, hoàn phần output chưa dùng khi thành công. Timeout/mất xác nhận giữ ngân sách và đánh dấu phiên cần `/new`, không tự tái chạy. Xác nhận lại pha/quyền trước khi phát câu trả lời.
 - Không log prompt, provider payload, key, môi trường Pod hay signed URL. DTO bỏ secret/owner ID. API key mã hóa trong Redis, chỉ backend giải mã.
 
