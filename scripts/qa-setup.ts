@@ -32,6 +32,21 @@ async function main() {
     createdAt: Date.now(),
   };
   await db().set(key("contest"), c);
+  const round = {
+    ...c,
+    roundId: c.id,
+    packageId: pkg.version,
+    privateAt: null,
+    unlimited: false,
+    autoApprove: true,
+  };
+  await db()
+    .multi()
+    .set(key(`round:${c.id}`), round)
+    .set(key(`package:${pkg.version}`), { ...pkg, title: "Bộ đề QA" })
+    .hset(key("packages"), { [pkg.version]: "Bộ đề QA" })
+    .zadd(key("rounds"), { score: Date.now(), member: c.id })
+    .exec();
   console.log("Isolated QA namespace ready; production contest unchanged.");
 }
 main().catch((e) => {

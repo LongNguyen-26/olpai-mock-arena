@@ -10,11 +10,6 @@ async function main() {
   const root = resolve(process.argv[2] ?? "../statements"),
     out = resolve(".local/judges"),
     version = `mock-2026-v1-${Date.now()}`;
-  const initial = await db().get<{ id: string; startAt: number | null }>(
-    key("contest"),
-  );
-  if (!initial || initial.startAt !== null)
-    throw new Error("Import only into an initialized, unscheduled contest.");
   const python = process.env.ARENA_PYTHON ?? "python";
   await mkdir(out, { recursive: true });
   execFileSync(python, ["scripts/prepare-judges.py", root, out], {
@@ -51,16 +46,6 @@ async function main() {
       "private",
       "Đầu vào private cho cả hai tác vụ; phát ở giờ cuối. Không chứa nhãn.",
     ],
-    [
-      "Bo_de_mo_phong_OlpAI_2026.pdf",
-      "public",
-      "Bộ đề mô phỏng đầy đủ, định dạng PDF để đọc offline.",
-    ],
-    [
-      "ATTRIBUTION.md",
-      "public",
-      "Nguồn dữ liệu, giấy phép và ghi công của bộ luyện.",
-    ],
   ] as const) {
     const file = join(root, name),
       info = await stat(file),
@@ -96,25 +81,21 @@ async function main() {
   );
   const pkg: ContestPackage = {
     version,
+    title: process.argv[3] ?? "Bộ đề mới",
     statement,
     assets,
     judges,
     importedAt: Date.now(),
   };
-  const c = await db().get<{ startAt: number | null }>(key("contest"));
-  if (c?.startAt !== null && c)
-    throw new Error(
-      "Do not replace judge package after scheduling or starting a contest.",
-    );
-  const activated = await db().eval<unknown[], number>(
-    `local c=cjson.decode(redis.call('GET',KEYS[1]));if c.id~=ARGV[1] or c.startAt~=cjson.null then return 0 end;redis.call('SET',KEYS[2],ARGV[2]);return 1`,
-    [key("contest"), key("package")],
-    [initial.id, JSON.stringify(pkg)],
-  );
-  if (!activated)
-    throw new Error("Contest changed during import; package not activated.");
+  await db()
+    .multi()
+    .set(key(`package:${version}`), pkg)
+    .hset(key("packages"), { [version]: pkg.title! })
+    .exec();
   await writeManifest(assets, version);
-  console.log("Package activated. All answer keys remain in private storage.");
+  console.log(
+    "Package staged for admin confirmation. No new round is published.",
+  );
 }
 async function writeManifest(assets: Asset[], version: string) {
   const { writeFile } = await import("node:fs/promises");

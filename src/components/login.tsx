@@ -37,49 +37,44 @@ export default function Login() {
           </span>
         </a>
         <div className="auth-pitch">
-          <span className="eyebrow orange">
-            OLYMPIC AI · PRACTICE SEASON 2026
-          </span>
+          <span className="eyebrow orange">OLYMPIC AI 2026</span>
           <h1>
-            Sáu giờ tập trung.
-            <span className="auth-title-break"> Một bước tiến xa.</span>
+            Ôn luyện mô phỏng
+            <span className="auth-title-break"> Olympic AI 2026.</span>
           </h1>
           <p>
-            Luyện như thi thật. Từ baseline đầu tiên đến bản nộp cuối, cùng đội
-            của bạn làm chủ cuộc đua.
+            Thực hành trong môi trường thi, đăng ký vòng luyện và theo dõi kết
+            quả cùng đội của bạn.
           </p>
           <div className="orbit-art" aria-hidden="true">
             <i />
             <i />
             <i />
             <b>AI</b>
-            <span className="orbit-label">BUILD. VALIDATE. SUBMIT.</span>
           </div>
           <div className="auth-facts">
             <span>
               <Clock3 size={17} />
-              5h public + 1h private
+              Vòng luyện có hẹn giờ
             </span>
             <span>
-              <Layers3 size={17} />2 tác vụ độc lập
+              <Layers3 size={17} />
+              Đề thi theo từng bộ
             </span>
             <span>
               <Users size={17} />
-              Đội tối đa 3 người
+              Cộng tác theo đội
             </span>
           </div>
         </div>
-        <small>
-          Bộ luyện độc lập · Không phải website chính thức của BTC OlpAI
-        </small>
       </section>
       <section className="auth-form-panel">
         <div className="auth-form">
-          <span className="eyebrow muted">CHÀO MỪNG ĐẾN ĐẤU TRƯỜNG</span>
-          <h2>{register ? "Bắt đầu hành trình" : "Sẵn sàng vào thi?"}</h2>
+          <span className="eyebrow muted">OLYMPIC AI 2026</span>
+          <h2>{register ? "Đăng ký" : "Đăng nhập"}</h2>
           <p>
             {register
-              ? "Tạo tài khoản cá nhân, sau đó kết nối với đồng đội."
+              ? "Đăng ký cá nhân, sau đó kết nối với đồng đội."
               : "Đăng nhập để vào không gian luyện tập của bạn."}
           </p>
           <div className="segmented">
@@ -99,7 +94,7 @@ export default function Login() {
                 setError("");
               }}
             >
-              Tạo tài khoản
+              Đăng ký
             </button>
           </div>
           <form onSubmit={send}>
@@ -152,19 +147,10 @@ export default function Login() {
               </div>
             )}
             <button disabled={busy} className="btn primary wide" type="submit">
-              {busy
-                ? "Đang kết nối…"
-                : register
-                  ? "Tạo tài khoản"
-                  : "Vào đấu trường"}
+              {busy ? "Đang kết nối…" : register ? "Đăng ký" : "Đăng nhập"}
               <ArrowRight size={18} />
             </button>
           </form>
-          <div className="auth-tip">
-            <span className="status-dot" />
-            Một nơi để thử nghiệm, mắc lỗi và tiến bộ.
-            <ChevronRight size={15} />
-          </div>
         </div>
       </section>
     </main>

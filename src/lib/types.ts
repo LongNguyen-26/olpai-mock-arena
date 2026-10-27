@@ -20,6 +20,11 @@ export interface Team {
 }
 export interface Contest {
   id: string;
+  roundId?: string;
+  packageId?: string;
+  privateAt?: number | null;
+  unlimited?: boolean;
+  autoApprove?: boolean;
   title: string;
   startAt: number | null;
   forcedEndAt: number | null;
@@ -36,9 +41,23 @@ export interface Asset {
   sha256: string;
   phase: "public" | "private";
   description: string;
+  driveUrl?: string;
+  task?: TaskId;
+}
+export interface TaskStatement {
+  id: TaskId;
+  title: string;
+  content: string;
+}
+export interface Registration {
+  userId: string;
+  status: "approved" | "pending" | "rejected";
+  registeredAt: number;
 }
 export interface ContestPackage {
   version: string;
+  title?: string;
+  tasks?: TaskStatement[];
   statement: string;
   assets: Asset[];
   judges: Record<TaskId, Record<Split, string>>;

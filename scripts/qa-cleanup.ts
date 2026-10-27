@@ -17,7 +17,11 @@ async function main() {
   for (const item of keys.filter((k) => k.startsWith(key("submissions:")))) {
     const rows = await db().hgetall<Record<string, Submission>>(item);
     for (const s of Object.values(rows ?? {}))
-      if (s.path.startsWith(`submissions/${s.runId}/`)) paths.push(s.path);
+      if (
+        s.path.startsWith(`submissions/${namespace}/${s.runId}/`) ||
+        s.path.startsWith(`submissions/${s.runId}/`)
+      )
+        paths.push(s.path);
   }
   if (paths.length) await storage().del(paths);
   for (let i = 0; i < keys.length; i += 100)

@@ -7,3 +7,4 @@ ACCESS.local.md
 .local/
 output/
 *.tsbuildinfo
+.note.txt

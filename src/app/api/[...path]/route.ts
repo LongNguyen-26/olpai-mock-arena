@@ -18,11 +18,17 @@ import {
   control,
   getContest,
   getPackage,
-  selectFinal,
   snapshot,
   submit,
   teamAction,
 } from "@/lib/arena";
+import {
+  createRound,
+  registerRound,
+  requireRegistration,
+  reviewRegistration,
+} from "@/lib/rounds";
+import { taskStatements } from "@/lib/statements";
 import { canRead } from "@/lib/domain";
 import { SubmissionError } from "@/lib/judge";
 import type { Submission, User } from "@/lib/types";
@@ -66,6 +72,8 @@ async function handle(
 ) {
   try {
     const route = (await context.params).path.join("/");
+    const selectedRound = () =>
+      z.string().uuid().parse(new URL(req.url).searchParams.get("round"));
     if (req.method === "POST") sameOrigin(req);
     if (route === "auth/register" && req.method === "POST") {
       const value = z
@@ -132,30 +140,47 @@ async function handle(
       return json({ user: await getUser() });
     const user = await requireUser();
     if (route === "arena" && req.method === "GET")
-      return json(await snapshot(user));
+      return json(
+        await snapshot(
+          user,
+          new URL(req.url).searchParams.get("round") ?? undefined,
+        ),
+      );
     if (route === "statement" && req.method === "GET") {
-      const [contest, pkg, now] = await Promise.all([
-        getContest(),
-        getPackage(),
-        serverNow(),
-      ]);
+      const contest = await getContest(selectedRound());
+      await requireRegistration(user, contest);
+      const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
       if (!canRead(contest, now, "statement", user.admin))
         throw new ApiError("Đề chỉ mở khi buổi thi bắt đầu.", 403);
       if (!pkg) throw new ApiError("Chưa nạp đề.", 404);
-      return json({ statement: pkg.statement });
+      return json({ tasks: taskStatements(pkg) });
     }
     if (route === "download" && req.method === "GET") {
       const resource = new URL(req.url).searchParams.get("asset");
-      const [contest, pkg, now] = await Promise.all([
-        getContest(),
-        getPackage(),
-        serverNow(),
-      ]);
+      const contest = await getContest(selectedRound());
+      await requireRegistration(user, contest);
+      const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
       const asset = pkg?.assets.find((a) => a.key === resource);
-      if (!asset) throw new ApiError("Không tìm thấy tệp.", 404);
+      if (
+        !asset ||
+        (!user.admin &&
+          (asset.name.endsWith(".md") ||
+            asset.name === "Bo_de_mo_phong_OlpAI_2026.pdf"))
+      )
+        throw new ApiError("Không tìm thấy tệp.", 404);
       if (!canRead(contest, now, asset.phase, user.admin))
         throw new ApiError("Tệp chưa được phát.", 403);
       await rateLimit(`download:${user.id}`, 20, 60);
+      if (new URL(req.url).searchParams.get("source") === "drive") {
+        if (
+          !asset.driveUrl ||
+          new URL(asset.driveUrl).hostname !== "drive.google.com"
+        )
+          throw new ApiError("Liên kết Drive chưa được cập nhật.", 404);
+        return NextResponse.redirect(asset.driveUrl, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
       const result = await storage().signedReadUrl(asset.key, {
         expiresIn: "1m",
         downloadAs: asset.name,
@@ -165,8 +190,9 @@ async function handle(
       });
     }
     if (route === "submission/download" && req.method === "GET") {
-      const c = await getContest(),
-        id = new URL(req.url).searchParams.get("id");
+      const c = await getContest(selectedRound());
+      await requireRegistration(user, c);
+      const id = new URL(req.url).searchParams.get("id");
       const s = id
         ? await db().hget<Submission>(key(`submissions:${c.id}`), id)
         : null;
@@ -248,13 +274,34 @@ async function handle(
         file.size > 3_000_000
       )
         throw new ApiError("Chọn một CSV UTF-8, tối đa 3 MB.");
-      return json(await submit(user, task, split, file, note, nonce));
+      return json(
+        await submit(user, task, split, file, note, nonce, selectedRound()),
+      );
     }
-    if (route === "select-final") {
-      const value = z
-        .object({ id: z.string().uuid() })
+    if (route === "round/register") {
+      await rateLimit("enroll:" + user.id, 20, 60);
+      await registerRound(user, selectedRound());
+      return json({ ok: true });
+    }
+    if (route === "admin/round/create") {
+      await requireAdmin();
+      const v = z
+        .object({
+          title: z.string().trim().min(3).max(100),
+          packageId: z.string().min(1).max(100),
+        })
         .parse(await payload(req));
-      await selectFinal(user, value.id);
+      return json(await createRound(v.title, v.packageId));
+    }
+    if (route === "admin/registration") {
+      await requireAdmin();
+      const v = z
+        .object({
+          userId: z.string().uuid(),
+          status: z.enum(["approved", "rejected"]),
+        })
+        .parse(await payload(req));
+      await reviewRegistration(selectedRound(), v.userId, v.status);
       return json({ ok: true });
     }
     if (route === "admin/control") {
@@ -265,30 +312,43 @@ async function handle(
           z.object({
             action: z.literal("configure"),
             title: z.string().trim().min(3).max(100),
+            unlimited: z.boolean().optional(),
+            autoApprove: z.boolean().optional(),
             publicSeconds: z.number().int().min(30).max(43200),
             privateSeconds: z.number().int().min(30).max(7200),
             publicLimit: z.number().int().min(1).max(100),
             privateLimit: z.number().int().min(1).max(20),
           }),
           z.object({
+            action: z.literal("approval-mode"),
+            autoApprove: z.boolean(),
+          }),
+          z.object({
             action: z.literal("schedule"),
             scheduledAt: z.string().datetime(),
           }),
-          ...(["start", "cancel", "finish", "new"] as const).map((action) =>
-            z.object({ action: z.literal(action) }),
-          ),
+          ...(
+            [
+              "start",
+              "cancel",
+              "finish",
+              "new",
+              "reset",
+              "open-private",
+            ] as const
+          ).map((action) => z.object({ action: z.literal(action) })),
           z.object({
             action: z.literal("announce"),
             text: z.string().trim().min(1).max(1000),
           }),
         ])
         .parse(await payload(req));
-      await control(value.action, value);
+      await control(value.action, value, selectedRound());
       return json({ ok: true });
     }
     if (route === "admin/export") {
       await requireAdmin();
-      const data = await snapshot(user);
+      const data = await snapshot(user, selectedRound());
       return json(data);
     }
     throw new ApiError("Không tìm thấy chức năng.", 404);

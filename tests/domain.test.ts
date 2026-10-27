@@ -47,22 +47,22 @@ const sub = (id: string, score: number, task: "1" | "2" = "1"): Submission => ({
   path: "secret-path",
   note: "",
 });
-test("private scores and storage paths are never serialized before reveal", () => {
+test("private scores are returned immediately; storage paths stay private", () => {
   const hidden = visibleSubmission(sub("1", 90), false);
-  assert.equal(hidden.score, null);
-  assert.equal(hidden.secondary, null);
+  assert.equal(hidden.score, 90);
+  assert.equal(hidden.secondary, 0);
   assert.equal("path" in hidden, false);
   assert.equal(visibleSubmission(sub("1", 90), true).score, 90);
 });
-test("private uses selected submission or latest, missing task scores zero", () => {
+test("private uses best score in both tasks; totals are sums", () => {
   const submissions = [sub("1", 90), sub("2", 40), sub("3", 60, "2")],
     teams = [{ id: "t", name: "Team" }];
-  assert.equal(rankTeams(teams, submissions, {}, "private")[0].total, 50);
+  assert.equal(rankTeams(teams, submissions, {}, "private")[0].total, 150);
   assert.equal(
     rankTeams(teams, submissions, { "t:1": "1" }, "private")[0].total,
-    75,
+    150,
   );
-  assert.equal(rankTeams(teams, [sub("1", 90)], {}, "private")[0].total, 45);
+  assert.equal(rankTeams(teams, [sub("1", 90)], {}, "private")[0].total, 90);
 });
 test("public uses highest valid score", () => {
   const rows = [sub("1", 90), sub("2", 40)].map((s) => ({
@@ -73,4 +73,25 @@ test("public uses highest valid score", () => {
     rankTeams([{ id: "t", name: "Team" }], rows, {}, "public")[0].task1,
     90,
   );
+});
+
+test("unlimited rounds and early private use the actual private opening time", () => {
+  const c = {
+    id: "r",
+    title: "r",
+    startAt: 1000,
+    forcedEndAt: null,
+    publicSeconds: 18000,
+    privateSeconds: 3600,
+    publicLimit: 20,
+    privateLimit: 5,
+    createdAt: 0,
+  };
+  assert.equal(phaseOf({ ...c, unlimited: true }, 999999999), "public");
+  assert.equal(
+    phaseOf({ ...c, unlimited: true, privateAt: 2000 }, 999999999),
+    "private",
+  );
+  assert.equal(phaseOf({ ...c, privateAt: 2000 }, 2000), "private");
+  assert.equal(phaseOf({ ...c, privateAt: 2000 }, 3602000), "ended");
 });
