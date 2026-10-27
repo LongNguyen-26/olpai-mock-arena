@@ -50,7 +50,7 @@ async function main() {
     users.push(
       (
         await request("auth/register", "", {
-          username: "round_" + randomUUID().slice(0, 8),
+          username: "round_" + randomUUID().slice(0, 8) + "@example.test",
           name: "Thí sinh " + i,
           password: "Arena-QA-Only-2026!",
         })

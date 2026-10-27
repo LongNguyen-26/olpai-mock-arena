@@ -68,7 +68,7 @@ async function main() {
     401,
   );
   const outsider = await call("auth/register", "", {
-    username: `outsider_${randomUUID().slice(0, 8)}`,
+    username: `outsider_${randomUUID().slice(0, 8)}@example.test`,
     name: "Đội khác QA",
     password: fixture.password,
   });
