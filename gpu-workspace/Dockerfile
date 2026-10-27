@@ -8,7 +8,7 @@ RUN cmake -S /src/llama -B /src/llama/build -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DC
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 ENV ARENA_MODEL_REVISION=1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec
-RUN apt-get update && apt-get install -y --no-install-recommends python3.10 python3.10-venv python3-pip build-essential libcurl4 libgomp1 libgl1 libglib2.0-0 ffmpeg curl ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3.10 python3.10-dev python3.10-venv python3-pip build-essential libcurl4 libgomp1 libgl1 libglib2.0-0 ffmpeg curl ca-certificates tini && rm -rf /var/lib/apt/lists/*
 RUN python3.10 -m venv /opt/arena/venv
 ENV PATH="/opt/arena/venv/bin:${PATH}"
 RUN pip install pip==25.0.1 && pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128

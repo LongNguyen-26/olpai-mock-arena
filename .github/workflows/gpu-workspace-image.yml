@@ -89,6 +89,16 @@ jobs:
       - name: Build and optionally publish
         id: build
         run: |
+          # A fast-forward release of an already built commit can reuse its immutable image.
+          if [[ "$PUBLISH" == 'true' && "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            existing_digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" 2>/dev/null | awk '$1=="Digest:" {print $2; exit}') || true
+            tag_digest=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" 2>/dev/null | awk '$1=="Digest:" {print $2; exit}') || true
+            if [[ "$existing_digest" =~ ^sha256:[a-f0-9]{64}$ && "$existing_digest" == "$tag_digest" ]]; then
+              printf 'digest=%s\n' "$existing_digest" >> "$GITHUB_OUTPUT"
+              echo 'This exact commit image is already published; reusing it.'
+              exit 0
+            fi
+          fi
           publish_args=()
           if [[ "$PUBLISH" == 'true' ]]; then publish_args+=(--push); fi
           set +e
@@ -96,6 +106,7 @@ jobs:
             --file gpu-workspace/Dockerfile \
             --tag "$IMAGE:$IMAGE_TAG" --tag "$IMAGE:sha-$GITHUB_SHA" \
             --provenance=false --sbom=false \
+            --cache-from "type=registry,ref=$IMAGE:$IMAGE_TAG" --cache-to type=inline \
             --metadata-file "$RUNNER_TEMP/gpu-image-metadata.json" \
             "${publish_args[@]}" gpu-workspace 2>&1 | tee "$RUNNER_TEMP/gpu-image-build.log"
           build_status=${PIPESTATUS[0]}
