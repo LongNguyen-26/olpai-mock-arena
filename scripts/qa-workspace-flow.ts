@@ -276,6 +276,12 @@ async function main() {
     const safe = await workspaceState(member);
     assert.ok(!JSON.stringify(safe).includes(stored.secret));
     assert.equal(safe.teams.length, 0);
+    await db().set(key(`gpu:workspace:${w.id}`), {
+      ...(await getWorkspace(w.id)),
+      health: null,
+      syncedAt: 0,
+    });
+    assert.equal((await readChat(member, w.id, session)).enabled, true);
     c.privateAt = await serverNow();
     await db().set(key(`round:${c.roundId}`), c);
     assert.equal(

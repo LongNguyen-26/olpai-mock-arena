@@ -528,8 +528,24 @@ export async function launchNotebook(user: SafeUser, id: string) {
   return `${podOrigin(w.podId, 8888)}/lab?token=${encodeURIComponent(decryptSecret(w.jupyterSecret))}`;
 }
 export async function readChat(user: SafeUser, id: string, sessionId: string) {
-  const { w, c } = await accessWorkspace(user, id),
+  let { w, c } = await accessWorkspace(user, id);
+  let now = await serverNow();
+  // A chat tab must recover on its own when the model finishes loading or the
+  // round reopens, even if nobody has the GPU dashboard open.
+  if (
+    w.podId &&
+    !["terminated", "failed"].includes(w.status) &&
+    now - (w.syncedAt ?? 0) >= 15000
+  ) {
+    try {
+      await syncWorkspace(user, id);
+      ({ w, c } = await accessWorkspace(user, id));
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 409))
+        w = { ...w, health: null };
+    }
     now = await serverNow();
+  }
   const session =
     (await db().get<ChatSession>(key(`gpu:chat:${id}:${c.id}:${sessionId}`))) ??
     emptySession();
