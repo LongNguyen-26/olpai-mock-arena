@@ -19,6 +19,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 ROOT = Path(os.getenv("ARENA_WORKSPACE_ROOT", "/workspace"))
+SERVICES = os.getenv("ARENA_WORKSPACE_SERVICES", "both")
+if SERVICES not in ("both", "llm", "jupyter"):
+    raise ValueError("Invalid workspace services")
+HAS_LLM = SERVICES in ("both", "llm")
+HAS_JUPYTER = SERVICES in ("both", "jupyter")
 STATE = {"stage": "Khởi động", "publicReady": False, "privateReady": False, "error": None}
 MODEL_PROCESS = None
 MODEL_ERROR = None
@@ -43,7 +48,7 @@ def stop_model():
 
 def apply_policy(policy):
     global MODEL_RUN_ID, MODEL_STAGE
-    enabled = bool(policy.get("active") and policy.get("llmEnabled"))
+    enabled = bool(HAS_LLM and policy.get("active") and policy.get("llmEnabled"))
     run_id = policy.get("runId")
     if MODEL_RUN_ID != run_id:
         stop_model()
@@ -130,6 +135,10 @@ def dataset_loop():
                 STATE.update(publicReady=False, privateReady=False, stage="Lượt thi đã đóng hoặc được đặt lại")
                 STOP.wait(20)
                 continue
+            if not HAS_JUPYTER:
+                STATE.update(publicReady=False, privateReady=False, stage="Pod dành cho Chatbot", error=None)
+                STOP.wait(20)
+                continue
             for asset in policy["assets"]:
                 STATE["stage"] = "Đang nạp " + asset["name"]
                 load_asset(asset)
@@ -179,7 +188,7 @@ def model_worker():
 async def lifespan(_app):
     (ROOT / ".arena").mkdir(parents=True, exist_ok=True)
     STOP.clear()
-    for fn in (dataset_loop, model_worker):
+    for fn in (dataset_loop, *([model_worker] if HAS_LLM else [])):
         threading.Thread(target=fn, daemon=True).start()
     yield
     STOP.set()
@@ -215,16 +224,18 @@ async def health():
                 return response.status_code == 200 and (not lab or "jupyter-config-data" in response.text)
             except httpx.HTTPError:
                 return False
-        llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health"), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True))
+        llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health") if HAS_LLM else asyncio.sleep(0,result=False), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True) if HAS_JUPYTER else asyncio.sleep(0,result=False))
     gpu = ""
     try:
         gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader"], timeout=3, text=True).strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    return {**STATE, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}
+    return {**STATE, "services": SERVICES, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}
 
 @app.post("/token-count")
 async def token_count(request: CountRequest):
+    if not HAS_LLM:
+        raise HTTPException(404, "LLM not enabled")
     try:
         return {"count": len(await tokenize(request.messages))}
     except httpx.HTTPError:
@@ -232,6 +243,8 @@ async def token_count(request: CountRequest):
 
 @app.post("/generate")
 async def generate(request: GenerateRequest):
+    if not HAS_LLM:
+        raise HTTPException(404, "LLM not enabled")
     if GENERATING.locked():
         raise HTTPException(409, "GPU busy")
     async with GENERATING:

@@ -16,6 +16,28 @@ tempfile.tempdir = str(test_temp)
 spec = importlib.util.spec_from_file_location("arena_agent", Path(__file__).with_name("agent.py"))
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
+start_spec=importlib.util.spec_from_file_location("arena_start",Path(__file__).with_name("start.py"))
+startup=importlib.util.module_from_spec(start_spec)
+start_spec.loader.exec_module(startup)
+
+class ServiceModeTests(unittest.TestCase):
+    def test_llm_only_needs_no_jupyter_token_and_starts_no_notebook(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ,{},clear=True):
+            commands=startup.launch_plan(Path(temp),"llm")
+            self.assertEqual(len(commands),1)
+            self.assertEqual(commands[0][0],"uvicorn")
+            self.assertFalse((Path(temp)/"data").exists())
+
+    def test_jupyter_only_starts_notebook_with_agent_and_no_model_command(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ,{"JUPYTER_TOKEN":"qa-jupyter-token"}):
+            commands=startup.launch_plan(Path(temp),"jupyter")
+            self.assertEqual([c[0] for c in commands],["jupyter","uvicorn"])
+            self.assertTrue((Path(temp)/"data/public").exists())
+
+    def test_jupyter_mode_never_enables_model_worker(self):
+        with patch.object(agent,"HAS_LLM",False), patch.object(agent,"stop_model"), patch.object(agent,"MODEL_ENABLED",__import__("threading").Event()):
+            agent.apply_policy({"active":True,"llmEnabled":True,"runId":"public"})
+            self.assertFalse(agent.MODEL_ENABLED.is_set())
 
 class ArchiveTests(unittest.TestCase):
     def test_public_reopens_model_after_private_and_new_run(self):
@@ -83,6 +105,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent, "tokenize", new=AsyncMock(return_value=[1, 2, 3])):
             response = await self.client.post("/token-count", json={"messages": [{"role": "user", "content": "hello"}]})
         self.assertEqual(response.json(), {"count": 3})
+
+    async def test_jupyter_only_refuses_llm_routes(self):
+        with patch.object(agent,"HAS_LLM",False), patch.object(agent,"tokenize",new=AsyncMock()) as tokenizer:
+            response=await self.client.post("/token-count",json={"messages":[{"role":"user","content":"hello"}]})
+            self.assertEqual(response.status_code,404)
+            response=await self.client.post("/generate",json={"messages":[{"role":"user","content":"hello"}],"maxTokens":8,"expectedInputTokens":3})
+            self.assertEqual(response.status_code,404)
+            tokenizer.assert_not_called()
 
     async def test_private_policy_blocks_inference_before_tokenization(self):
         with patch.object(agent, "manifest", return_value={"active": True, "llmEnabled": False}), patch.object(agent, "tokenize", new=AsyncMock()) as tokenizer:
