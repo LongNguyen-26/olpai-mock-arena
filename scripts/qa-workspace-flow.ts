@@ -102,6 +102,7 @@ async function main() {
       return json(pod);
     }
     if (url.includes(".proxy.runpod.net")) {
+      if (url.endsWith("/api/status")) return json({ status: "ok" });
       if (url.endsWith("/health"))
         return json({
           jupyter: true,
@@ -293,9 +294,16 @@ async function main() {
     assert.equal(
       (await agentManifest(w.id, `Bearer ${decryptSecret(stored.secret)}`))
         .active,
-      false,
+      true,
     );
-    await assert.rejects(() => launchNotebook(member, w.id), /lượt thi/);
+    assert.equal(
+      (await readChat(member, w.id, session)).session.messages.length,
+      0,
+    );
+    await syncWorkspace(admin, w.id);
+    assert.ok(
+      (await launchNotebook(member, w.id)).includes("8888.proxy.runpod.net"),
+    );
     c.id = oldRun;
     c.privateAt = null;
     await db().set(key(`round:${c.roundId}`), c);

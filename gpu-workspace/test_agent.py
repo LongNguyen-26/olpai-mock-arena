@@ -18,6 +18,16 @@ agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 
 class ArchiveTests(unittest.TestCase):
+    def test_public_reopens_model_after_private_and_new_run(self):
+        with patch.object(agent,"stop_model") as stop, patch.object(agent,"MODEL_RUN_ID",None), patch.object(agent,"MODEL_ENABLED", __import__("threading").Event()):
+            agent.apply_policy({"active":True,"llmEnabled":True,"runId":"run1"})
+            self.assertTrue(agent.MODEL_ENABLED.is_set())
+            agent.apply_policy({"active":True,"llmEnabled":False,"runId":"run1"})
+            self.assertFalse(agent.MODEL_ENABLED.is_set())
+            agent.apply_policy({"active":True,"llmEnabled":True,"runId":"run2"})
+            self.assertTrue(agent.MODEL_ENABLED.is_set())
+            self.assertFalse(agent.STATE["chatLocked"])
+            self.assertGreaterEqual(stop.call_count,3)
     def test_private_transition_releases_model_process(self):
         process = Mock()
         process.poll.return_value = None
@@ -84,6 +94,12 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent, "manifest", return_value={"active": True, "llmEnabled": True}), patch.object(agent, "tokenize", new=AsyncMock(return_value=[1, 2])):
             response = await self.client.post("/generate", json={"messages": [{"role": "user", "content": "hello"}], "maxTokens": 50, "expectedInputTokens": 3})
         self.assertEqual(response.status_code, 422)
+
+    async def test_old_run_request_is_rejected_after_reset(self):
+        with patch.object(agent,"manifest",return_value={"active":True,"llmEnabled":True,"runId":"new"}), patch.object(agent,"tokenize",new=AsyncMock()) as tokenizer:
+            response=await self.client.post("/generate",json={"messages":[{"role":"user","content":"hello"}],"maxTokens":50,"expectedInputTokens":3,"runId":"old"})
+        self.assertEqual(response.status_code,403)
+        tokenizer.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

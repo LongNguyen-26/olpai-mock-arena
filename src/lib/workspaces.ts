@@ -1,7 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db, key, serverNow, storage } from "./db";
 import { ApiError, rateLimit } from "./auth";
-import { getContest, getPackage, requireRegistration } from "./rounds";
+import {
+  getContest,
+  getPackage,
+  requireRegistration,
+  roundKey,
+} from "./rounds";
 import { canRead, phaseOf } from "./domain";
 import {
   decryptSecret,
@@ -17,12 +22,13 @@ import {
   meter,
   outputBudget,
   workspaceView,
+  workspaceAccess,
   type ChatSession,
   type RuntimeHealth,
   type Workspace,
   type WorkspaceTemplate,
 } from "./workspace-domain";
-import type { SafeUser, Team } from "./types";
+import type { Contest, SafeUser, Team } from "./types";
 
 const recordKey = (id: string) => key(`gpu:workspace:${id}`);
 const activeKey = (team: string) => key(`gpu:active:${team}`);
@@ -42,7 +48,12 @@ async function provider(owner: string) {
   return new Runpod(decryptSecret(encrypted));
 }
 async function save(w: Workspace) {
-  await db().set(recordKey(w.id), w);
+  const saved = await db().eval<unknown[], Workspace>(
+    `local next=cjson.decode(ARGV[1]);local raw=redis.call('GET',KEYS[1]);if raw then local old=cjson.decode(raw);if old.runId~=next.runId then next.runId=old.runId;next.roundTitle=old.roundTitle;next.health=cjson.null;next.syncedAt=cjson.null end end;local encoded=cjson.encode(next);redis.call('SET',KEYS[1],encoded);return encoded`,
+    [recordKey(w.id)],
+    [JSON.stringify(w)],
+  );
+  Object.assign(w, typeof saved === "string" ? JSON.parse(saved) : saved);
 }
 async function lock<T>(
   id: string,
@@ -68,9 +79,24 @@ export async function getWorkspace(id: string) {
   if (!w) throw new ApiError("Không tìm thấy GPU Workspace.", 404);
   return w;
 }
+async function currentRun(w: Workspace, c: Contest) {
+  if (w.runId === c.id || ["terminated", "failed"].includes(w.status)) return w;
+  // Reuse the team's existing Pod when the same round is reset. Patch only run
+  // metadata atomically so a concurrent provider reconciliation is not lost.
+  const updated = await db().eval<unknown[], Workspace | null>(
+    `local round=redis.call('GET',KEYS[2]);if not round or cjson.decode(round).id~=ARGV[1] then return nil end;local raw=redis.call('GET',KEYS[1]);if not raw then return nil end;local w=cjson.decode(raw);if w.status~='terminated' and w.status~='failed' and w.runId~=ARGV[1] then w.runId=ARGV[1];w.roundTitle=ARGV[2];w.health=cjson.null;w.syncedAt=cjson.null;w.updatedAt=tonumber(ARGV[3]);raw=cjson.encode(w);redis.call('SET',KEYS[1],raw) end;return raw`,
+    [recordKey(w.id), roundKey(c)],
+    [c.id, c.title, await serverNow()],
+  );
+  if (!updated)
+    throw new ApiError("Vòng luyện vừa thay đổi. Vui lòng tải lại.", 409);
+  return typeof updated === "string"
+    ? (JSON.parse(updated) as Workspace)
+    : updated;
+}
 export async function accessWorkspace(user: SafeUser, id: string) {
-  const w = await getWorkspace(id),
-    c = await getContest(w.roundId);
+  let w = await getWorkspace(id);
+  const c = await getContest(w.roundId);
   if (!user.admin) {
     const team = user.teamId
       ? await db().hget<Team>(key("teams"), user.teamId)
@@ -79,6 +105,7 @@ export async function accessWorkspace(user: SafeUser, id: string) {
       throw new ApiError("Bạn không thuộc đội được cấp GPU này.", 403);
     await requireRegistration(user, c);
   }
+  w = await currentRun(w, c);
   return { w, c };
 }
 export async function workspaceState(user: SafeUser) {
@@ -91,10 +118,26 @@ export async function workspaceState(user: SafeUser) {
     user.admin ? db().exists(credentialKey(user.id)) : false,
   ]);
   return {
-    workspaces: all
-      .filter((w) => user.admin || w.teamId === user.teamId)
-      .map((w) => workspaceView(w, now))
-      .sort((a, b) => b.createdAt - a.createdAt),
+    workspaces: (
+      await Promise.all(
+        all
+          .filter((w) => user.admin || w.teamId === user.teamId)
+          .map(async (record) => {
+            const c = await getContest(record.roundId);
+            const w = await currentRun(record, c);
+            let registered = true;
+            try {
+              await requireRegistration(user, c);
+            } catch {
+              registered = false;
+            }
+            return {
+              ...workspaceView(w, now),
+              ...workspaceAccess(w, c, now, user.admin, registered),
+            };
+          }),
+      )
+    ).sort((a, b) => b.createdAt - a.createdAt),
     templates: user.admin ? Object.values(templates ?? {}) : [],
     defaultTemplate: user.admin
       ? {
@@ -324,6 +367,11 @@ async function syncUnlocked(w: Workspace) {
         : pod.desiredStatus === "EXITED" || pod.desiredStatus === "STOPPED"
           ? "stopped"
           : "provisioning";
+    w.uptimeSeconds =
+      typeof pod.runtime?.uptimeInSeconds === "number"
+        ? Math.max(0, pod.runtime.uptimeInSeconds)
+        : null;
+    w.uptimeObservedAt = now;
     // Storage is an explicit estimate (Runpod volume disk: $0.20/GB/month while stopped).
     const rate =
       status === "stopped"
@@ -333,7 +381,20 @@ async function syncUnlocked(w: Workspace) {
     w.error = null;
     if (status === "running") {
       try {
-        w.health = await runtime<RuntimeHealth>(w, "/health");
+        const [health, jupyter] = await Promise.all([
+          runtime<RuntimeHealth>(w, "/health"),
+          fetch(`${podOrigin(w.podId!, 8888)}/api/status`, {
+            headers: {
+              Authorization: `token ${decryptSecret(w.jupyterSecret)}`,
+            },
+            signal: AbortSignal.timeout(5000),
+            redirect: "error",
+            cache: "no-store",
+          })
+            .then((r) => r.status === 200)
+            .catch(() => false),
+        ]);
+        w.health = { ...health, jupyter: health.jupyter && jupyter };
       } catch {
         w.health = null;
         w.error = "Pod đang chạy; đang chờ dịch vụ khởi động.";
@@ -353,7 +414,8 @@ async function syncUnlocked(w: Workspace) {
 export async function syncWorkspace(user: SafeUser, id: string) {
   await accessWorkspace(user, id);
   return lock(`pod:${id}`, async () => {
-    const w = await getWorkspace(id),
+    const record = await getWorkspace(id),
+      w = await currentRun(record, await getContest(record.roundId)),
       now = await serverNow();
     if (w.syncedAt && now - w.syncedAt < 15000) return workspaceView(w, now);
     return workspaceView(await syncUnlocked(w), await serverNow());
@@ -408,11 +470,12 @@ export async function controlWorkspace(
   });
 }
 export async function agentManifest(id: string, authorization: string | null) {
-  const w = await getWorkspace(id);
+  let w = await getWorkspace(id);
   if (!matchesSecret(authorization, decryptSecret(w.secret)))
     throw new ApiError("Không có quyền truy cập.", 401);
   const c = await getContest(w.roundId),
     now = await serverNow();
+  w = await currentRun(w, c);
   if (w.runId !== c.id || w.status === "terminated")
     return { active: false, phase: "ended", assets: [], privateLocked: true };
   const pkg = await getPackage(c);
@@ -439,6 +502,7 @@ export async function agentManifest(id: string, authorization: string | null) {
   );
   return {
     active: true,
+    runId: c.id,
     phase: phaseOf(c, now),
     assets,
     privateLocked: !canRead(c, now, "private"),
@@ -455,18 +519,27 @@ export async function launchNotebook(user: SafeUser, id: string) {
     throw new ApiError("Notebook chỉ mở trong lượt thi được cấp GPU.", 403);
   if (w.status !== "running" || !w.podId || !w.health?.jupyter)
     throw new ApiError("JupyterLab chưa sẵn sàng.", 409);
+  const health = await runtime<RuntimeHealth>(w, "/health");
+  if (!health.jupyter)
+    throw new ApiError(
+      "JupyterLab đang khởi động. Vui lòng chờ và đối soát lại.",
+      409,
+    );
   return `${podOrigin(w.podId, 8888)}/lab?token=${encodeURIComponent(decryptSecret(w.jupyterSecret))}`;
 }
 export async function readChat(user: SafeUser, id: string, sessionId: string) {
   const { w, c } = await accessWorkspace(user, id),
     now = await serverNow();
   const session =
-    (await db().get<ChatSession>(key(`gpu:chat:${id}:${sessionId}`))) ??
+    (await db().get<ChatSession>(key(`gpu:chat:${id}:${c.id}:${sessionId}`))) ??
     emptySession();
   return {
     session,
     template: w.template,
-    enabled: chatbotOpen(w, c, now),
+    enabled: workspaceAccess(w, c, now, user.admin).chatbotEnabled,
+    policyOpen: chatbotOpen(w, c, now),
+    statusMessage: workspaceAccess(w, c, now, user.admin).accessMessage,
+    runId: c.id,
     serverNow: now,
     teamName: w.teamName,
     roundTitle: w.roundTitle,
@@ -486,7 +559,7 @@ export async function sendChat(
     async () => {
       const { w, c } = await accessWorkspace(user, id),
         now = await serverNow(),
-        k = key(`gpu:chat:${id}:${sessionId}`);
+        k = key(`gpu:chat:${id}:${c.id}:${sessionId}`);
       const s = (await db().get<ChatSession>(k)) ?? emptySession();
       if (s.lastRequestId === requestId) return { session: s };
       if (!chatbotOpen(w, c, now))
@@ -525,7 +598,12 @@ export async function sendChat(
         }>(
           w,
           "/generate",
-          { messages, maxTokens, expectedInputTokens: count.count },
+          {
+            messages,
+            maxTokens,
+            expectedInputTokens: count.count,
+            runId: c.id,
+          },
           240000,
         );
         if (
@@ -538,7 +616,10 @@ export async function sendChat(
         )
           throw new ApiError("Dịch vụ trả số token không hợp lệ.", 502);
         const current = await accessWorkspace(user, id);
-        if (!chatbotOpen(current.w, current.c, await serverNow()))
+        if (
+          current.c.id !== c.id ||
+          !chatbotOpen(current.w, current.c, await serverNow())
+        )
           throw new ApiError(
             "Đã chuyển khỏi public; phản hồi không được phát sau giờ khóa chatbot.",
             403,

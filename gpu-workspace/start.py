@@ -14,8 +14,28 @@ lock_note.write_text("Private chưa mở. Agent chỉ tải và giải nén sau 
 token = os.environ["JUPYTER_TOKEN"]
 # Kept out of argv and notebook files. Training mode intentionally allows terminal access.
 os.environ["JUPYTER_TOKEN"] = token
+# Runpod probes /api/status without credentials. Expose only this minimal
+# readiness response; Lab, files, terminals and kernels still require the token.
+config_dir = root / ".arena" / "jupyter"
+config_dir.mkdir(parents=True, exist_ok=True)
+(config_dir / "arena_readiness.py").write_text('''from tornado.web import RequestHandler
+from jupyter_server.auth.decorator import allow_unauthenticated
+class ReadyHandler(RequestHandler):
+    @allow_unauthenticated
+    def get(self):
+        self.set_header("Cache-Control", "no-store")
+        self.write({"status": "ok"})
+default_handlers = [(r"/api/status", ReadyHandler)]
+''', encoding="utf-8")
+config = config_dir / "jupyter_server_config.py"
+config.write_text('''import os
+c.ServerApp.extra_services = ["arena_readiness"]
+c.IdentityProvider.token = os.environ["JUPYTER_TOKEN"]
+c.ServerApp.allow_remote_access = True
+''', encoding="utf-8")
+os.environ["PYTHONPATH"] = str(config_dir) + os.pathsep + os.environ.get("PYTHONPATH", "")
 processes = [
-    subprocess.Popen(["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--ServerApp.root_dir=/workspace", "--ServerApp.allow_remote_access=True"]),
+    subprocess.Popen(["jupyter", "lab", "--config=" + str(config), "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--ServerApp.root_dir=/workspace"]),
     subprocess.Popen(["uvicorn", "agent:app", "--host=0.0.0.0", "--port=8000", "--app-dir=/opt/arena", "--no-access-log"]),
 ]
 def stop(*_):

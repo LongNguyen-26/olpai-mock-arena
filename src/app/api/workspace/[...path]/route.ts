@@ -149,6 +149,32 @@ async function handle(
     }
     throw new ApiError("Không tìm thấy chức năng.", 404);
   } catch (e) {
+    if (
+      req.method === "GET" &&
+      new URL(req.url).pathname.endsWith("/workspace/launch")
+    ) {
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : "JupyterLab chưa sẵn sàng. Vui lòng quay lại GPU Workspace và thử lại sau.";
+      const escaped = message
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+      return new Response(
+        `<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JupyterLab</title><body><main><h1>JupyterLab</h1><p>${escaped}</p><a href="/">Về GPU Workspace</a></main></body></html>`,
+        {
+          status: e instanceof ApiError ? e.status : 503,
+          headers: {
+            ...headers,
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy":
+              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          },
+        },
+      );
+    }
     if (e instanceof z.ZodError)
       return json(
         { error: e.issues[0]?.message ?? "Dữ liệu không hợp lệ." },

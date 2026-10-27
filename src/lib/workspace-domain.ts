@@ -59,6 +59,7 @@ export interface RuntimeHealth {
   stage: string;
   gpu?: string;
   error?: string;
+  modelStage?: string;
 }
 export interface Workspace {
   id: string;
@@ -82,12 +83,49 @@ export interface Workspace {
   accruedUsd: number;
   quotedGpuRate: number;
   health: RuntimeHealth | null;
+  uptimeSeconds?: number | null;
+  uptimeObservedAt?: number | null;
   error: string | null;
 }
 export type WorkspaceView = Omit<
   Workspace,
   "secret" | "jupyterSecret" | "ownerId"
-> & { estimatedUsd: number };
+> & {
+  estimatedUsd: number;
+  notebookEnabled?: boolean;
+  chatbotEnabled?: boolean;
+  accessMessage?: string;
+};
+
+export function workspaceAccess(
+  w: Workspace,
+  c: Contest,
+  now: number,
+  admin = false,
+  registered = true,
+) {
+  const phase = phaseOf(c, now);
+  const current = w.runId === c.id && w.status === "running";
+  const notebookWindow =
+    admin || (registered && ["public", "private"].includes(phase));
+  const chatWindow = (admin || registered) && chatbotOpen(w, c, now);
+  return {
+    notebookEnabled: current && notebookWindow && !!w.health?.jupyter,
+    chatbotEnabled:
+      current && chatWindow && !!w.health?.llm && !w.health?.chatLocked,
+    accessMessage: !current
+      ? "Pod chưa sẵn sàng cho lượt thi hiện tại."
+      : !registered && !admin
+        ? "Bạn cần được duyệt tham gia vòng luyện này."
+        : !notebookWindow
+          ? "Notebook mở trong giai đoạn public và private."
+          : !w.health?.jupyter
+            ? "JupyterLab đang khởi động; chưa mở truy cập."
+            : chatWindow && !w.health?.llm
+              ? (w.health?.modelStage ?? "Đang tải hoặc khởi động DeepSeek.")
+              : "",
+  };
+}
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;

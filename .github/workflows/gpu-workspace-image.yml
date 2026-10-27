@@ -11,6 +11,10 @@ on:
         description: Docker image tag
         type: string
         default: "2026.10.27"
+      full_build:
+        description: Rebuild CUDA, Python and library dependencies
+        type: boolean
+        default: false
   push:
     paths:
       - "gpu-workspace/**"
@@ -89,6 +93,16 @@ jobs:
       - name: Build and optionally publish
         id: build
         run: |
+          dockerfile=gpu-workspace/Dockerfile.runtime
+          if [[ '${{ inputs.full_build }}' == 'true' || "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
+            dockerfile=gpu-workspace/Dockerfile
+          elif [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            before='${{ github.event.before }}'
+            git fetch origin "$before" --depth=1
+            if ! git diff --quiet "$before" "$GITHUB_SHA" -- gpu-workspace/Dockerfile gpu-workspace/requirements.txt; then
+              dockerfile=gpu-workspace/Dockerfile
+            fi
+          fi
           # A fast-forward release of an already built commit can reuse its immutable image.
           if [[ "$PUBLISH" == 'true' && "$GITHUB_EVENT_NAME" == 'push' ]]; then
             existing_digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" 2>/dev/null | awk '$1=="Digest:" {print $2; exit}') || true
@@ -103,7 +117,7 @@ jobs:
           if [[ "$PUBLISH" == 'true' ]]; then publish_args+=(--push); fi
           set +e
           docker buildx build --progress plain --platform linux/amd64 \
-            --file gpu-workspace/Dockerfile \
+            --file "$dockerfile" \
             --tag "$IMAGE:$IMAGE_TAG" --tag "$IMAGE:sha-$GITHUB_SHA" \
             --provenance=false --sbom=false \
             --cache-from "type=registry,ref=$IMAGE:$IMAGE_TAG" --cache-to type=inline \

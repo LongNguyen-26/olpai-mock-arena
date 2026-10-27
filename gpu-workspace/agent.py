@@ -23,6 +23,9 @@ STATE = {"stage": "Khởi động", "publicReady": False, "privateReady": False,
 MODEL_PROCESS = None
 MODEL_ERROR = None
 MODEL_LOCK = threading.Lock()
+MODEL_ENABLED = threading.Event()
+MODEL_RUN_ID = None
+MODEL_STAGE = "Đang chờ public mở"
 LLAMA_URL = "http://127.0.0.1:8080"
 STOP = threading.Event()
 GENERATING = asyncio.Lock()
@@ -36,6 +39,22 @@ def stop_model():
                 MODEL_PROCESS.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 MODEL_PROCESS.kill()
+                MODEL_PROCESS.wait(timeout=5)
+
+def apply_policy(policy):
+    global MODEL_RUN_ID, MODEL_STAGE
+    enabled = bool(policy.get("active") and policy.get("llmEnabled"))
+    run_id = policy.get("runId")
+    if MODEL_RUN_ID != run_id:
+        stop_model()
+        MODEL_RUN_ID = run_id
+    STATE["chatLocked"] = not enabled
+    if enabled:
+        MODEL_ENABLED.set()
+    else:
+        MODEL_ENABLED.clear()
+        stop_model()
+        MODEL_STAGE = "DeepSeek khóa ngoài public; đã trả VRAM"
 
 async def auth(authorization: str | None = Header(default=None)):
     expected = "Bearer " + os.environ["ARENA_AGENT_TOKEN"]
@@ -105,14 +124,12 @@ def dataset_loop():
     while not STOP.is_set():
         try:
             policy = manifest()
-            STATE["chatLocked"] = not policy.get("llmEnabled", False)
+            apply_policy(policy)
             if not policy.get("active"):
                 stop_model()
                 STATE.update(publicReady=False, privateReady=False, stage="Lượt thi đã đóng hoặc được đặt lại")
                 STOP.wait(20)
                 continue
-            if policy.get("phase") in ("private", "ended"):
-                stop_model()
             for asset in policy["assets"]:
                 STATE["stage"] = "Đang nạp " + asset["name"]
                 load_asset(asset)
@@ -123,23 +140,40 @@ def dataset_loop():
             STATE["stage"] = "Dữ liệu sẵn sàng · Private " + ("đã mở" if STATE["privateReady"] else "đang khóa")
             STATE["error"] = None
         except Exception:
+            MODEL_ENABLED.clear()
+            stop_model()
             # Never leak a signed URL, request header, or provider exception to the browser/log.
             STATE["error"] = "Chưa nạp được dataset. Agent sẽ thử lại; kiểm tra link Drive, checksum và dung lượng."
         STOP.wait(20)
 
 def model_worker():
-    global MODEL_PROCESS, MODEL_ERROR
-    try:
-        from huggingface_hub import hf_hub_download
-        model = hf_hub_download(repo_id="bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF", filename="DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf", revision=os.getenv("ARENA_MODEL_REVISION", "main"), cache_dir=str(ROOT / ".arena/models"))
-        log = (ROOT / ".arena/llama.log").open("a")
-        with MODEL_LOCK:
-            policy = manifest()
-            if STOP.is_set() or not policy.get("active") or policy.get("phase") in ("private", "ended"):
-                return
-            MODEL_PROCESS = subprocess.Popen(["/opt/arena/llama-server", "--model", model, "--host", "127.0.0.1", "--port", "8080", "--n-gpu-layers", "99", "--ctx-size", os.getenv("ARENA_CONTEXT_SIZE", "4096"), "--parallel", "1", "--threads", "8"], stdout=log, stderr=log)
-    except Exception:
-        MODEL_ERROR = "Chưa tải/khởi động được model; xem log Pod."
+    global MODEL_PROCESS, MODEL_ERROR, MODEL_STAGE
+    while not STOP.is_set():
+        if not MODEL_ENABLED.is_set():
+            STOP.wait(2)
+            continue
+        if MODEL_PROCESS is not None and MODEL_PROCESS.poll() is None:
+            STOP.wait(2)
+            continue
+        try:
+            from huggingface_hub import hf_hub_download
+            MODEL_ERROR = None
+            MODEL_STAGE = "Đang tải DeepSeek 32B Q4 (~20 GB, lần đầu); dùng lại cache ở lần sau"
+            model = hf_hub_download(repo_id="bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF", filename="DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf", revision=os.getenv("ARENA_MODEL_REVISION", "main"), cache_dir=str(ROOT / ".arena/models"))
+            with MODEL_LOCK:
+                policy = manifest()
+                if STOP.is_set() or not MODEL_ENABLED.is_set() or not policy.get("active") or not policy.get("llmEnabled"):
+                    continue
+                MODEL_STAGE = "Đang nạp DeepSeek lên GPU"
+                with (ROOT / ".arena/llama.log").open("a") as log:
+                    MODEL_PROCESS = subprocess.Popen(["/opt/arena/llama-server", "--model", model, "--host", "127.0.0.1", "--port", "8080", "--n-gpu-layers", "99", "--ctx-size", os.getenv("ARENA_CONTEXT_SIZE", "4096"), "--parallel", "1", "--threads", "8"], stdout=log, stderr=log)
+            STOP.wait(5)
+            if MODEL_PROCESS is not None and MODEL_PROCESS.poll() is not None and MODEL_ENABLED.is_set():
+                raise RuntimeError("llama-server exited")
+        except Exception:
+            MODEL_ERROR = "DeepSeek chưa tải/khởi động được; tự thử lại sau 30 giây. Log: .arena/llama.log"
+            MODEL_STAGE = MODEL_ERROR
+            STOP.wait(30)
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -149,6 +183,7 @@ async def lifespan(_app):
         threading.Thread(target=fn, daemon=True).start()
     yield
     STOP.set()
+    MODEL_ENABLED.clear()
     if MODEL_PROCESS is not None:
         MODEL_PROCESS.terminate()
 
@@ -161,6 +196,7 @@ class CountRequest(BaseModel):
 class GenerateRequest(CountRequest):
     maxTokens: int = Field(ge=1, le=4096)
     expectedInputTokens: int = Field(ge=1, le=8192)
+    runId: str | None = None
 
 async def tokenize(messages):
     async with httpx.AsyncClient(timeout=15) as client:
@@ -173,18 +209,19 @@ async def tokenize(messages):
 @app.get("/health")
 async def health():
     async with httpx.AsyncClient(timeout=2) as client:
-        async def probe(url):
+        async def probe(url, headers=None, lab=False):
             try:
-                return (await client.get(url)).status_code == 200
+                response = await client.get(url, headers=headers)
+                return response.status_code == 200 and (not lab or "jupyter-config-data" in response.text)
             except httpx.HTTPError:
                 return False
-        llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health"), probe("http://127.0.0.1:8888/login"))
+        llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health"), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True))
     gpu = ""
     try:
         gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader"], timeout=3, text=True).strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    return {**STATE, "llm": llm, "jupyter": jupyter, "gpu": gpu, "error": MODEL_ERROR or STATE["error"]}
+    return {**STATE, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}
 
 @app.post("/token-count")
 async def token_count(request: CountRequest):
@@ -202,6 +239,8 @@ async def generate(request: GenerateRequest):
             policy = await asyncio.to_thread(manifest)
             if not policy.get("active") or not policy.get("llmEnabled"):
                 raise HTTPException(403, "Chatbot locked")
+            if request.runId and request.runId != policy.get("runId"):
+                raise HTTPException(403, "Round changed")
             tokens = await tokenize(request.messages)
             if len(tokens) != request.expectedInputTokens:
                 raise HTTPException(422, "Token count mismatch")

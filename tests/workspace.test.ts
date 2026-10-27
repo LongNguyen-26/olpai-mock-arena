@@ -11,6 +11,7 @@ import {
   outputBudget,
   templateSchema,
   workspaceView,
+  workspaceAccess,
   type Workspace,
 } from "../src/lib/workspace-domain";
 import {
@@ -45,6 +46,34 @@ test("chatbot closes at private boundary, early private, end and round reset", (
     false,
   );
 });
+test("service links follow phase, registration and actual service readiness", () => {
+  const c = {
+    id: "run",
+    startAt: 1000,
+    publicSeconds: 1,
+    privateSeconds: 1,
+    forcedEndAt: null,
+  } as Contest;
+  const w = {
+    runId: "run",
+    status: "running",
+    health: { jupyter: false, llm: false },
+  } as Workspace;
+  assert.equal(workspaceAccess(w, c, 1500).notebookEnabled, false);
+  w.health = { ...w.health!, jupyter: true, llm: true };
+  assert.equal(workspaceAccess(w, c, 1500).notebookEnabled, true);
+  assert.equal(workspaceAccess(w, c, 1500).chatbotEnabled, true);
+  assert.equal(workspaceAccess(w, c, 2500).notebookEnabled, true);
+  assert.equal(workspaceAccess(w, c, 2500).chatbotEnabled, false);
+  assert.equal(workspaceAccess(w, c, 3500).notebookEnabled, false);
+  assert.equal(
+    workspaceAccess(w, c, 1500, false, false).notebookEnabled,
+    false,
+  );
+  w.runId = "old";
+  assert.equal(workspaceAccess(w, c, 1500).chatbotEnabled, false);
+});
+
 test("token budget includes repeated prompt/history and bounds the generated maximum", () => {
   const t = { ...defaultTemplate };
   assert.equal(outputBudget(t, emptySession(), 1800), 200);

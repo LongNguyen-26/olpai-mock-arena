@@ -553,6 +553,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
               <WorkspaceCard
                 key={w.id}
                 w={w}
+                observedNow={state.serverNow}
                 admin={data.user.admin}
                 busy={busy}
                 confirm={confirmId === w.id}
@@ -583,8 +584,55 @@ export default function GpuWorkspace({ data }: ViewProps) {
     </div>
   );
 }
+function Uptime({
+  seconds,
+  observedAt,
+  serverNow,
+  running,
+}: {
+  seconds: number | null;
+  observedAt: number | null;
+  serverNow: number;
+  running: boolean;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    if (!running || seconds === null) return;
+    const start = Date.now();
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - start) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [seconds, observedAt, running, serverNow]);
+  const total =
+    seconds === null
+      ? null
+      : Math.floor(
+          seconds +
+            (running && observedAt
+              ? Math.max(0, serverNow - observedAt) / 1000 + elapsed
+              : 0),
+        );
+  return (
+    <p className="gpu-hint">
+      Uptime:{" "}
+      {total === null
+        ? "Đang chờ telemetry"
+        : `${Math.floor(total / 3600)
+            .toString()
+            .padStart(2, "0")}:${Math.floor((total / 60) % 60)
+            .toString()
+            .padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`}
+      {!running && total !== null ? " · Pod đã dừng" : ""}
+    </p>
+  );
+}
+
 function WorkspaceCard({
   w,
+  observedNow,
   admin,
   busy,
   confirm,
@@ -594,6 +642,7 @@ function WorkspaceCard({
   control,
 }: {
   w: WorkspaceView;
+  observedNow: number;
   admin: boolean;
   busy: boolean;
   confirm: boolean;
@@ -635,6 +684,7 @@ function WorkspaceCard({
       </div>
       {w.health?.gpu && <code className="gpu-metrics">{w.health.gpu}</code>}
       {w.health?.stage && <p>{w.health.stage}</p>}
+      {w.health?.modelStage && <p>{w.health.modelStage}</p>}
       {(w.error || w.health?.error) && (
         <p role="status" className="gpu-hint">
           {w.error ?? w.health?.error}
@@ -649,9 +699,24 @@ function WorkspaceCard({
         {w.syncedAt ? `Đối soát ${when(w.syncedAt)}` : "Chưa đối soát"}
       </small>
       <div className="gpu-actions">
+        <Uptime
+          seconds={w.uptimeSeconds ?? null}
+          observedAt={w.uptimeObservedAt ?? null}
+          serverNow={observedNow}
+          running={w.status === "running"}
+        />
+      </div>
+      {w.accessMessage && (
+        <p role="status" className="gpu-hint">
+          {w.accessMessage}
+        </p>
+      )}
+      <div className="gpu-actions">
         <a
-          className={`btn primary ${w.status !== "running" ? "disabled-link" : ""}`}
-          href={`/workspace/chat?id=${w.id}`}
+          className={`btn primary ${!w.chatbotEnabled ? "disabled-link" : ""}`}
+          href={w.chatbotEnabled ? `/workspace/chat?id=${w.id}` : undefined}
+          aria-disabled={!w.chatbotEnabled}
+          tabIndex={w.chatbotEnabled ? undefined : -1}
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -659,8 +724,12 @@ function WorkspaceCard({
           <ExternalLink size={15} />
         </a>
         <a
-          className={`btn ${w.status !== "running" || !w.health?.jupyter ? "disabled-link" : ""}`}
-          href={`/api/workspace/launch?id=${w.id}`}
+          className={`btn ${!w.notebookEnabled ? "disabled-link" : ""}`}
+          href={
+            w.notebookEnabled ? `/api/workspace/launch?id=${w.id}` : undefined
+          }
+          aria-disabled={!w.notebookEnabled}
+          tabIndex={w.notebookEnabled ? undefined : -1}
           target="_blank"
           rel="noopener noreferrer"
         >

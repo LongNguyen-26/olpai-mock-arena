@@ -119,7 +119,11 @@ export default function WorkspaceChat() {
       <section className="chat-main">
         <div className="chat-toolbar">
           <span className={`pill ${data?.enabled ? "green" : "neutral"}`}>
-            {data?.enabled ? "Public · Chatbot mở" : "Chatbot đang khóa"}
+            {data?.enabled
+              ? "Public · Chatbot mở"
+              : data?.policyOpen
+                ? "DeepSeek đang khởi động"
+                : "Chatbot đang khóa"}
           </span>
           <span>
             {used.toLocaleString("vi-VN")} / {limit.toLocaleString("vi-VN")}{" "}
@@ -182,8 +186,10 @@ export default function WorkspaceChat() {
         </div>
         {data && !data.enabled && (
           <p className="gpu-hint">
-            Chatbot chỉ mở trong public của lượt thi được cấp GPU. Lịch sử và
-            các lệnh kiểm tra token vẫn xem được.
+            {data.policyOpen
+              ? data.statusMessage ||
+                "Đang chờ model sẵn sàng. Trang sẽ tự cập nhật."
+              : "Chatbot chỉ mở trong public của vòng luyện. Các lệnh kiểm tra token vẫn xem được."}
           </p>
         )}
         {data?.session.pending && (

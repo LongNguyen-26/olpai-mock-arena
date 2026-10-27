@@ -1,0 +1,5 @@
+# Runtime fixes reuse the verified dependency image. Rebuild Dockerfile when its
+# dependencies change, then update this immutable base to that release's digest.
+FROM nguyenlong26/olpai-workspace@sha256:22f21a6b87f728d87f9dedd68028985b7a10be0b451a843f52be751682bea817
+COPY agent.py start.py /opt/arena/
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "python", "/opt/arena/start.py"]

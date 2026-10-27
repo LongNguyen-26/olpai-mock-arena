@@ -40,6 +40,10 @@ docker push nguyenlong26/olpai-workspace:2026.10.27
 
 Image dùng CUDA 12.8.1/cuDNN/Ubuntu 22.04, Python 3.10, PyTorch 2.8.0/cu128 và torchvision 0.23.0, Transformers 4.57.1/Hugging Face Hub 0.36.0 để khớp requirements của Bộ đề 01. Pod được lọc host hỗ trợ CUDA từ 12.8. Kernel TensorFlow 2.17.1 riêng tránh xung đột wheel CUDA. Thư viện còn lại ở `gpu-workspace/requirements.txt`. Phiên bản do môi trường luyện tập chọn, không phải lockfile chính thức BTC. AutoViz yêu cầu xgboost <1.7 nên pin 1.6.2. Các corpus spaCy/NLTK và pretrained theo luật từng bài cần chuẩn bị riêng.
 
+Sửa Python runtime dùng `Dockerfile.runtime` kế thừa digest dependency đã kiểm chứng để tránh cài lại CUDA/PyTorch. CI tự dùng Dockerfile đầy đủ khi Dockerfile/requirements đổi; cũng có thể chọn `full_build` khi dispatch. Sau khi nâng dependency image, cập nhật digest nền trong Dockerfile.runtime.
+
+Pod gắn với vòng luyện ổn định: reset vòng tự gắn sang run ID mới, giữ Pod/notebook và tách lịch sử token theo run. Agent theo dõi policy, tự khởi động lại DeepSeek khi public mở lại và trả VRAM khi khóa. Web chỉ bật nút khi đúng pha/quyền và dịch vụ đã sẵn sàng; uptime lấy từ telemetry Runpod và cập nhật từng giây. Jupyter kiểm tra trang `/lab` có xác thực và proxy `/api/status`; chỉ `/api/status` trả readiness tối thiểu không cần token cho Runpod, các API dữ liệu/kernel/terminal vẫn yêu cầu token.
+
 llama.cpp pin b5046, commit đối chiếu `74d4f5b041ad837153b0e90fc864b8290e01d8d5`. Một slot inference, context theo template, model tải vào volume lần khởi động đầu. Jupyter và agent khởi động trước model; không tự chạy notebook/training.
 
 GGUF pin revision `1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec`. Khi private/kết thúc/đặt lại vòng, agent dừng llama.cpp để trả VRAM cho notebook ở lần kiểm tra chính sách tiếp theo (khoảng 20 giây cộng độ trễ mạng). Web chặn inference ngay theo thời gian server.

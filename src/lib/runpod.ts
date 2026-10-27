@@ -43,6 +43,7 @@ export interface RunpodPod {
   name: string;
   desiredStatus: string;
   costPerHr?: number;
+  runtime?: { uptimeInSeconds: number } | null;
 }
 export interface GpuPrice {
   id: string;
@@ -169,7 +170,7 @@ export class Runpod {
   }
   async list() {
     const result = await this.graphql<{ pods: RunpodPod[] }>(
-      "query ArenaPods { myself { pods { id name desiredStatus costPerHr } } }",
+      "query ArenaPods { myself { pods { id name desiredStatus costPerHr runtime { uptimeInSeconds } } } }",
       {},
       "myself",
     );
