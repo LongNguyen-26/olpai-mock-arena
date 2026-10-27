@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "./arena-client";
 import type { readChat } from "@/lib/workspaces";
+import { chatSession } from "@/lib/chat-session";
 type Chat = Awaited<ReturnType<typeof readChat>>;
 export default function WorkspaceChat() {
   const [id, setId] = useState(""),
@@ -20,7 +21,7 @@ export default function WorkspaceChat() {
   useEffect(() => {
     const id = new URL(window.location.href).searchParams.get("id") ?? "";
     setId(id);
-    setSession(sessionStorage.getItem(`arena-chat:${id}`) ?? id);
+    if (id) setSession(chatSession(sessionStorage, id));
   }, []);
   const load = useCallback(async () => {
     if (!id || !session || sending.current) return;
@@ -46,13 +47,14 @@ export default function WorkspaceChat() {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [data?.session.messages.length, busy]);
   function newSession() {
+    if (sending.current) return;
     sequence.current++;
-    const next = crypto.randomUUID();
-    sessionStorage.setItem(`arena-chat:${id}`, next);
+    const next = chatSession(sessionStorage, id, true);
     setSession(next);
     setData(null);
+    setContent("");
     setError("");
-    setInfo("Đã tạo phiên mới. Quota token được tính riêng cho từng phiên.");
+    setInfo("Đã tạo đoạn chat mới.");
   }
   const used =
       (data?.session.inputTokens ?? 0) + (data?.session.outputTokens ?? 0),
@@ -135,7 +137,7 @@ export default function WorkspaceChat() {
             disabled={busy || !data}
           >
             <Plus size={15} />
-            Phiên mới
+            Đoạn chat mới
           </button>
         </div>
         <progress
