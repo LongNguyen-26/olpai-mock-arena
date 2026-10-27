@@ -15,6 +15,7 @@ type Result = {
   status?: string;
   score?: number | null;
   secondary?: number;
+  metric?: number;
   error?: string;
 };
 type Props = ViewProps & {
@@ -113,7 +114,12 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
               ) : (
                 <strong className="result-score">
                   {fmt(result.score)}
-                  <small> / 100 điểm</small>
+                  <small>
+                    {" "}
+                    / {data.tasks.find((t) => t.id === task)?.maxScore ??
+                      100}{" "}
+                    điểm
+                  </small>
                 </strong>
               )}
               {result.id && (
@@ -124,6 +130,9 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
                       ? "Kết quả nộp thử chỉ lưu trong lịch sử quản trị, không vào bảng xếp hạng."
                       : "Đã lưu kết quả và cập nhật bảng xếp hạng."}
                 </p>
+              )}
+              {result.metric != null && !result.error && (
+                <p>Chỉ số gốc: {result.metric.toFixed(6)}</p>
               )}
               <button className="btn primary" onClick={() => setResult(null)}>
                 Nộp bài tiếp tục
@@ -168,7 +177,7 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
                     nonce.current = crypto.randomUUID();
                   }}
                 >
-                  {(["1", "2"] as const).map((id) => (
+                  {data.taskIds.map((id) => (
                     <option key={id} value={id}>
                       0{id} ·{" "}
                       {data.tasks
@@ -180,7 +189,8 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
               </label>
               <div className="schema-line">
                 <code>
-                  {task === "1" ? "ImageId,EncodedPixels" : "id,prediction"}
+                  {data.tasks.find((t) => t.id === task)?.columns.join(",") ??
+                    ""}
                 </code>
                 <span className="submission-quota">
                   {admin ? "Không giới hạn lượt thử" : `${count}/${quota} lượt`}
@@ -214,7 +224,10 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
           <h3>Lưu ý nộp bài</h3>
           <p>CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn.</p>
           <p>Bài lỗi định dạng được lưu vào lịch sử và không trừ quota.</p>
-          <p>Điểm mỗi tác vụ lấy bài hợp lệ cao nhất. Tổng điểm tối đa 200.</p>
+          <p>
+            Điểm mỗi tác vụ lấy bài hợp lệ cao nhất. Tổng điểm tối đa{" "}
+            {data.maxScore}.
+          </p>
           {admin && (
             <p>
               Nộp thử được mở cho admin ở mọi thời điểm, không cần đội và không

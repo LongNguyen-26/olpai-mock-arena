@@ -11,6 +11,7 @@ import type {
   Submission,
   Team,
   User,
+  TaskId,
 } from "./types";
 export const roundKey = (c: Contest) =>
   key(c.roundId ? `round:${c.roundId}` : "contest");
@@ -66,6 +67,7 @@ export async function snapshot(user: SafeUser, id?: string) {
           {
             id: c.roundId ?? c.id,
             title: c.title,
+            taskCount: c.taskCount ?? 2,
             phase: phaseOf(c, now),
             startAt: c.startAt,
             privateAt: c.privateAt ?? null,
@@ -108,6 +110,10 @@ export async function snapshot(user: SafeUser, id?: string) {
   const entered =
     !!contest && (user.admin || registration?.status === "approved");
   const pkg = contest && entered ? await getPackage(contest) : null;
+  const definitions = pkg ? taskStatements(pkg) : [];
+  const taskIds: TaskId[] = definitions.length
+    ? definitions.map((t) => t.id)
+    : ["1", "2"];
   const rows = contest && entered ? await getSubmissions(contest.id) : [];
   const phase = contest ? phaseOf(contest, now) : "waiting";
   const canReadStatement =
@@ -141,9 +147,22 @@ export async function snapshot(user: SafeUser, id?: string) {
     serverNow: now,
     ready: !!pkg,
     canReadStatement,
+    taskIds,
+    maxScore: definitions.length
+      ? definitions.reduce((sum, t) => sum + (t.maxScore ?? 100), 0)
+      : 200,
     tasks:
       canReadStatement && pkg
-        ? taskStatements(pkg).map((t) => ({ id: t.id, title: t.title }))
+        ? definitions.map((t) => ({
+            id: t.id,
+            title: t.title,
+            maxScore: t.maxScore ?? 100,
+            columns:
+              t.columns ??
+              (t.id === "1"
+                ? ["ImageId", "EncodedPixels"]
+                : ["id", "prediction"]),
+          }))
         : [],
     assets:
       pkg && contest
@@ -165,9 +184,9 @@ export async function snapshot(user: SafeUser, id?: string) {
       .map((s) => visibleSubmission(s)),
     selections: {},
     leaderboard: {
-      public: rankTeams(Object.values(teams), rows, {}, "public"),
+      public: rankTeams(Object.values(teams), rows, {}, "public", taskIds),
       private: privateVisible
-        ? rankTeams(Object.values(teams), rows, {}, "private")
+        ? rankTeams(Object.values(teams), rows, {}, "private", taskIds)
         : null,
     },
     announcements:
@@ -242,6 +261,7 @@ export async function createRound(title: string, packageId: string) {
     forcedEndAt: null,
     unlimited: false,
     autoApprove: true,
+    taskCount: taskStatements(pkg).length,
     publicSeconds: 18000,
     privateSeconds: 3600,
     publicLimit: 20,

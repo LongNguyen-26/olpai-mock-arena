@@ -1,6 +1,6 @@
 export type Phase = "waiting" | "scheduled" | "public" | "private" | "ended";
 export type Split = "public" | "private";
-export type TaskId = "1" | "2";
+export type TaskId = "1" | "2" | "3";
 export interface User {
   id: string;
   username: string;
@@ -25,6 +25,7 @@ export interface Contest {
   privateAt?: number | null;
   unlimited?: boolean;
   autoApprove?: boolean;
+  taskCount?: number;
   title: string;
   startAt: number | null;
   forcedEndAt: number | null;
@@ -48,6 +49,14 @@ export interface TaskStatement {
   id: TaskId;
   title: string;
   content: string;
+  maxScore?: number;
+  columns?: string[];
+}
+export interface JudgeSpec {
+  kind: "pinball" | "aspect-f1" | "pump-f1";
+  maxScore: number;
+  baseline: number;
+  reference: number;
 }
 export interface Registration {
   userId: string;
@@ -60,7 +69,10 @@ export interface ContestPackage {
   tasks?: TaskStatement[];
   statement: string;
   assets: Asset[];
-  judges: Record<TaskId, Record<Split, string>>;
+  judges: Record<"1" | "2", Record<Split, string>> & {
+    "3"?: Record<Split, string>;
+  };
+  judgeSpecs?: Partial<Record<TaskId, JudgeSpec>>;
   importedAt: number;
 }
 export interface Submission {
@@ -74,6 +86,7 @@ export interface Submission {
   createdAt: number;
   score: number;
   secondary: number;
+  metric?: number;
   bytes: number;
   sha256: string;
   path: string;
@@ -98,4 +111,5 @@ export interface JudgeResult {
   score: number;
   secondary: number;
   count: number;
+  metric?: number;
 }

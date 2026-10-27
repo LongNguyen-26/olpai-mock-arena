@@ -11,6 +11,8 @@ import {
   registrationKey,
 } from "./rounds";
 import { SubmissionError, judgeCV, judgeQA } from "./judge";
+import { judgeArena02 } from "./judge-arena02";
+import { taskStatements } from "./statements";
 import type {
   SafeUser,
   TaskId,
@@ -57,6 +59,7 @@ function response(s: Submission) {
     status: s.status ?? "accepted",
     score: s.status === "invalid" ? null : s.score,
     secondary: s.status === "invalid" ? null : s.secondary,
+    metric: s.status === "invalid" ? null : s.metric,
     error: s.error,
     adminTest: !!s.adminTest,
   };
@@ -78,6 +81,9 @@ export async function submit(
   if (!admin && phaseOf(contest, now) !== split)
     throw new ApiError("Chưa mở hoặc đã khóa nhận bài cho tập này.", 409);
   if (!pkg) throw new ApiError("Chưa có bộ chấm.", 503);
+  const judgeKeys = pkg.judges[task];
+  if (!judgeKeys || !taskStatements(pkg).some((t) => t.id === task))
+    throw new ApiError("Tác vụ không thuộc bộ đề này.", 400);
   const idempotency = key(
     "request:" +
       contest.id +
@@ -101,6 +107,7 @@ export async function submit(
   let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(),
     score = 0,
     secondary = 0,
+    metric: number | undefined,
     error = "";
   try {
     if (
@@ -122,17 +129,19 @@ export async function submit(
       gunzipSync(
         Buffer.from(
           await new Response(
-            (await storage().get(pkg.judges[task][split])).body,
+            (await storage().get(judgeKeys[split])).body,
           ).arrayBuffer(),
         ),
       ).toString("utf8"),
     );
-    const result =
-      task === "1"
+    const result = pkg.judgeSpecs?.[task]
+      ? judgeArena02(text, truth, pkg.judgeSpecs[task]!)
+      : task === "1"
         ? judgeCV(text, truth as CVImage[])
         : judgeQA(text, truth as QAItem[]);
     score = result.score;
     secondary = result.secondary;
+    metric = result.metric;
   } catch (e) {
     if (!(e instanceof SubmissionError)) throw e;
     error = e.message;
@@ -165,6 +174,7 @@ export async function submit(
     createdAt: now,
     score,
     secondary,
+    ...(metric === undefined ? {} : { metric }),
     bytes: file.size,
     sha256: createHash("sha256").update(bytes).digest("hex"),
     path,

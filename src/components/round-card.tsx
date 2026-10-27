@@ -71,7 +71,8 @@ export default function RoundCard({
               : `${(r.publicSeconds + r.privateSeconds) / 3600} giờ`}
           </span>
           <span>
-            <BookOpen size={18} />2 tác vụ
+            <BookOpen size={18} />
+            {r.taskCount} tác vụ
           </span>
           <span>
             <Users size={18} />

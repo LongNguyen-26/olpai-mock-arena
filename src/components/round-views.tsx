@@ -100,7 +100,8 @@ export function OverviewView({ data, phase, now, go }: Props) {
                 : `${(c.publicSeconds + c.privateSeconds) / 3600} giờ thi`}
             </span>
             <span>
-              <BookOpen size={20} />2 tác vụ
+              <BookOpen size={20} />
+              {data.taskIds.length} tác vụ
             </span>
             <span>
               <Users size={20} />
@@ -237,7 +238,7 @@ export function OverviewView({ data, phase, now, go }: Props) {
         <h2>Đề thi</h2>
       </div>
       <div className="task-grid">
-        {(["1", "2"] as const).map((id) => (
+        {data.taskIds.map((id) => (
           <article className="task-card simple-task" key={id}>
             <span className="pill neutral">TÁC VỤ 0{id}</span>
             <h3>
@@ -335,7 +336,7 @@ export function StatementView({ data, go, report }: Props) {
     <section className="panel statement-panel">
       <div className="statement-head">
         <div className="segmented">
-          {(["1", "2"] as const).map((id) => (
+          {data.taskIds.map((id) => (
             <button
               key={id}
               className={task === id ? "active" : ""}
@@ -461,8 +462,9 @@ export function BoardView({ data }: Props) {
               <tr>
                 <th>Hạng</th>
                 <th>Đội</th>
-                <th>Tác vụ 01</th>
-                <th>Tác vụ 02</th>
+                {data.taskIds.map((id) => (
+                  <th key={id}>Tác vụ 0{id}</th>
+                ))}
                 <th>Tổng điểm</th>
                 <th>Số bài nộp</th>
               </tr>
@@ -482,15 +484,18 @@ export function BoardView({ data }: Props) {
                     <td>
                       <b>{r.name}</b>
                     </td>
-                    <td className="mono">{fmt(r.task1)}</td>
-                    <td className="mono">{fmt(r.task2)}</td>
+                    {data.taskIds.map((id) => (
+                      <td key={id} className="mono">
+                        {fmt(r.scores[id])}
+                      </td>
+                    ))}
                     <td className="total-score mono">{fmt(r.total)}</td>
                     <td>{r.submitted}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={4 + data.taskIds.length}>
                     <div className="empty">
                       <Trophy size={30} />
                       <b>Chưa có điểm</b>

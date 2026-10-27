@@ -1,4 +1,4 @@
-import type { Contest, Phase, Submission } from "./types";
+import type { Contest, Phase, Submission, TaskId } from "./types";
 export type ContestTiming = Pick<
   Contest,
   | "startAt"
@@ -59,6 +59,7 @@ export function rankTeams(
   submissions: Submission[],
   _selections: Record<string, string>,
   split: "public" | "private",
+  taskIds: TaskId[] = ["1", "2"],
 ) {
   return teams
     .map((t) => {
@@ -66,10 +67,11 @@ export function rankTeams(
         (s) =>
           s.teamId === t.id &&
           s.split === split &&
+          taskIds.includes(s.task) &&
           s.status !== "invalid" &&
           !s.adminTest,
       );
-      const chosen = (["1", "2"] as const).map(
+      const chosen = taskIds.map(
         (task) =>
           list
             .filter((s) => s.task === task)
@@ -85,7 +87,10 @@ export function rankTeams(
         name: t.name,
         task1: chosen[0]?.score ?? null,
         task2: chosen[1]?.score ?? null,
-        total: (chosen[0]?.score ?? 0) + (chosen[1]?.score ?? 0),
+        scores: Object.fromEntries(
+          taskIds.map((id, i) => [id, chosen[i]?.score ?? null]),
+        ),
+        total: chosen.reduce((sum, s) => sum + (s?.score ?? 0), 0),
         secondary: chosen[1]?.secondary ?? 0,
         lastAt: Math.max(...chosen.map((s) => s?.createdAt ?? 0)),
         submitted: list.length,

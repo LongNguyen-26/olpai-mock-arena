@@ -262,7 +262,7 @@ async function handle(
         body: raw,
       }).formData();
       const file = form.get("file"),
-        task = z.enum(["1", "2"]).parse(form.get("task")),
+        task = z.enum(["1", "2", "3"]).parse(form.get("task")),
         split = z.enum(["public", "private"]).parse(form.get("split")),
         nonce = z.string().uuid().parse(form.get("nonce"));
       if (!(file instanceof File)) throw new ApiError("Hãy chọn tệp nộp bài.");

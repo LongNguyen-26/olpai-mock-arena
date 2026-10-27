@@ -34,7 +34,7 @@ Với gói đã chuẩn bị và upload vào Blob private, dùng:
 npx tsx --env-file=.env scripts/stage-package.ts .local/package-config.json
 ```
 
-Manifest cần version mới, title, tasks (ID 1 và 2; title/content Markdown riêng), assets (key/name/bytes/sha256/phase/description, tùy chọn task và driveUrl), judges (public/private cho cả hai tác vụ). Các object phải tồn tại trong Blob private; version không được trùng. Bộ chấm hiện hỗ trợ hai dạng của Bộ đề 01: Instance AP và SQuAD F1. Bộ khác dùng metric/schema mới cần bổ sung bộ chấm tương ứng trước khi phát hành.
+Manifest cần version mới, title, tasks (ID 1, 2 và tùy chọn 3; title/content Markdown riêng), assets (key/name/bytes/sha256/phase/description, tùy chọn task và driveUrl), judges (public/private cho từng tác vụ). Các object phải tồn tại trong Blob private; version không được trùng. Bộ đề 01 tiếp tục dùng Instance AP và SQuAD F1. Bộ đề 02 bổ sung judgeSpecs, schema CSV và điểm tối đa 30/35/35 cho ba tác vụ; xem [ARENA_02.md](ARENA_02.md). Gói dùng metric mới phải có bộ chấm tương ứng trước khi phát hành.
 
 Admin mở Vòng luyện → Phát hành vòng luyện → chọn bộ đề → nhập tên → Xác nhận phát hành. Khi xác nhận, vòng mới mới xuất hiện cho mọi người đăng ký, nhưng đề/dữ liệu chưa mở.
 
