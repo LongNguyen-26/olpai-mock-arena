@@ -18,13 +18,16 @@ os.environ["JUPYTER_TOKEN"] = token
 # readiness response; Lab, files, terminals and kernels still require the token.
 config_dir = root / ".arena" / "jupyter"
 config_dir.mkdir(parents=True, exist_ok=True)
-(config_dir / "arena_readiness.py").write_text('''from tornado.web import RequestHandler
+(config_dir / "arena_readiness.py").write_text('''from jupyter_server.services.api.handlers import APIStatusHandler
 from jupyter_server.auth.decorator import allow_unauthenticated
-class ReadyHandler(RequestHandler):
+class ReadyHandler(APIStatusHandler):
     @allow_unauthenticated
-    def get(self):
+    async def get(self):
         self.set_header("Cache-Control", "no-store")
-        self.write({"status": "ok"})
+        if self.current_user:
+            await super().get()
+        else:
+            self.finish({"status": "ok"})
 default_handlers = [(r"/api/status", ReadyHandler)]
 ''', encoding="utf-8")
 config = config_dir / "jupyter_server_config.py"
