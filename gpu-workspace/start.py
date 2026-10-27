@@ -35,6 +35,10 @@ config.write_text('''import os
 c.ServerApp.extra_services = ["arena_readiness"]
 c.IdentityProvider.token = os.environ["JUPYTER_TOKEN"]
 c.ServerApp.allow_remote_access = True
+c.ServerApp.trust_xheaders = True
+pod_id = os.environ.get("RUNPOD_POD_ID")
+if pod_id:
+    c.ServerApp.allow_origin = "https://" + pod_id + "-8888.proxy.runpod.net"
 ''', encoding="utf-8")
 os.environ["PYTHONPATH"] = str(config_dir) + os.pathsep + os.environ.get("PYTHONPATH", "")
 processes = [
