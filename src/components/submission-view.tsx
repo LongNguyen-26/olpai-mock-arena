@@ -273,7 +273,7 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
                         {s.split.toUpperCase()}
                       </span>
                     </td>
-                    <td className="mono">{fmt(s.score)}</td>
+                    <td className="submission-score">{fmt(s.score)}</td>
                     <td>
                       {s.status === "invalid" ? (
                         <>

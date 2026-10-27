@@ -45,18 +45,19 @@ export async function requireRegistration(user: SafeUser, c: Contest) {
     );
 }
 export async function snapshot(user: SafeUser, id?: string) {
-  const [ids, now, teamsRaw, inviteIds] = await Promise.all([
+  const [ids, now, teamsRaw, inviteIds, adminId] = await Promise.all([
     db().zrange<string[]>(key("rounds"), 0, -1, { rev: true }),
     serverNow(),
     db().hgetall<Record<string, Team>>(key("teams")),
     db().smembers<string[]>(key(`invites:${user.id}`)),
+    db().get<string>(key("admin")),
   ]);
   const contests = ids.length
     ? await db().mget<(Contest | null)[]>(...ids.map((x) => key(`round:${x}`)))
     : [];
   const registrations = await Promise.all(
     contests.map((c) =>
-      c ? db().hget<Registration>(registrationKey(c), user.id) : null,
+      c ? db().hgetall<Record<string, Registration>>(registrationKey(c)) : null,
     ),
   );
   const rounds = contests.flatMap((c, i) =>
@@ -67,11 +68,16 @@ export async function snapshot(user: SafeUser, id?: string) {
             title: c.title,
             phase: phaseOf(c, now),
             startAt: c.startAt,
+            privateAt: c.privateAt ?? null,
+            forcedEndAt: c.forcedEndAt,
             publicSeconds: c.publicSeconds,
             privateSeconds: c.privateSeconds,
             unlimited: !!c.unlimited,
             autoApprove: c.autoApprove !== false,
-            registration: registrations[i] ?? null,
+            registration: registrations[i]?.[user.id] ?? null,
+            registrationCount: Object.values(registrations[i] ?? {}).filter(
+              (r) => r.userId !== adminId && r.status !== "rejected",
+            ).length,
           },
         ]
       : [],
@@ -118,7 +124,6 @@ export async function snapshot(user: SafeUser, id?: string) {
       )
     : [];
   const approved = roster.filter((r) => r.status === "approved");
-  const adminId = await db().get<string>(key("admin"));
   const participants = approved.filter((r) => r.userId !== adminId);
   const participantIds = new Set(participants.map((r) => r.userId));
   const teamCount = Object.values(teams).filter((t) =>

@@ -1,14 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowRight,
   BookOpen,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   Cpu,
   Database,
-  Layers3,
   LayoutDashboard,
   LockKeyhole,
   LogOut,
@@ -30,6 +27,7 @@ import {
 import { phaseOf } from "@/lib/domain";
 import RoundAdmin, { PublishRound } from "./round-admin";
 import GpuWorkspace from "./gpu-workspace";
+import RoundCard from "./round-card";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
   OverviewView,
@@ -375,55 +373,12 @@ export default function Arena() {
             <>
               <div className="round-grid">
                 {data.rounds.map((r) => (
-                  <article className="panel round-card" key={r.id}>
-                    <a
-                      className="round-card-link"
-                      aria-label={`Vào ${r.title}`}
-                      href={`/?round=${r.id}#overview`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        go("overview", r.id);
-                      }}
-                    />
-                    <div className="section-title">
-                      <span className="round-emblem">
-                        <Layers3 size={25} />
-                      </span>
-                      <span
-                        className={`pill ${["public", "private"].includes(r.phase) ? "green" : "neutral"}`}
-                      >
-                        {names[r.phase]}
-                      </span>
-                    </div>
-                    <h2>{r.title}</h2>
-                    <div className="round-meta">
-                      <span>
-                        <Clock3 size={17} />
-                        {r.unlimited
-                          ? "Không giới hạn"
-                          : `${(r.publicSeconds + r.privateSeconds) / 3600} giờ`}
-                      </span>
-                      <span>
-                        <BookOpen size={17} />2 tác vụ
-                      </span>
-                    </div>
-                    {r.startAt && <p>Bắt đầu {when(r.startAt)}</p>}
-                    <div className="round-card-footer">
-                      {r.registration?.status === "approved" && (
-                        <span className="pill green">Đã đăng ký</span>
-                      )}
-                      {r.registration?.status === "pending" && (
-                        <span className="pill neutral">Đang chờ duyệt</span>
-                      )}
-                      <button
-                        className="btn primary"
-                        onClick={() => go("overview", r.id)}
-                      >
-                        Vào vòng luyện
-                        <ArrowRight size={16} />
-                      </button>
-                    </div>
-                  </article>
+                  <RoundCard
+                    key={r.id}
+                    round={r}
+                    now={clock + offset}
+                    onEnter={() => go("overview", r.id)}
+                  />
                 ))}
               </div>
               {!data.rounds.length && (

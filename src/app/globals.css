@@ -2720,7 +2720,10 @@ td .filename {
   color: #b44631;
 }
 .result-score {
+  font-family: "Be Vietnam Pro", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
   font-size: 40px;
+  font-weight: 800;
   color: #204e45;
 }
 .result-score small {
@@ -2755,12 +2758,22 @@ td .filename {
   padding-top: 19px;
   padding-bottom: 19px;
 }
-.submission-history td.mono {
+.submission-history td.submission-score {
+  font-family: "Be Vietnam Pro", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
   font-size: 16px;
+  font-weight: 700;
+  color: #204e45;
 }
-.submission-history .valid {
-  font-size: 15px;
+.submission-history .valid,
+.submission-history .invalid {
+  font-size: 12px;
   font-weight: 500;
+}
+.submission-history .valid svg,
+.submission-history .invalid svg {
+  width: 14px;
+  height: 14px;
 }
 .statement-head .segmented {
   flex-shrink: 0;
@@ -2830,3 +2843,179 @@ td .filename {
 .sidebar::-webkit-scrollbar {width:5px;height:5px}
 .sidebar::-webkit-scrollbar-track {background:#14252e}
 .sidebar::-webkit-scrollbar-thumb {background:#3b505a;border-radius:6px}
+
+/* Round discovery: compact cards with live timing and registration context. */
+.round-grid {
+  max-width: 1180px;
+  gap: 20px;
+}
+.round-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.8fr);
+  gap: 30px;
+  min-height: 0;
+  padding: 26px 28px;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.round-is-live {
+  border-left: 3px solid #399e7d;
+}
+.round-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.round-emblem {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+.round-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+}
+.round-phase i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #93a0aa;
+}
+.round-phase.green i {
+  background: #28916d;
+  box-shadow: 0 0 0 3px #28916d12;
+}
+.round-card h2 {
+  font-size: 22px;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+.round-meta {
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: #6c8290;
+}
+.round-meta span {
+  gap: 6px;
+}
+.round-meta b {
+  color: #425e6d;
+}
+.round-start {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: #82909c;
+}
+.round-card-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+  border-left: 1px solid #edf0f2;
+  padding-left: 28px;
+}
+.round-countdown {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.round-countdown > span {
+  font-size: 10px;
+  color: #84929d;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.round-countdown strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 27px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: -1px;
+}
+.round-countdown.is-live strong {
+  color: #267c62;
+}
+.round-countdown small {
+  font-size: 10px;
+  color: #8b98a2;
+}
+.round-card-footer {
+  padding: 0;
+  margin: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.round-card-footer .btn {
+  min-height: 48px;
+  padding: 12px 20px;
+  font-size: 12px;
+  flex-grow: 0;
+  margin-left: 0;
+  min-width: 200px;
+  justify-content: center;
+}
+.round-registration {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #438777;
+  font-size: 11px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.round-registration i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #438777;
+}
+.round-registration.pending {
+  color: #a3814b;
+}
+@media (max-width: 1100px) {
+  .round-card {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 20px;
+    padding: 24px;
+  }
+  .round-card-side {
+    padding-left: 20px;
+  }
+  .round-card h2 {
+    font-size: 20px;
+  }
+  .round-card-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+@media (max-width: 800px) {
+  .round-card {
+    grid-template-columns: 1fr;
+    padding: 22px;
+    gap: 20px;
+  }
+  .round-card-side {
+    padding: 18px 0 0;
+    border-left: 0;
+    border-top: 1px solid #edf0f2;
+  }
+  .round-card-footer {
+    flex-wrap: nowrap;
+  }
+  .round-card-footer .btn {
+    flex-grow: 0;
+  }
+  .round-countdown strong {
+    font-size: 25px;
+  }
+}

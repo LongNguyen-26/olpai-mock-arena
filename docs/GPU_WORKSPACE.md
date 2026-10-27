@@ -82,7 +82,7 @@ node -e "require('fs').mkdirSync('.local',{recursive:true});require('fs').writeF
 3. Chọn đội do thí sinh đã tạo và dataset của một vòng đã phát hành; vòng đang xem được gợi ý. Một đội chỉ có một yêu cầu/Pod đang hoạt động, kể cả chuyển vòng.
 4. Cấp GPU rồi Đối soát. Pod chạy khác với Jupyter/model/dataset sẵn sàng; UI hiển thị riêng và có thời điểm đối soát. Thí sinh tự đối soát Pod của mình mỗi 30 giây khi mở Workspace; admin đối soát từng Pod.
 5. Thành viên đã được duyệt vòng mở Chatbot và JupyterLab trong tab mới. `/workspace/data/public`, `/workspace/data/private`; đầu ra ở `/workspace/Final/Tac_vu_1`, `/workspace/Final/Tac_vu_2`. Admin không cần tham gia đội.
-6. Chat theo workspace/session, lịch sử TTL 30 ngày từ lượt gửi. Mỗi tab giữ session ID ở sessionStorage; mặc định hai máy cùng workspace dùng chung phiên, `/new` tạo phiên riêng. Token và quota được kiểm tra server, không tin lịch sử client.
+6. Chat theo workspace/session, lịch sử TTL 30 ngày từ lượt gửi. Mỗi máy/tab mở lần đầu tạo UUID riêng và lưu trong sessionStorage theo Pod; refresh giữ phiên hiện tại. “Đoạn chat mới” hoặc `/new` đổi UUID của tab đó và bắt đầu lịch sử/ngân sách mới, không ảnh hưởng tab khác. ID mặc định cũ bằng Pod ID được thay bằng UUID. Token và quota được kiểm tra server, không tin lịch sử client.
 7. Admin Dừng/Chạy lại/Thu hồi. Thu hồi xóa volume, cần tải source/trọng số/Final trước. Không tự dừng Pod khi hết giờ; đóng tab không tắt kernel hay ngừng phí.
 
 ## Dataset và private

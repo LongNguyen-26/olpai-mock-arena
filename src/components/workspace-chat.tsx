@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Cpu, Plus, Send } from "lucide-react";
+import { Cpu, Plus, Send, Sparkles } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "./arena-client";
 import type { readChat } from "@/lib/workspaces";
 import { chatSession } from "@/lib/chat-session";
+import { assistantText } from "@/lib/chat-presentation";
 type Chat = Awaited<ReturnType<typeof readChat>>;
 export default function WorkspaceChat() {
   const [id, setId] = useState(""),
@@ -14,7 +15,8 @@ export default function WorkspaceChat() {
     [content, setContent] = useState(""),
     [error, setError] = useState(""),
     [info, setInfo] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [pendingText, setPendingText] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   const sequence = useRef(0),
     sending = useRef(false);
@@ -32,7 +34,7 @@ export default function WorkspaceChat() {
       );
       if (version === sequence.current) setData(next);
     } catch (e) {
-      setError((e as Error).message);
+      if (version === sequence.current) setError((e as Error).message);
     }
   }, [id, session]);
   useEffect(() => {
@@ -44,8 +46,13 @@ export default function WorkspaceChat() {
     };
   }, [load]);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [data?.session.messages.length, busy]);
+    bottom.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+      block: "end",
+    });
+  }, [data?.session.messages.length, pendingText, busy, error, info]);
   function newSession() {
     if (sending.current) return;
     sequence.current++;
@@ -53,6 +60,7 @@ export default function WorkspaceChat() {
     setSession(next);
     setData(null);
     setContent("");
+    setPendingText("");
     setError("");
     setInfo("Đã tạo đoạn chat mới.");
   }
@@ -62,7 +70,7 @@ export default function WorkspaceChat() {
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = content.trim();
-    if (!text || busy) return;
+    if (!text || sending.current || !data) return;
     setError("");
     setInfo("");
     if (text.startsWith("/")) {
@@ -82,7 +90,10 @@ export default function WorkspaceChat() {
       setInfo("Lệnh chưa hỗ trợ. Dùng /help.");
       return;
     }
+    if (!data.enabled) return;
     setBusy(true);
+    setPendingText(text);
+    setContent("");
     sending.current = true;
     sequence.current++;
     try {
@@ -93,11 +104,12 @@ export default function WorkspaceChat() {
         content: text,
       });
       setData((d) => (d ? { ...d, session: result.session } : d));
-      setContent("");
     } catch (e) {
       setError((e as Error).message);
+      setContent((draft) => draft || text);
     } finally {
       sending.current = false;
+      setPendingText("");
       setBusy(false);
       await load();
     }
@@ -114,52 +126,38 @@ export default function WorkspaceChat() {
             {data ? `${data.teamName} · ${data.roundTitle}` : "GPU Workspace"}
           </p>
         </div>
-        <a className="btn" href="/#workspace">
-          Về Workspace
-        </a>
-      </header>
-      <section className="chat-main">
-        <div className="chat-toolbar">
-          <span className={`pill ${data?.enabled ? "green" : "neutral"}`}>
-            {data?.enabled
-              ? "Public · Chatbot mở"
-              : data?.policyOpen
-                ? "DeepSeek đang khởi động"
-                : "Chatbot đang khóa"}
-          </span>
-          <span>
-            {used.toLocaleString("vi-VN")} / {limit.toLocaleString("vi-VN")}{" "}
-            token
-          </span>
-          <button
-            className="btn small-btn"
-            onClick={newSession}
-            disabled={busy || !data}
+        <div className="chat-header-actions">
+          <span
+            className={`chat-connection ${data?.enabled ? "is-ready" : ""}`}
+            role="status"
           >
-            <Plus size={15} />
+            <i aria-hidden="true" />
+            {!data
+              ? "Đang kết nối…"
+              : data.enabled
+                ? "DeepSeek sẵn sàng"
+                : data.policyOpen
+                  ? "DeepSeek đang khởi động"
+                  : "Chatbot đang khóa"}
+          </span>
+          <button className="btn" onClick={newSession} disabled={busy || !data}>
+            <Plus size={17} />
             Đoạn chat mới
           </button>
         </div>
-        <progress
-          aria-label="Token đã dùng"
-          max={limit}
-          value={Math.min(limit, used)}
-        />
-        {error && (
-          <div className="alert error" role="alert">
-            {error}
-            {/đăng nhập/i.test(error) && <a href="/login"> Đăng nhập</a>}
-          </div>
-        )}
-        {info && (
-          <div className="alert" role="status">
-            {info}
-          </div>
-        )}
-        <div className="chat-messages" aria-live="polite">
-          {!data?.session.messages.length && (
+      </header>
+      <section className="chat-main">
+        <div
+          className="chat-messages"
+          role="log"
+          aria-label="Cuộc trò chuyện"
+          aria-live="polite"
+        >
+          {!data?.session.messages.length && !pendingText && (
             <div className="chat-welcome">
-              <Cpu size={36} />
+              <span className="chat-welcome-icon">
+                <Sparkles size={30} />
+              </span>
               <h1>Trợ lý cho đội thi của bạn</h1>
               <p>
                 Hỏi ngắn, cung cấp lỗi hoặc giả thuyết cần kiểm tra. Chatbot và
@@ -178,28 +176,59 @@ export default function WorkspaceChat() {
               </strong>
               <div className="prose">
                 <Markdown remarkPlugins={[remarkGfm]}>
-                  {message.content}
+                  {message.role === "assistant"
+                    ? assistantText(message.content) ||
+                      "Chưa có nội dung trả lời. Hãy yêu cầu phản hồi ngắn hơn."
+                    : message.content}
                 </Markdown>
               </div>
             </article>
           ))}
-          {busy && <p role="status">DeepSeek đang suy luận…</p>}
+          {pendingText && (
+            <article className="chat-message user">
+              <strong>Đội của bạn</strong>
+              <div className="prose">
+                <Markdown remarkPlugins={[remarkGfm]}>{pendingText}</Markdown>
+              </div>
+            </article>
+          )}
+          {busy && (
+            <div className="chat-thinking" role="status">
+              <span className="chat-thinking-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              DeepSeek đang suy luận…
+            </div>
+          )}
+          {data && !data.enabled && (
+            <p className="gpu-hint">
+              {data.policyOpen
+                ? data.statusMessage ||
+                  "Đang chờ model sẵn sàng. Trang sẽ tự cập nhật."
+                : "Chatbot chỉ mở trong public của vòng luyện. Các lệnh kiểm tra token vẫn xem được."}
+            </p>
+          )}
+          {data?.session.pending && (
+            <p role="alert">
+              Lượt trước bị gián đoạn; ngân sách tối đa đã được giữ. Dùng /new
+              để tiếp tục với phiên mới.
+            </p>
+          )}
+          {error && (
+            <div className="alert error" role="alert">
+              {error}
+              {/đăng nhập/i.test(error) && <a href="/login"> Đăng nhập</a>}
+            </div>
+          )}
+          {info && (
+            <div className="alert" role="status">
+              {info}
+            </div>
+          )}
           <div ref={bottom} />
         </div>
-        {data && !data.enabled && (
-          <p className="gpu-hint">
-            {data.policyOpen
-              ? data.statusMessage ||
-                "Đang chờ model sẵn sàng. Trang sẽ tự cập nhật."
-              : "Chatbot chỉ mở trong public của vòng luyện. Các lệnh kiểm tra token vẫn xem được."}
-          </p>
-        )}
-        {data?.session.pending && (
-          <p role="alert">
-            Lượt trước bị gián đoạn; ngân sách tối đa đã được giữ. Dùng /new để
-            tiếp tục với phiên mới.
-          </p>
-        )}
         <form className="chat-compose" onSubmit={send}>
           <textarea
             aria-label="Tin nhắn cho DeepSeek"
@@ -233,8 +262,7 @@ export default function WorkspaceChat() {
           </button>
         </form>
         <small className="chat-footer">
-          Token dùng tokenizer của model, tính cả lịch sử và suy luận. Giới hạn
-          là cấu hình mô phỏng, admin có thể điều chỉnh.
+          Enter để gửi · Shift + Enter để xuống dòng · /limits để xem giới hạn
         </small>
       </section>
     </main>

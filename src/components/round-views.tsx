@@ -26,7 +26,7 @@ import {
   when,
   type ViewProps,
 } from "./arena-client";
-import { contestEnd, privateStart } from "@/lib/domain";
+import { contestEnd } from "@/lib/domain";
 import type { Phase, TaskId, TaskStatement } from "@/lib/types";
 type Props = ViewProps & {
   phase: Phase;
@@ -67,16 +67,13 @@ export function OverviewView({ data, phase, now, go }: Props) {
   if (!c) return null;
   const locked = !data.canReadStatement,
     open = ["public", "private"].includes(phase),
-    p = privateStart(c),
     end = contestEnd(c),
     target =
       phase === "scheduled"
         ? c.startAt
-        : phase === "public"
-          ? p
-          : phase === "private"
-            ? end
-            : null,
+        : phase === "public" || phase === "private"
+          ? end
+          : null,
     remaining = target
       ? Math.max(0, Math.ceil((target - now) / 1000))
       : c.publicSeconds + c.privateSeconds;
@@ -127,13 +124,11 @@ export function OverviewView({ data, phase, now, go }: Props) {
                 : "THỜI LƯỢNG"}
           </span>
           <strong
-            className={
-              c.unlimited && phase !== "scheduled" ? "infinite-clock" : ""
-            }
+            className={c.unlimited && target === null ? "infinite-clock" : ""}
           >
             {phase === "ended"
               ? "00:00:00"
-              : c.unlimited && phase !== "scheduled"
+              : c.unlimited && target === null
                 ? "Không giới hạn"
                 : duration(remaining)}
           </strong>

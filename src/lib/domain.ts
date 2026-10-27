@@ -1,5 +1,14 @@
 import type { Contest, Phase, Submission } from "./types";
-export function privateStart(c: Contest) {
+export type ContestTiming = Pick<
+  Contest,
+  | "startAt"
+  | "privateAt"
+  | "forcedEndAt"
+  | "unlimited"
+  | "publicSeconds"
+  | "privateSeconds"
+>;
+export function privateStart(c: ContestTiming) {
   return (
     c.privateAt ??
     (c.startAt === null
@@ -9,12 +18,12 @@ export function privateStart(c: Contest) {
         : c.startAt + c.publicSeconds * 1000)
   );
 }
-export function contestEnd(c: Contest) {
+export function contestEnd(c: ContestTiming) {
   if (c.forcedEndAt !== null) return c.forcedEndAt;
   const start = privateStart(c);
   return c.unlimited || start === null ? null : start + c.privateSeconds * 1000;
 }
-export function phaseOf(c: Contest, now: number): Phase {
+export function phaseOf(c: ContestTiming, now: number): Phase {
   if (c.forcedEndAt !== null && now >= c.forcedEndAt) return "ended";
   if (c.startAt === null) return "waiting";
   if (now < c.startAt) return "scheduled";
