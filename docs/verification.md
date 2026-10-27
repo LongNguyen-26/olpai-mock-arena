@@ -6,7 +6,9 @@
 - Script `qa-workspace-http.ts` đạt qua bản production build tại localhost:3010 với dữ liệu QA: phiên đăng nhập, 401/403, Origin, DTO không secret, redirect Jupyter, khóa chatbot private.
 - Giao diện admin desktop/mobile và chatbot đã được mở và xem ảnh; nút Chatbot tạo tab mới, `/usage` hiển thị ngân sách. Ảnh QA trong `output/playwright`, không chứa Runpod key thật.
 - Build image local đã dừng do ổ C hết dung lượng/lỗi I/O; chưa push image từ máy local. Theo yêu cầu chuyển sang workflow GitHub Actions, pin SHA các action, kiểm tra web/Python trước build/push, cần `DOCKERHUB_TOKEN` trong repository secret. Không tự tạo GPU trả phí để nghiệm thu.
-- Còn cần xác nhận CI build/push thành công và một lượt chạy A40 thực tế để kết luận CUDA, model, hai kernel và chia sẻ VRAM hoạt động.
+- [CI build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40476925267), commit `4efd5d143422c8c16f6b2b9145ed0d23255b8ac0`. Image public Linux/amd64: `nguyenlong26/olpai-workspace@sha256:22f21a6b87f728d87f9dedd68028985b7a10be0b451a843f52be751682bea817`; đã ghim digest trong cấu hình production.
+- Đã cấu hình ba biến GPU Workspace trên Vercel production, khóa mã hóa dưới dạng Secret theo xác nhận của người dùng; bản sao local nằm ngoài Git. Script `smoke-gpu-production.ts` kiểm tra API sau phát hành mà không cấp Pod hay đổi vòng thi.
+- Còn cần một lượt chạy A40 thực tế để kết luận CUDA, model, hai kernel và chia sẻ VRAM hoạt động; chưa tạo Pod tính phí.
 
 # Kiểm tra gói chuẩn hóa và luồng nộp bài — 27/10/2026
 

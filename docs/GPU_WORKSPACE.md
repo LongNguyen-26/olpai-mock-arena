@@ -2,6 +2,8 @@
 
 Người dùng chốt 27/10/2026: một A40 48 GB mỗi đội; DeepSeek 32B Q4_K_M và JupyterLab dùng chung GPU; không yêu cầu chặn Internet/cấm pip ở tầng hệ thống. Image: `nguyenlong26/olpai-workspace:2026.10.27`.
 
+Image đã được [GitHub Actions build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40476925267). Production dùng digest cố định: `nguyenlong26/olpai-workspace@sha256:22f21a6b87f728d87f9dedd68028985b7a10be0b451a843f52be751682bea817`.
+
 ## Nguồn và phạm vi mô phỏng
 
 [Thông báo chính thức OLP](https://www.olp.vn/tin-t%E1%BB%A9c/olympic-icpc/th%C3%B4ng-b%C3%A1o), mục 21h30 ngày 01/11/2025: LLM dùng trong 5 giờ đầu, không giới hạn session, tối đa 2.000 token chung input + output cho mỗi session. Đây là nguồn 2025, chưa phải xác nhận luật 2026. Web mặc định khóa chatbot khi chuyển khỏi public, kể cả mở private/kết thúc sớm. Vòng vô thời hạn giữ LLM tới khi chuyển pha.
