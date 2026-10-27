@@ -1,3 +1,8 @@
+# Sửa lỗi cấp GPU HTTP 400 — 27/10/2026
+
+- Nguyên nhân: payload gửi CUDA 13.1/13.2 ngoài enum REST v1 Runpod. Giới hạn lại 12.8/12.9/13.0 theo [schema chính thức](https://docs.runpod.io/api-reference/pods/POST/pods), thêm hồi quy cho payload và thông báo validation chỉ dùng tên trường an toàn.
+- 23 kiểm tra TypeScript và build production đạt. Credential admin đã lưu trả HTTP 200 khi list Pod; đối soát yêu cầu BKDN.AVENGERS không có Pod tương ứng. Không in key hay tạo Pod kiểm tra tính phí.
+
 # GPU Workspace — 27/10/2026
 
 - Chốt theo người dùng: A40 48 GB, DeepSeek 32B Q4_K_M, môi trường luyện tập cho phép Internet/pip; registry `nguyenlong26/olpai-workspace`. Bổ sung nguồn OLP chính thức về 2.000 token chung input/output mỗi session năm 2025, không áp thành luật 2026.

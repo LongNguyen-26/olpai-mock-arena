@@ -1,4 +1,43 @@
 import type { WorkspaceTemplate } from "./workspace-domain";
+// REST v1 validates this enum before scheduling a Pod. Do not invent newer
+// versions based on CUDA releases; they must be accepted by the Runpod API.
+export const WORKSPACE_CUDA_VERSIONS = ["12.8", "12.9", "13.0"] as const;
+const diagnosticFields = new Set([
+  "allowedCudaVersions",
+  "gpuTypeIds",
+  "gpuCount",
+  "cloudType",
+  "computeType",
+  "imageName",
+  "minRAMPerGPU",
+  "minVCPUPerGPU",
+  "containerDiskInGb",
+  "volumeInGb",
+  "ports",
+]);
+function invalidRequestFields(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const body = value as Record<string, unknown>;
+  const issues = [body.errors, body.details, body.issues].flatMap((v) =>
+    Array.isArray(v) ? v : [],
+  );
+  return [
+    ...new Set(
+      issues.flatMap((issue) => {
+        if (!issue || typeof issue !== "object") return [];
+        const path = (issue as Record<string, unknown>).path;
+        const field = Array.isArray(path)
+          ? path[0]
+          : typeof path === "string"
+            ? path.split(/[.[\]]/)[0]
+            : null;
+        return typeof field === "string" && diagnosticFields.has(field)
+          ? [field]
+          : [];
+      }),
+    ),
+  ];
+}
 export interface RunpodPod {
   id: string;
   name: string;
@@ -16,11 +55,14 @@ export class RunpodError extends Error {
   constructor(
     public status: number,
     public uncertain = false,
+    invalidFields: string[] = [],
   ) {
     super(
       status === 401 || status === 403
         ? "Runpod từ chối API key hoặc quyền truy cập."
-        : `Runpod chưa thực hiện được yêu cầu (HTTP ${status}).`,
+        : status === 400 && invalidFields.length
+          ? `Runpod từ chối cấu hình Pod (HTTP 400). Trường không hợp lệ: ${invalidFields.join(", ")}.`
+          : `Runpod chưa thực hiện được yêu cầu (HTTP ${status}).`,
     );
   }
 }
@@ -54,11 +96,18 @@ export class Runpod {
     } catch {
       throw new RunpodError(504, method !== "GET");
     }
-    if (!response.ok)
+    if (!response.ok) {
+      // Expose only allowlisted field names, never provider text, env or credentials.
+      const fields =
+        response.status === 400
+          ? invalidRequestFields(await response.json().catch(() => null))
+          : [];
       throw new RunpodError(
         response.status,
         method !== "GET" && (response.status >= 500 || response.status === 408),
+        fields,
       );
+    }
     if (response.status === 204) return undefined as T;
     try {
       const text = await response.text();
@@ -81,7 +130,7 @@ export class Runpod {
       cloudType: t.cloudType,
       computeType: "GPU",
       gpuCount: 1,
-      allowedCudaVersions: ["12.8", "12.9", "13.0", "13.1", "13.2"],
+      allowedCudaVersions: WORKSPACE_CUDA_VERSIONS,
       gpuTypeIds: [t.gpuTypeId],
       interruptible: false,
       minRAMPerGPU: t.minRAMPerGPU,

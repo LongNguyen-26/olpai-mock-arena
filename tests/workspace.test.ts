@@ -151,6 +151,7 @@ test("Runpod creates exactly one GPU, exposes only required ports and never retr
     assert.equal(url, "https://rest.runpod.io/v1/pods");
     const body = JSON.parse(options?.body as string);
     assert.equal(body.gpuCount, 1);
+    assert.deepEqual(body.allowedCudaVersions, ["12.8", "12.9", "13.0"]);
     assert.equal(body.interruptible, false);
     assert.deepEqual(body.ports, ["8888/http", "8000/http"]);
     assert.equal(
@@ -192,5 +193,32 @@ test("Runpod accepts empty stop responses and refuses to leak provider error tex
       e instanceof RunpodError &&
       !e.uncertain &&
       !e.message.includes("secret env"),
+  );
+});
+
+test("Runpod validation errors identify safe field names without echoing secrets", async () => {
+  const provider = new Runpod(
+    "real-looking-secret",
+    (async () =>
+      new Response(
+        JSON.stringify({
+          errors: [
+            {
+              path: ["allowedCudaVersions", 3],
+              message: "secret from provider body",
+            },
+            { path: ["env", "TOKEN"], message: "real-looking-secret" },
+          ],
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch,
+  );
+  await assert.rejects(
+    () => provider.create("test", defaultTemplate, {}),
+    (e: unknown) =>
+      e instanceof RunpodError &&
+      !e.uncertain &&
+      e.message.includes("allowedCudaVersions") &&
+      !/secret|TOKEN|env/.test(e.message),
   );
 });
