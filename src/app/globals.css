@@ -2810,3 +2810,8 @@ td .filename {
     gap: 18px;
   }
 }
+
+.sidebar {scrollbar-width:thin;scrollbar-color:#3b505a #14252e}
+.sidebar::-webkit-scrollbar {width:5px;height:5px}
+.sidebar::-webkit-scrollbar-track {background:#14252e}
+.sidebar::-webkit-scrollbar-thumb {background:#3b505a;border-radius:6px}
