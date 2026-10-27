@@ -62,3 +62,10 @@
 - [Image tách dịch vụ build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40514595000). Mặc định/template cho Pod mới ghim digest `sha256:b6ca1acfecc2ed190280679ca2d29f82fd541bc1224d4d399abf976086f6ebcb`. Production kiểm chứng Pod hiện có vẫn cùng ID/image cũ, scope team/services both; không restart hoặc tạo GPU mới trong kiểm thử tính năng.
 - Chrome/Playwright desktop 1440 và mobile 390 px: chọn scope all/Jupyter-only, giữ lựa chọn dataset, xác minh payload teamId null và đúng round/services; nhóm shared/private cùng hiện; LLM-only không có link Notebook và ngược lại. Mobile không tràn ngang. POST cấp Pod trong UI QA được chặn và trả dữ liệu ví dụ, không gửi tới Runpod.
 - API production chặn cấu hình scope team thiếu teamId bằng 400 trước cấp phát. Default image mới, DTO legacy và trường nội bộ/secret đã được kiểm tra. Hướng dẫn lỗi Runpod được lưu riêng và liên kết trong AGENTS.md.
+
+# Chat riêng theo máy/tab — 28/10/2026
+
+- Mở Chatbot lần đầu tạo UUID và lưu vào `sessionStorage` theo Pod; refresh giữ UUID. “Đoạn chat mới”/`/new` đổi UUID, xóa lịch sử hiển thị và bản nháp; ID mặc định cũ bằng Pod ID được thay bằng UUID.
+- Ba unit tests mới đạt; typecheck và bộ test hiện có đạt. Playwright kiểm tra hai tab cùng browser, browser context riêng, refresh, chat mới, `/new`, lịch sử và tab còn lại trên localhost và production. API chat giả lập, không gọi model hay tạo Pod. Script tái sử dụng: `scripts/qa-chat-sessions.js`.
+- Production SHA `2d85f21d59634c23d1ee8925e76bfe95fa53012e`, deployment `dpl_EQbanhaPxHRMAQDWjeYXJj4Qey3M` đã `READY`; smoke login/API/config thật đạt. Không đổi Docker image, Redis schema hoặc Pod đang chạy. Hướng dẫn build/deploy/QA và các lưu ý vận hành đã bổ sung trong `AGENTS.md`.
+

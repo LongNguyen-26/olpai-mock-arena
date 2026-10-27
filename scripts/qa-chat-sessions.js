@@ -1,3 +1,4 @@
+// Playwright CLI wraps this function expression; keep it without a trailing semicolon.
 async (page) => {
   const origin = new URL(page.url()).origin;
   const url = origin + "/workspace/chat?id=qa-pod";
@@ -163,4 +164,4 @@ async (page) => {
     slashNew: true,
     providerCalls: 0,
   };
-};
+}
