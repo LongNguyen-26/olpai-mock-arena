@@ -1,7 +1,15 @@
 import type { ContestPackage, TaskStatement } from "./types";
+function webTask(task: TaskStatement): TaskStatement {
+  const content = task.content
+    .split(/^#{1,6}[ \t]+Phụ lục[ \t]+Giấy phép và ghi công[^\n]*$/mi)[0]
+    .trimEnd()
+    .replace(/\n[ \t]*---$/, "")
+    .trimEnd();
+  return { ...task, content };
+}
 /** Presentation cleanup only: preserve the source files and dataset splits. */
 export function taskStatements(pkg: ContestPackage): TaskStatement[] {
-  if (pkg.tasks?.length) return pkg.tasks;
+  if (pkg.tasks?.length) return pkg.tasks.map(webTask);
   const source = pkg.statement
     .split(/^# Nguồn tham khảo và phạm vi suy luận/m)[0]
     .replaceAll("<!-- PAGE -->", "");
@@ -15,7 +23,7 @@ export function taskStatements(pkg: ContestPackage): TaskStatement[] {
     commonStart >= 0 && commonEnd > commonStart
       ? source.slice(commonStart, commonEnd)
       : "";
-  return [
+  const tasks: TaskStatement[] = [
     {
       id: "1",
       title: "Tách từng nhân tế bào",
@@ -39,4 +47,5 @@ export function taskStatements(pkg: ContestPackage): TaskStatement[] {
         common,
     },
   ];
+  return tasks.map(webTask);
 }

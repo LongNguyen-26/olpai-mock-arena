@@ -29,3 +29,11 @@ test("new packages can provide task-specific pages without parsing the legacy st
   ];
   assert.deepEqual(taskStatements({ tasks } as ContestPackage), tasks);
 });
+
+test("web task pages end before the license appendix without changing source content", () => {
+  const content = "# Đề thi\n\nSchema và cách nộp.\n\n---\n\n# Phụ lục Giấy phép và ghi công\n\nGhi công.\n\n# Phần sau phụ lục\nKhông hiển thị.";
+  const tasks = [{ id: "2" as const, title: "Tác vụ 2", content }];
+  const [page] = taskStatements({ tasks } as ContestPackage);
+  assert.equal(page.content, "# Đề thi\n\nSchema và cách nộp.");
+  assert.equal(tasks[0].content, content);
+});
