@@ -109,6 +109,7 @@ export default function Arena() {
     }
   }, []);
   useEffect(() => {
+    let active = true;
     const read = () => {
       const url = new URL(window.location.href);
       selected.current = url.searchParams.get("round") ?? "";
@@ -122,15 +123,22 @@ export default function Arena() {
       focus = () => {
         void load();
       };
-    window.addEventListener("popstate", read);
-    window.addEventListener("hashchange", read);
+    const navigation = () => {
+      // Next.js may dispatch history events while restoring its router state.
+      queueMicrotask(() => {
+        if (active) read();
+      });
+    };
+    window.addEventListener("popstate", navigation);
+    window.addEventListener("hashchange", navigation);
     window.addEventListener("focus", focus);
     return () => {
+      active = false;
       controller.current?.abort();
       clearInterval(poll);
       clearInterval(tick);
-      window.removeEventListener("popstate", read);
-      window.removeEventListener("hashchange", read);
+      window.removeEventListener("popstate", navigation);
+      window.removeEventListener("hashchange", navigation);
       window.removeEventListener("focus", focus);
     };
   }, [load]);
