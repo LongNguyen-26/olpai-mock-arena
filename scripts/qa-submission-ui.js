@@ -70,4 +70,4 @@ async (page) => {
     });
     await page.context().clearCookies();
   }
-};
+}
