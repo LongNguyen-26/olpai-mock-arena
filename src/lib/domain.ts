@@ -45,7 +45,7 @@ export function canRead(
     : ["public", "private", "ended"].includes(phase);
 }
 export function visibleSubmission(s: Submission, _reveal = true) {
-  const { path: _path, ...rest } = s;
+  const { path: _path, fileStorage: _fileStorage, ...rest } = s;
   return {
     ...rest,
     status: s.status ?? "accepted",

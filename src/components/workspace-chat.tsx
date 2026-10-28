@@ -1,8 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Cpu, Plus, Send, Sparkles } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import ChatMarkdown from "./chat-markdown";
 import { api } from "./arena-client";
 import type { readChat } from "@/lib/workspaces";
 import { chatSession } from "@/lib/chat-session";
@@ -67,6 +66,8 @@ export default function WorkspaceChat() {
   const used =
       (data?.session.inputTokens ?? 0) + (data?.session.outputTokens ?? 0),
     limit = data?.template.sessionTokenLimit ?? 2000;
+  const closed =
+    !!data?.session.exhausted || used >= limit || !!data?.session.pending;
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = content.trim();
@@ -90,7 +91,7 @@ export default function WorkspaceChat() {
       setInfo("Lệnh chưa hỗ trợ. Dùng /help.");
       return;
     }
-    if (!data.enabled) return;
+    if (!data.enabled || closed) return;
     setBusy(true);
     setPendingText(text);
     setContent("");
@@ -134,11 +135,15 @@ export default function WorkspaceChat() {
             <i aria-hidden="true" />
             {!data
               ? "Đang kết nối…"
-              : data.enabled
-                ? "DeepSeek sẵn sàng"
-                : data.policyOpen
-                  ? "DeepSeek đang khởi động"
-                  : "Chatbot đang khóa"}
+              : data.session.pending
+                ? "Phiên đã gián đoạn"
+                : closed
+                  ? "Phiên đã hết token"
+                  : data.enabled
+                    ? "DeepSeek sẵn sàng"
+                    : data.policyOpen
+                      ? "DeepSeek đang khởi động"
+                      : "Chatbot đang khóa"}
           </span>
           <button className="btn" onClick={newSession} disabled={busy || !data}>
             <Plus size={17} />
@@ -175,12 +180,12 @@ export default function WorkspaceChat() {
                 {message.role === "user" ? "Đội của bạn" : "DeepSeek"}
               </strong>
               <div className="prose">
-                <Markdown remarkPlugins={[remarkGfm]}>
+                <ChatMarkdown>
                   {message.role === "assistant"
                     ? assistantText(message.content) ||
                       "Chưa có nội dung trả lời. Hãy yêu cầu phản hồi ngắn hơn."
                     : message.content}
-                </Markdown>
+                </ChatMarkdown>
               </div>
             </article>
           ))}
@@ -188,7 +193,7 @@ export default function WorkspaceChat() {
             <article className="chat-message user">
               <strong>Đội của bạn</strong>
               <div className="prose">
-                <Markdown remarkPlugins={[remarkGfm]}>{pendingText}</Markdown>
+                <ChatMarkdown>{pendingText}</ChatMarkdown>
               </div>
             </article>
           )}
@@ -215,6 +220,12 @@ export default function WorkspaceChat() {
               Lượt trước bị gián đoạn; ngân sách tối đa đã được giữ. Dùng /new
               để tiếp tục với phiên mới.
             </p>
+          )}
+          {data && !data.session.pending && closed && (
+            <div className="alert" role="status">
+              {data.session.exhausted?.message ??
+                "Phiên đã hết ngân sách token. Dùng /new hoặc Đoạn chat mới để tiếp tục."}
+            </div>
           )}
           {error && (
             <div className="alert error" role="alert">
@@ -254,7 +265,7 @@ export default function WorkspaceChat() {
               busy ||
               !data ||
               !content.trim() ||
-              (!data.enabled && !content.trim().startsWith("/"))
+              ((!data.enabled || closed) && !content.trim().startsWith("/"))
             }
             aria-label="Gửi tin nhắn"
           >
@@ -262,7 +273,8 @@ export default function WorkspaceChat() {
           </button>
         </form>
         <small className="chat-footer">
-          Enter để gửi · Shift + Enter để xuống dòng · /limits để xem giới hạn
+          {used}/{limit} token · Enter để gửi · Shift + Enter để xuống dòng ·
+          /limits để xem giới hạn
         </small>
       </section>
     </main>

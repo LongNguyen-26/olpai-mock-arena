@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assistantText } from "../src/lib/chat-presentation";
+import { assistantText, normalizeMath } from "../src/lib/chat-presentation";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ChatMarkdown from "../src/components/chat-markdown";
 import { roundTiming } from "../src/lib/round-presentation";
 
 test("assistant display removes thought blocks and model control tokens", () => {
@@ -41,6 +44,27 @@ const round = {
   privateSeconds: 1,
   unlimited: false,
 };
+test("math renders fractions for LaTeX and saved bracket delimiters without changing code", () => {
+  for (const text of [
+    String.raw`\[F1=\frac{2}{3}\]`,
+    String.raw`[ F1=\frac{2}{3} ]`,
+    String.raw`$$F1=\frac{2}{3}$$`,
+    String.raw`Inline \(x^2\) and $y^2$`,
+  ]) {
+    const html = renderToStaticMarkup(
+      createElement(ChatMarkdown, { children: text }),
+    );
+    assert.match(html, /class="katex"/);
+    assert.doesNotMatch(html, /katex-error/);
+  }
+  const code = "```python\nprint(r'\\[x\\]')\n```\n`\\(x\\)`";
+  assert.equal(normalizeMath(code), code);
+  const html = renderToStaticMarkup(
+    createElement(ChatMarkdown, { children: code }),
+  );
+  assert.match(html, /Sao chép mã/);
+  assert.doesNotMatch(html, /class="katex"/);
+});
 
 test("round card follows live phase boundaries and counts down the whole round", () => {
   assert.deepEqual(roundTiming(round, 999), {

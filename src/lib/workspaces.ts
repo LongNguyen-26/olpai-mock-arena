@@ -20,6 +20,8 @@ import {
   defaultTemplate,
   driveFileId,
   emptySession,
+  ChatLimitError,
+  exhaustChatSession,
   meter,
   outputBudget,
   workspaceView,
@@ -726,6 +728,7 @@ export async function sendChat(
           "Chatbot chỉ được dùng trong giai đoạn public của lượt thi này.",
           403,
         );
+      if (s.exhausted) return { session: s };
       if (s.pending)
         throw new ApiError(
           "Lượt trước chưa xác nhận hoàn tất. Tạo phiên mới bằng /new.",
@@ -741,11 +744,23 @@ export async function sendChat(
       try {
         maxTokens = outputBudget(w.template, s, count.count);
       } catch (e) {
-        throw new ApiError((e as Error).message, 422);
+        if (!(e instanceof ChatLimitError))
+          throw new ApiError("Dịch vụ trả số token không hợp lệ.", 502);
+        const exhausted = exhaustChatSession(
+          w.template,
+          s,
+          content,
+          requestId,
+          count.count,
+          e,
+        );
+        await db().set(k, exhausted, { ex: 30 * 86400 });
+        return { session: exhausted };
       }
       const reserved = count.count + maxTokens;
       // Reserve before inference. A function crash cannot silently reuse an uncertain budget.
       s.pending = { requestId, reserved };
+      s.messages = messages;
       s.inputTokens += count.count;
       s.outputTokens += maxTokens;
       await db().set(k, s, { ex: 30 * 86400 });

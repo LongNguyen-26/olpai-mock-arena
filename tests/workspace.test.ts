@@ -6,6 +6,8 @@ import {
   defaultTemplate,
   driveFileId,
   emptySession,
+  ChatLimitError,
+  exhaustChatSession,
   estimatedCost,
   meter,
   outputBudget,
@@ -142,6 +144,43 @@ test("token budget includes repeated prompt/history and bounds the generated max
     /hết/,
   );
   assert.throws(() => outputBudget(t, emptySession(), NaN));
+});
+test("oversized turns remain in history and permanently exhaust only that session", () => {
+  const original = { ...emptySession(), inputTokens: 30, outputTokens: 10 };
+  for (const [prompt, reason] of [
+    [1801, "input"],
+    [1960, "input"],
+  ] as const) {
+    const error = new ChatLimitError(reason, "Input vượt giới hạn.");
+    const closed = exhaustChatSession(
+      defaultTemplate,
+      original,
+      "long prompt",
+      "request",
+      prompt,
+      error,
+    );
+    assert.deepEqual(closed.messages, [
+      { role: "user", content: "long prompt" },
+    ]);
+    assert.equal(closed.inputTokens + closed.outputTokens, 2000);
+    assert.equal(closed.lastRequestId, "request");
+    assert.equal(closed.exhausted?.promptTokens, prompt);
+    assert.throws(
+      () => outputBudget(defaultTemplate, closed, 1),
+      /hết ngân sách/,
+    );
+  }
+  assert.deepEqual(original.messages, []);
+  assert.equal(outputBudget(defaultTemplate, emptySession(), 20), 1024);
+  assert.throws(
+    () => outputBudget(defaultTemplate, emptySession(), NaN),
+    (e) => !(e instanceof ChatLimitError),
+  );
+  assert.throws(
+    () => outputBudget(defaultTemplate, { ...original, inputTokens: 1990 }, 1),
+    (e) => e instanceof ChatLimitError && e.reason === "session",
+  );
 });
 test("cost ledger preserves billed intervals across stop/start and strips all secrets", () => {
   const w = {

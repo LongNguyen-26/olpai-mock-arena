@@ -33,6 +33,7 @@ import { taskStatements } from "@/lib/statements";
 import { canRead } from "@/lib/domain";
 import { SubmissionError } from "@/lib/judge";
 import type { Submission, User } from "@/lib/types";
+import { readSubmissionFile } from "@/lib/submission-storage";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -199,6 +200,20 @@ async function handle(
         : null;
       if (!s || !s.path || (!user.admin && s.teamId !== user.teamId))
         throw new ApiError("Không tìm thấy bản nộp.", 404);
+      if (s.fileStorage === "redis") {
+        const bytes = await readSubmissionFile(s);
+        const filename = encodeURIComponent(s.filename).replace(
+          /['()*]/g,
+          (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+        );
+        return new Response(new Uint8Array(bytes), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="submission.csv"; filename*=UTF-8''${filename}`,
+            "Cache-Control": "private, no-store",
+          },
+        });
+      }
       const result = await storage().signedReadUrl(s.path, {
         expiresIn: "1m",
         downloadAs: s.filename,

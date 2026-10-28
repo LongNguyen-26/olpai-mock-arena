@@ -37,6 +37,8 @@ async function main() {
   const originalFetch = globalThis.fetch;
   let creates = 0,
     generations = 0,
+    tokenCount = 20,
+    tokenCounts = 0,
     mode: "ok" | "timeout" | "reject" = "ok";
   const pods: RunpodPod[] = [];
   const json = (value: unknown, status = 200) =>
@@ -112,7 +114,10 @@ async function main() {
           stage: "QA fixture",
           gpu: "A40, 21000 MiB, 49140 MiB, 0 %",
         });
-      if (url.endsWith("/token-count")) return json({ count: 20 });
+      if (url.endsWith("/token-count")) {
+        tokenCounts++;
+        return json({ count: tokenCount });
+      }
       if (url.endsWith("/generate")) {
         generations++;
         return json({
@@ -274,6 +279,73 @@ async function main() {
       (await readChat(member, w.id, session)).session.messages.length,
       2,
     );
+    tokenCount = 1801;
+    const closedId = randomUUID(),
+      closedRequest = randomUUID(),
+      beforeCounts = tokenCounts;
+    const closed = await sendChat(
+      member,
+      w.id,
+      closedId,
+      closedRequest,
+      "Oversized QA prompt",
+    );
+    assert.equal(
+      closed.session.messages.at(-1)?.content,
+      "Oversized QA prompt",
+    );
+    assert.equal(
+      closed.session.inputTokens + closed.session.outputTokens,
+      2000,
+    );
+    assert.equal(closed.session.exhausted?.reason, "input");
+    assert.equal(generations, 1);
+    await sendChat(member, w.id, closedId, closedRequest, "duplicate");
+    await sendChat(member, w.id, closedId, randomUUID(), "must not generate");
+    assert.equal(tokenCounts, beforeCounts + 1);
+    assert.equal(
+      (await readChat(member, w.id, closedId)).session.messages.length,
+      1,
+    );
+    tokenCount = 20;
+    const budgetId = randomUUID();
+    await db().set(key(`gpu:chat:${w.id}:${c.id}:${budgetId}`), {
+      messages: [],
+      inputTokens: 1990,
+      outputTokens: 0,
+    });
+    const budgetClosed = await sendChat(
+      member,
+      w.id,
+      budgetId,
+      randomUUID(),
+      "Fits input but exceeds session budget",
+    );
+    assert.equal(budgetClosed.session.exhausted?.reason, "session");
+    assert.equal(budgetClosed.session.messages.length, 1);
+    tokenCount = NaN;
+    await assert.rejects(
+      () =>
+        sendChat(
+          member,
+          w.id,
+          randomUUID(),
+          randomUUID(),
+          "Bad provider count",
+        ),
+      /số token không hợp lệ/,
+    );
+    tokenCount = 20;
+    // A fresh UUID has an independent ledger and can generate normally.
+    const fresh = await sendChat(
+      member,
+      w.id,
+      randomUUID(),
+      randomUUID(),
+      "Fresh QA prompt",
+    );
+    assert.equal(fresh.session.exhausted, undefined);
+    assert.equal(generations, 2);
     const safe = await workspaceState(member);
     assert.ok(!JSON.stringify(safe).includes(stored.secret));
     assert.equal(safe.teams.length, 0);

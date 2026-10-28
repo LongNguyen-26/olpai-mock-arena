@@ -23,6 +23,10 @@ Image task-root và không nạp dataset đã được [GitHub Actions build/pus
 
 Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử, token định dạng và phần suy luận. Lịch sử gửi lại ở mỗi lượt tiếp tục được tính vào input tiêu thụ của phiên. Đây là cách triển khai ngân sách tiêu thụ: thông báo không mô tả chi tiết cách tính nhiều lượt. Admin chỉnh tổng/input/output qua template; không có quota tổng cả kỳ thi. Các lệnh `/usage`, `/limits`, `/help`, `/new` không gọi inference.
 
+Theo yêu cầu mô phỏng, lượt gửi vượt giới hạn input hoặc phần ngân sách phiên còn lại vẫn được lưu vào lịch sử. Phần ngân sách còn lại bị tiêu hết theo chính sách (không gọi sinh câu trả lời); phiên bị khóa kể cả sau refresh. Thông báo yêu cầu mở “Đoạn chat mới” hoặc `/new`; các lệnh kiểm tra vẫn dùng được. Metadata lưu số token prompt đo được để phân biệt với ngân sách bị tiêu hết. Đây là chính sách của Arena, không phải khẳng định về luật thi chính thức.
+
+Giao diện chat hỗ trợ công thức `$...$`, `$$...$$`, `\(...\)`, `\[...\]` và công thức LaTeX trong ngoặc vuông nguyên dòng của phản hồi cũ. Khối code giữ nguyên nội dung, có khung và nút sao chép; không diễn giải LaTeX bên trong code.
+
 [Model gốc](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B) và [GGUF cộng đồng của bartowski](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF): Q4_K_M khoảng 19,9 GB. Không khẳng định chất lượng tương đương BF16/cấu hình BTC. LLM và notebook tranh chấp VRAM/compute, không phân vùng GPU cứng; chưa benchmark A40 thực tế.
 
 [Giá Runpod](https://www.runpod.io/pricing) đối chiếu 27/10/2026: A40 48 GB $0,59/h; RTX 6000 Ada 48 GB $0,99/h; A100 PCIe 80 GB $1,79/h. Sáu giờ A40 khoảng $3,54 tiền GPU, cộng lưu trữ/thuế; giá và tồn kho thay đổi. Web dùng [GraphQL quản lý Pod](https://docs.runpod.io/sdks/graphql/manage-pods), cùng mutation `podFindAndDeployOnDemand` như Python SDK GraphQL, và [catalog giá v2](https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types), cache 60 giây. Template mặc định chọn Secure Cloud. Trần USD/h admin nhập áp dụng giá GPU báo từ catalog, không phải hard cap hóa đơn.

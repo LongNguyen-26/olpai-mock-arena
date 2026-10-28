@@ -57,6 +57,8 @@ Cả public/private trên Drive đều được chia sẻ bất kỳ ai có link
 
 ## CSV kiểm tra riêng cho admin
 
+CSV được lưu vào Blob private trước khi ghi nhận bài nộp. Khi Blob từ chối ghi (ví dụ bucket vượt storage miễn phí và chuyển read-only), web lưu bản gzip/base64 vào khóa Redis riêng `submission-file:<id>` cùng namespace, không nhét CSV vào hash lịch sử. Bản nộp vẫn chấm và tải lại qua API kiểm tra quyền; quota/idempotency áp dụng như thường. Tệp của yêu cầu bị trùng hoặc bị từ chối quota được dọn. Tệp cũ trong Blob tiếp tục tải bằng đường dẫn cũ. Kho dự phòng tiêu thụ dung lượng Redis; cần theo dõi dung lượng và khôi phục khả năng ghi Blob khi có điều kiện, không tự bật gói trả phí.
+
 Thư mục `.local/test-submissions/` có public/private, mỗi tác vụ 4 CSV: nộp thử, lỗi định dạng, hợp lệ điểm thấp, hợp lệ điểm cao. Xem điểm đo trong `KET_QUA_KIEM_TRA.json`. File điểm cao được tạo từ đáp án để kiểm tra hệ thống, **không phải kết quả mô hình**, không phát cho thí sinh.
 
 ## Kiểm tra và triển khai

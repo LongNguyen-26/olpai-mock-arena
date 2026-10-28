@@ -92,3 +92,11 @@
 - `qa-multiple-admins.ts`: namespace QA riêng, dùng chính script provisioning để tạo tài khoản, kiểm tra thử lại không ghi đè mật khẩu; HTTP xác nhận cả hai admin đăng nhập và điều khiển vòng, user thường bị từ chối, admin bổ sung nộp thử không trừ quota/không vào BXH, các admin không bị tính là thí sinh và thu hồi quyền có hiệu lực ngay trên phiên đang đăng nhập.
 - Không thay đổi password/session của admin hiện có, cấu hình vòng hoặc owner/credential GPU khi thêm tài khoản. Mật khẩu mới chỉ được lưu trong file local ignored; không in log hoặc đưa vào Git.
 
+## Nộp bài và hiển thị chatbot — 28/10/2026
+
+- Nguyên nhân nộp bài: Blob trả `AccessDenied`; dịch vụ ký upload xác nhận bucket bị read-only vì vượt storage miễn phí. Không đổi gói hay xóa tài nguyên. Khi Blob từ chối ghi, CSV gzip/base64 được lưu vào khóa Redis riêng; API tải vẫn kiểm tra quyền đội/admin và không lộ khóa lưu trữ trong snapshot.
+- Typecheck, 51 unit tests và production build đạt. `qa-submission-storage.ts`: HTTP/Redis/Blob thật, namespace QA riêng, cả sáu cặp tác vụ/split chấm đúng; CSV tải lại nguyên vẹn, Unicode filename đúng; bài sai schema giữ lịch sử và không trừ quota; hai POST đồng thời cùng nonce nhận cùng ID và chỉ tính một lượt; yêu cầu trùng/bị từ chối quota không để tệp Redis thừa; đội khác không tải được CSV.
+- `qa-workspace-flow.ts`: Redis thật, Runpod/model giả lập, kiểm tra input vượt 1800 và thiếu ngân sách phiên vẫn lưu tin nhắn, dùng hết ngân sách và chặn gọi model tiếp; retry cùng request không tính lại; phiên mới độc lập, số token provider sai không bị coi là vượt giới hạn. Không cấp hay điều khiển GPU thật.
+- Playwright Edge desktop/mobile: `qa-chat-sessions.js` giữ tách tab/máy, refresh, `/new`; `qa-chat-rendering.js` kiểm tra KaTeX cho các dấu phân cách, code không bị sửa, clipboard đúng (chuẩn hóa CRLF của Windows khi so sánh), tin nhắn vượt input không trả về composer, khóa phiên qua reload, `/usage` và `/new` vẫn hoạt động. Provider chat giả lập. KaTeX cảnh báo thiếu metric ký tự tiếng Việt nhưng công thức đã được kiểm tra trực quan, không có pageerror.
+- `qa-submission-ui.js`: nộp CSV qua UI/API thật trong namespace QA, hiển thị điểm 19,92 và lịch sử trên desktop/mobile, không tràn ngang; logout sau kiểm tra. Ảnh ở `output/playwright/chat-*.png` và `submission-fixed-*.png`, chỉ phục vụ QA.
+

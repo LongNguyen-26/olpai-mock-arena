@@ -163,6 +163,11 @@ export interface ChatSession {
   outputTokens: number;
   pending?: { requestId: string; reserved: number };
   lastRequestId?: string;
+  exhausted?: {
+    reason: "input" | "session";
+    message: string;
+    promptTokens: number;
+  };
 }
 export const emptySession = (): ChatSession => ({
   messages: [],
@@ -186,21 +191,54 @@ export function outputBudget(
   s: ChatSession,
   promptTokens: number,
 ) {
-  if (
-    !Number.isInteger(promptTokens) ||
-    promptTokens < 1 ||
-    promptTokens > t.inputTokenLimit
-  )
-    throw new Error(
+  if (!Number.isInteger(promptTokens) || promptTokens < 1)
+    throw new Error("Dịch vụ trả số token không hợp lệ.");
+  if (s.exhausted) throw new ChatLimitError("session", s.exhausted.message);
+  if (promptTokens > t.inputTokenLimit)
+    throw new ChatLimitError(
+      "input",
       `Input vượt giới hạn ${t.inputTokenLimit} token (gồm lịch sử và định dạng hội thoại).`,
     );
   const remaining =
     t.sessionTokenLimit - s.inputTokens - s.outputTokens - promptTokens;
   if (remaining <= 0)
-    throw new Error(
+    throw new ChatLimitError(
+      "session",
       "Phiên đã hết ngân sách token. Dùng /new để tạo phiên mới.",
     );
   return Math.min(t.outputTokenLimit, remaining);
+}
+export class ChatLimitError extends Error {
+  constructor(
+    public reason: "input" | "session",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+export function exhaustChatSession(
+  t: WorkspaceTemplate,
+  s: ChatSession,
+  content: string,
+  requestId: string,
+  promptTokens: number,
+  error: ChatLimitError,
+): ChatSession {
+  return {
+    ...s,
+    messages: [...s.messages, { role: "user", content }],
+    // A rejected oversized turn consumes the rest of this session by policy.
+    inputTokens: Math.max(s.inputTokens, t.sessionTokenLimit - s.outputTokens),
+    lastRequestId: requestId,
+    exhausted: {
+      reason: error.reason,
+      promptTokens,
+      message:
+        error.reason === "input"
+          ? `${error.message} Tin nhắn đã được lưu; phiên đã hết ngân sách token. Dùng /new hoặc Đoạn chat mới để tiếp tục.`
+          : "Tin nhắn đã được lưu; phiên đã hết ngân sách token. Dùng /new hoặc Đoạn chat mới để tiếp tục.",
+    },
+  };
 }
 export function estimatedCost(
   w: Pick<Workspace, "meterAt" | "meterRate" | "accruedUsd">,

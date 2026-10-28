@@ -93,6 +93,7 @@ export interface Submission {
   bytes: number;
   sha256: string;
   path: string;
+  fileStorage?: "redis";
   note: string;
   status?: "accepted" | "invalid";
   error?: string;

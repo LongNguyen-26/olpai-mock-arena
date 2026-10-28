@@ -13,6 +13,10 @@ import {
 import { SubmissionError, judgeCV, judgeQA } from "./judge";
 import { judgeArena02 } from "./judge-arena02";
 import { taskStatements } from "./statements";
+import {
+  storeSubmissionFile,
+  deleteSubmissionFile,
+} from "./submission-storage";
 import type {
   SafeUser,
   TaskId,
@@ -160,11 +164,7 @@ export async function submit(
         id +
         ".csv"
       : "";
-  if (path)
-    await storage().put(path, bytes, {
-      contentType: "text/csv; charset=utf-8",
-      cache: "no-store",
-    });
+  const location = path ? await storeSubmissionFile(path, id, bytes) : { path };
   const record: Submission = {
     id,
     runId: contest.id,
@@ -179,7 +179,7 @@ export async function submit(
     ...(metric === undefined ? {} : { metric }),
     bytes: file.size,
     sha256: createHash("sha256").update(bytes).digest("hex"),
-    path,
+    ...location,
     note: "",
     status: error ? "invalid" : "accepted",
     ...(error ? { error } : {}),
@@ -200,9 +200,7 @@ export async function submit(
     [contest.id, split, JSON.stringify(record), actor],
   );
   if (accepted !== id && path)
-    await storage()
-      .del(path)
-      .catch(() => {});
+    await deleteSubmissionFile(location).catch(() => {});
   const errors: Record<string, string> = {
     run: "Vòng luyện đã được mở lại. Hãy nộp lại.",
     closed: "Đã hết thời gian nhận bài cho tập này.",
