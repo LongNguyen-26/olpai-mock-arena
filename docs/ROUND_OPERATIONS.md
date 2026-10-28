@@ -16,6 +16,10 @@ Private chưa mở: không phát input/link Drive và chưa hiển thị BXH pri
 
 ## Quản trị
 
+- Hỗ trợ nhiều tài khoản quản trị. Khóa Redis `admin` giữ admin ban đầu; set `admins` chứa các admin bổ sung. Quyền được tra lại từ Redis theo mỗi yêu cầu, không nhận quyền admin từ form đăng ký hoặc cookie do client tự khai báo. Các admin không tính vào số thí sinh/quota/BXH; nộp thử vẫn được đánh dấu riêng.
+- Cấp tài khoản bổ sung bằng script vận hành, ví dụ `npx tsx --env-file=.env scripts/create-admin.ts arena_admin_2 "Quản trị Arena 2" .local/ADMIN_2_ACCESS.local.md --production`. Script chỉ tạo tài khoản mới, không thay mật khẩu/tài khoản đang tồn tại; mật khẩu ngẫu nhiên lưu trong file local ignored, không in ra terminal. Không commit hoặc chia sẻ công khai file này. Người dùng đổi mật khẩu trong **Tài khoản** sau khi đăng nhập.
+- Credential Runpod và quyền điều khiển Pod theo owner hiện có; thêm admin không tự sao chép credential hoặc đổi chủ Pod.
+
 - Trên mỗi thẻ vòng ở **Các vòng luyện**, admin có nút **Bắt đầu** (khi chưa mở/đã hẹn giờ) và **Ẩn vòng / Hiện vòng**. Các nút thao tác không kích hoạt link vào vòng ở nền thẻ.
 - Vòng ẩn vẫn hiện với nhãn **Đã ẩn** cho admin. Thí sinh không thấy trong danh sách và không truy cập được đề, dữ liệu, đăng ký, nộp bài hoặc Workspace của vòng qua web, kể cả biết link trực tiếp. Hiện lại giữ đăng ký, kết quả và lịch cũ; ẩn không đặt lại thời gian hoặc xóa Pod/tệp. Agent không cấp dữ liệu hay bật LLM cho vòng ẩn. Quyền được kiểm tra ở server; một bản nộp đang xử lý cũng bị chặn ở bước ghi Redis nếu vòng vừa ẩn.
 - Vòng xóa khỏi web có `deletedAt`, được gỡ khỏi index và trả 404 cho cả admin/thí sinh. Bản ghi, kết quả và package nguồn được giữ để có thể khôi phục; lịch sử GPU vẫn đọc được ở admin với quyền truy cập dịch vụ tắt.

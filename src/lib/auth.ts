@@ -7,6 +7,7 @@ import {
 import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import { db, key } from "./db";
+import { getAdminIds } from "./admins";
 import type { SafeUser, User } from "./types";
 const scrypt = promisify(scryptCallback);
 export async function hashPassword(password: string) {
@@ -27,13 +28,13 @@ export async function getUser(): Promise<SafeUser | null> {
   if (!token) return null;
   const id = await db().get<string>(sessionKey(token));
   if (!id) return null;
-  const [user, adminId] = await Promise.all([
+  const [user, adminIds] = await Promise.all([
     db().get<User>(key(`user:${id}`)),
-    db().get<string>(key("admin")),
+    getAdminIds(),
   ]);
   if (!user) return null;
   const { password: _password, ...safe } = user;
-  return { ...safe, admin: id === adminId };
+  return { ...safe, admin: adminIds.includes(id) };
 }
 export async function createSession(id: string) {
   const token = randomBytes(32).toString("base64url");

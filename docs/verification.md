@@ -86,3 +86,9 @@
 - `qa-round-management-ui.js`: desktop 1600px/mobile 390px; tên vòng trên header, link quay về rõ hơn, ô datetime và nút Hẹn giờ thẳng hàng, timestamp UTC+7 đúng, ẩn/hiện/bắt đầu nhanh trên thẻ, nhãn vòng đang xem. Bố cục quản trị gồm điều khiển ngang, cấu hình, thông báo, kết quả và danh sách đăng ký; kiểm tra không tràn ngang.
 - Xóa khỏi web đúng hai vòng dùng package cũ: `a544c419-8b06-4e1f-ac6e-e56444075003` (Bộ đề 01 cũ) và `eb708a8f-5cbd-4c9a-bf27-b7e062786b78` (Bộ đề 02 cũ), theo yêu cầu người dùng. Script vận hành xác minh package binding, không còn Pod đang cấp, dùng CAS cho cả hai vòng; không đổi vòng dùng package chuẩn hóa hoặc xóa source package, đăng ký/kết quả/Pod.
 
+## Nhiều tài khoản quản trị — 28/10/2026
+
+- Typecheck, 49 kiểm thử TypeScript và production build đạt. Admin gốc giữ khóa cũ; các tài khoản bổ sung dùng set `admins`.
+- `qa-multiple-admins.ts`: namespace QA riêng, dùng chính script provisioning để tạo tài khoản, kiểm tra thử lại không ghi đè mật khẩu; HTTP xác nhận cả hai admin đăng nhập và điều khiển vòng, user thường bị từ chối, admin bổ sung nộp thử không trừ quota/không vào BXH, các admin không bị tính là thí sinh và thu hồi quyền có hiệu lực ngay trên phiên đang đăng nhập.
+- Không thay đổi password/session của admin hiện có, cấu hình vòng hoặc owner/credential GPU khi thêm tài khoản. Mật khẩu mới chỉ được lưu trong file local ignored; không in log hoặc đưa vào Git.
+

@@ -102,6 +102,7 @@ async function main() {
         key("user:qa-user"),
         key("registrations:" + id),
         key("admin"),
+        key("admins"),
       ],
       [hidden.contest.id, "public", JSON.stringify(fakeSubmission), "qa-team"],
     );

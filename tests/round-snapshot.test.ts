@@ -32,6 +32,7 @@ test("round discovery counts pending and approved contestants without exposing t
     u2: { userId: "u2", status: "approved", registeredAt: 0 },
     u3: { userId: "u3", status: "rejected", registeredAt: 0 },
     admin: { userId: "admin", status: "approved", registeredAt: 0 },
+    admin2: { userId: "admin2", status: "approved", registeredAt: 0 },
   };
   const command = (args: string[]) => {
     switch (args[0].toUpperCase()) {
@@ -40,7 +41,7 @@ test("round discovery counts pending and approved contestants without exposing t
       case "TIME":
         return ["2", "0"];
       case "SMEMBERS":
-        return [];
+        return args[1].endsWith(":admins") ? ["admin2"] : [];
       case "MGET":
         return [JSON.stringify(contest), null];
       case "GET":

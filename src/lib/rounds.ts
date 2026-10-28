@@ -5,6 +5,7 @@ import { canRead, phaseOf, rankTeams, visibleSubmission } from "./domain";
 import { taskStatements } from "./statements";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
+import { getAdminIds } from "./admins";
 import type {
   Contest,
   ContestPackage,
@@ -51,12 +52,12 @@ export async function requireRegistration(user: SafeUser, c: Contest) {
     );
 }
 export async function snapshot(user: SafeUser, id?: string) {
-  const [ids, now, teamsRaw, inviteIds, adminId] = await Promise.all([
+  const [ids, now, teamsRaw, inviteIds, adminIds] = await Promise.all([
     db().zrange<string[]>(key("rounds"), 0, -1, { rev: true }),
     serverNow(),
     db().hgetall<Record<string, Team>>(key("teams")),
     db().smembers<string[]>(key(`invites:${user.id}`)),
-    db().get<string>(key("admin")),
+    getAdminIds(),
   ]);
   const contests = ids.length
     ? await db().mget<(Contest | null)[]>(...ids.map((x) => key(`round:${x}`)))
@@ -84,7 +85,7 @@ export async function snapshot(user: SafeUser, id?: string) {
             hidden: !!c.hidden,
             registration: registrations[i]?.[user.id] ?? null,
             registrationCount: Object.values(registrations[i] ?? {}).filter(
-              (r) => r.userId !== adminId && r.status !== "rejected",
+              (r) => !adminIds.includes(r.userId) && r.status !== "rejected",
             ).length,
           },
         ]
@@ -138,7 +139,7 @@ export async function snapshot(user: SafeUser, id?: string) {
       )
     : [];
   const approved = roster.filter((r) => r.status === "approved");
-  const participants = approved.filter((r) => r.userId !== adminId);
+  const participants = approved.filter((r) => !adminIds.includes(r.userId));
   const participantIds = new Set(participants.map((r) => r.userId));
   const teamCount = Object.values(teams).filter((t) =>
     t.members.some((id) => participantIds.has(id)),
