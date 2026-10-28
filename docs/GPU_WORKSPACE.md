@@ -21,9 +21,11 @@ Image task-root và không nạp dataset đã được [GitHub Actions build/pus
 
 [Thông báo chính thức OLP](https://www.olp.vn/tin-t%E1%BB%A9c/olympic-icpc/th%C3%B4ng-b%C3%A1o), mục 21h30 ngày 01/11/2025: LLM dùng trong 5 giờ đầu, không giới hạn session, tối đa 2.000 token chung input + output cho mỗi session. Đây là nguồn 2025, chưa phải xác nhận luật 2026. Web mặc định khóa chatbot khi chuyển khỏi public, kể cả mở private/kết thúc sớm. Vòng vô thời hạn giữ LLM tới khi chuyển pha.
 
-Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử, token định dạng và phần suy luận. Lịch sử gửi lại ở mỗi lượt tiếp tục được tính vào input tiêu thụ của phiên. Đây là cách triển khai ngân sách tiêu thụ: thông báo không mô tả chi tiết cách tính nhiều lượt. Admin chỉnh tổng/input/output qua template; không có quota tổng cả kỳ thi. Các lệnh `/usage`, `/limits`, `/help`, `/new` không gọi inference.
+Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử gửi tới model và token định dạng; phần suy luận tính vào output. Template mới có hai chế độ: **Mỗi phiên** cộng dồn input và output trong hai ngân sách riêng; **Mỗi lượt** áp input/output tối đa cho từng prompt, không trừ vào ngân sách phiên. Template cũ thiếu `tokenLimitMode` giữ tổng input + output cũ cho đến khi admin lưu sang chế độ mới. Không có quota tổng cả kỳ thi. `/usage`, `/limits`, `/help`, `/new` không gọi inference.
 
-Theo yêu cầu mô phỏng, lượt gửi vượt giới hạn input hoặc phần ngân sách phiên còn lại vẫn được lưu vào lịch sử. Phần ngân sách còn lại bị tiêu hết theo chính sách (không gọi sinh câu trả lời); phiên bị khóa kể cả sau refresh. Thông báo yêu cầu mở “Đoạn chat mới” hoặc `/new`; các lệnh kiểm tra vẫn dùng được. Metadata lưu số token prompt đo được để phân biệt với ngân sách bị tiêu hết. Đây là chính sách của Arena, không phải khẳng định về luật thi chính thức.
+Lượt vượt giới hạn vẫn lưu trên giao diện và không gọi sinh câu trả lời. Với chế độ phiên/cấu hình cũ, ngân sách input còn lại bị tiêu hết và phiên bị khóa kể cả sau refresh; dùng `/new` để tiếp tục. Với chế độ mỗi lượt, chỉ từ chối lượt đó, không tính token chưa chạy model; có thể gửi prompt ngắn hơn trong cùng phiên. Tin nhắn bị từ chối không được đưa trở lại prompt. Khi cần, lịch sử gửi tới model được rút gọn theo các lượt cũ hoàn chỉnh để vừa giới hạn/context; toàn bộ transcript trên giao diện được giữ. Đây là chính sách Arena, không khẳng định luật thi chính thức.
+
+Footer và `/limits` lấy giới hạn đang có hiệu lực trên template của owner Pod, tự cập nhật tối đa khoảng 10 giây hoặc khi tab nhận focus. Giới hạn token được áp dụng trực tiếp cho chatbot đang dùng template; phần cứng/image không thay đổi trên Pod đang chạy. Context của llama.cpp cố định theo lần cấp Pod: template mới cấp `input + output + 128`; Pod cũ giữ cửa sổ ban đầu. Tăng giới hạn quá context cần cấp Pod mới, không tự restart Pod cũ.
 
 Giao diện chat hỗ trợ công thức `$...$`, `$$...$$`, `\(...\)`, `\[...\]` và công thức LaTeX trong ngoặc vuông nguyên dòng của phản hồi cũ. Khối code giữ nguyên nội dung, có khung và nút sao chép; không diễn giải LaTeX bên trong code.
 
@@ -85,7 +87,13 @@ node -e "require('fs').mkdirSync('.local',{recursive:true});require('fs').writeF
 
 ## Vận hành
 
-Trong UI quản trị, chọn **Dịch vụ trên Pod** trước khi chỉnh template. Mỗi chế độ (Chatbot + JupyterLab, Chỉ Chatbot, Chỉ JupyterLab) có template đã lưu và bản nháp riêng. Tài nguyên tính toán và môi trường/lưu trữ được nhóm riêng; ngân sách token chỉ hiện ở chế độ có Chatbot. Lưu template đúng chế độ trước khi cấp Pod. Server từ chối ghép template đã gắn một chế độ với dịch vụ khác. Template cũ không có trường dịch vụ vẫn tương thích; UI đặt chúng trong nhóm kết hợp. Việc lưu template không thay đổi cấu hình đã chụp trên Pod đang dùng.
+Trong UI quản trị, chọn **Dịch vụ trên Pod** trước khi chỉnh template. Mỗi chế độ (Chatbot + JupyterLab, Chỉ Chatbot, Chỉ JupyterLab) có bản nháp riêng. Template lưu riêng theo admin trong `gpu:templates:<admin-id>`; tài khoản chưa có kho riêng kế thừa catalogue cũ khi đọc và sao chép sang kho riêng khi lưu lần đầu. Thay đổi của admin này không ghi đè cấu hình admin khác.
+
+Chọn **Cấu hình mới** trong dropdown hoặc **Tạo bản sao**, nhập tên khác với các template đã lưu của tài khoản (chuẩn hóa Unicode, khoảng trắng và chữ hoa/thường). Ghi đè template có sẵn cần xác nhận; API kiểm tra revision để ngăn cửa sổ cũ ghi đè thay đổi mới. Nút “Nạp lại template đã lưu” bỏ bản nháp để lấy cấu hình đã lưu hiện tại. Poll không ghi đè bản nháp đang chỉnh.
+
+Đổi GPU/cloud sẽ truy vấn [`gpuTypes.lowestPrice`](https://graphql-spec.runpod.io/) cho 1 GPU và tự điền `minMemory`/`minVcpu`. Đây là RAM hệ thống/vCPU theo offer, không phải VRAM; không bảo đảm tài nguyên host cuối cùng hoặc còn stock. Nếu không có thông số, form xóa số cũ và yêu cầu nhập thủ công. Response cũ đến muộn không ghi đè lựa chọn mới. Lưu template đúng chế độ trước khi cấp Pod; API kiểm tra dịch vụ. Phần cứng/image trong snapshot Pod không bị sửa khi lưu template.
+
+Khi Pod đang chạy, admin có **Ẩn/Hiện metrics cho đội thi** ngay trên thẻ Pod; không có nút này trong phần chuẩn bị deploy. Admin luôn xem được metrics. Khi ẩn, thí sinh không thấy telemetry/uptime trên UI và cả API state/sync đều bỏ các trường đó. Quyền JupyterLab/Chatbot giữ theo lịch/quyền hiện có.
 
 1. Admin vào GPU Workspace, lưu Runpod key; server kiểm tra list Pod trước khi lưu. Không đổi key khi còn Pod/yêu cầu đang hoạt động.
 2. Cập nhật giá, chỉnh image/GPU/RAM/vCPU/disk/token và lưu template. Tạo bản sao để lưu biến thể cho đội khác.

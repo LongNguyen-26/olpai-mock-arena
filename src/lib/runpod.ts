@@ -245,6 +245,47 @@ export class Runpod {
     );
     return result.gpus;
   }
+  async resources(gpuTypeId: string, cloudType: "SECURE" | "COMMUNITY") {
+    const result = await this.graphql<
+      {
+        id: string;
+        lowestPrice: {
+          minMemory: number;
+          minVcpu: number;
+          stockStatus?: string;
+        } | null;
+      }[]
+    >(
+      "query ArenaGpuResources($gpu: GpuTypeFilter, $offer: GpuLowestPriceInput) { gpuTypes(input: $gpu) { id lowestPrice(input: $offer) { minMemory minVcpu stockStatus } } }",
+      {
+        gpu: { id: gpuTypeId },
+        offer: {
+          gpuCount: 1,
+          secureCloud: cloudType === "SECURE",
+          minCudaVersion: WORKSPACE_MIN_CUDA,
+        },
+      },
+      "gpuTypes",
+    );
+    const offer = result.find((g) => g.id === gpuTypeId)?.lowestPrice;
+    if (
+      !offer ||
+      !Number.isInteger(offer.minMemory) ||
+      !Number.isInteger(offer.minVcpu) ||
+      offer.minMemory < 1 ||
+      offer.minVcpu < 1
+    )
+      return {
+        minRAMPerGPU: null,
+        minVCPUPerGPU: null,
+        stockStatus: offer?.stockStatus ?? null,
+      };
+    return {
+      minRAMPerGPU: offer.minMemory,
+      minVCPUPerGPU: offer.minVcpu,
+      stockStatus: offer.stockStatus ?? null,
+    };
+  }
 }
 export const podOrigin = (id: string, port: 8000 | 8888) => {
   if (!/^[a-zA-Z0-9]{5,64}$/.test(id)) throw new Error("Pod ID không hợp lệ.");

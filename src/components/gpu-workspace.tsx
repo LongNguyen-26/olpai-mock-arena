@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
+import { templateName } from "@/lib/template-presentation";
 import {
   Cpu,
   Activity,
@@ -69,6 +70,11 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const templateDrafts = useRef<
     Partial<Record<WorkspaceServices, WorkspaceTemplate>>
   >({});
+  const resourceSequence = useRef(0);
+  const templateBaseline = useRef<WorkspaceTemplate[]>([]);
+  const [resourceBusy, setResourceBusy] = useState(false),
+    [resourceMessage, setResourceMessage] = useState(""),
+    [overwrite, setOverwrite] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 5000);
@@ -77,13 +83,23 @@ export default function GpuWorkspace({ data }: ViewProps) {
   const load = useCallback(async () => {
     try {
       const next: State = await api("workspace/state");
+      const previous = templateBaseline.current;
+      templateBaseline.current = next.templates;
       setState(next);
-      setTemplate(
-        (t) =>
-          t ??
-          next.templates.find((t) => !t.services || t.services === "both") ??
-          next.defaultTemplate,
-      );
+      setTemplate((t) => {
+        if (!t)
+          return (
+            next.templates.find((t) => !t.services || t.services === "both") ??
+            next.defaultTemplate
+          );
+        const old = previous.find((s) => s.id === t.id);
+        const unchanged =
+          old &&
+          Object.entries(t).every(
+            ([field, value]) => Reflect.get(old, field) === value,
+          );
+        return unchanged ? (next.templates.find((s) => s.id === t.id) ?? t) : t;
+      });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -168,10 +184,99 @@ export default function GpuWorkspace({ data }: ViewProps) {
     field: K,
     value: WorkspaceTemplate[K],
   ) {
+    setOverwrite(false);
     setTemplate((t) => (t ? { ...t, [field]: value } : t));
   }
+  function selectTemplate(next: WorkspaceTemplate | null) {
+    resourceSequence.current++;
+    setResourceBusy(false);
+    setResourceMessage("");
+    setOverwrite(false);
+    setTemplate(
+      next ??
+        (state?.defaultTemplate
+          ? {
+              ...state.defaultTemplate,
+              id: crypto.randomUUID(),
+              services,
+              name: "",
+              tokenLimitMode: "session",
+              revision: undefined,
+            }
+          : null),
+    );
+  }
+  async function changeGpu(
+    gpuTypeId: string,
+    cloudType: WorkspaceTemplate["cloudType"],
+  ) {
+    const version = ++resourceSequence.current;
+    setOverwrite(false);
+    setResourceBusy(true);
+    setResourceMessage("");
+    setTemplate((t) =>
+      t ? { ...t, gpuTypeId, cloudType, minRAMPerGPU: 0, minVCPUPerGPU: 0 } : t,
+    );
+    try {
+      const result = await api("workspace/gpu-resources", {
+        gpuTypeId,
+        cloudType,
+      });
+      if (version !== resourceSequence.current) return;
+      if (result.minRAMPerGPU && result.minVCPUPerGPU) {
+        setTemplate((t) =>
+          t && t.gpuTypeId === gpuTypeId && t.cloudType === cloudType
+            ? {
+                ...t,
+                minRAMPerGPU: result.minRAMPerGPU,
+                minVCPUPerGPU: result.minVCPUPerGPU,
+              }
+            : t,
+        );
+        setResourceMessage(
+          `Runpod: ${result.minRAMPerGPU} GB RAM hệ thống · ${result.minVCPUPerGPU} vCPU tối thiểu cho 1 GPU. Tài nguyên thực nhận phụ thuộc host được cấp.`,
+        );
+      } else
+        setResourceMessage(
+          "Runpod chưa có thông số RAM/vCPU cho GPU/cloud này. Nhập yêu cầu tối thiểu thủ công trước khi lưu; không dùng VRAM làm RAM hệ thống.",
+        );
+    } catch (e) {
+      if (version === resourceSequence.current)
+        setResourceMessage(
+          `Chưa lấy được RAM/vCPU: ${(e as Error).message} Hãy chọn lại hoặc nhập tối thiểu thủ công.`,
+        );
+    } finally {
+      if (version === resourceSequence.current) setResourceBusy(false);
+    }
+  }
+  function saveSelectedTemplate(confirmed = false) {
+    if (!template || !state || busy || resourceBusy) return;
+    const original = state.templates.find((t) => t.id === template.id);
+    if (original && !confirmed) {
+      setOverwrite(true);
+      return;
+    }
+    void run(async () => {
+      const saved: WorkspaceTemplate = await api("workspace/template", {
+        ...template,
+        services,
+        tokenLimitMode: template.tokenLimitMode ?? "session",
+        overwrite: !!original,
+        expectedRevision: original
+          ? (template.revision ?? "legacy")
+          : undefined,
+      });
+      setTemplate(saved);
+      templateDrafts.current[services] = saved;
+      setOverwrite(false);
+    }, "Đã lưu template; giới hạn chatbot được cập nhật theo cấu hình mới.");
+  }
   function chooseServices(next: WorkspaceServices) {
-    if (next === services || !state) return;
+    if (busy || next === services || !state) return;
+    resourceSequence.current++;
+    setResourceBusy(false);
+    setResourceMessage("");
+    setOverwrite(false);
     const basis = template ?? state.defaultTemplate;
     if (!basis) return;
     if (template) templateDrafts.current[services] = template;
@@ -213,6 +318,13 @@ export default function GpuWorkspace({ data }: ViewProps) {
         Object.entries(template).every(
           ([field, value]) => Reflect.get(t, field) === value,
         ),
+    );
+  const duplicateName =
+    !!template &&
+    !!state?.templates.some(
+      (t) =>
+        t.id !== template.id &&
+        templateName(t.name) === templateName(template.name),
     );
   const current =
     state?.workspaces.filter((w) => w.status !== "terminated") ?? [];
@@ -326,6 +438,18 @@ export default function GpuWorkspace({ data }: ViewProps) {
                           setConfirmId("");
                         }, "Đã xử lý yêu cầu điều khiển Pod.")
                       }
+                      toggleMetrics={() =>
+                        void run(
+                          () =>
+                            api("workspace/metrics", {
+                              id: w.id,
+                              visible: w.metricsVisible === false,
+                            }),
+                          w.metricsVisible === false
+                            ? "Đã hiện metrics GPU cho đội thi."
+                            : "Đã ẩn metrics GPU với đội thi.",
+                        )
+                      }
                     />
                   ))}
                 </div>
@@ -405,6 +529,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   key={mode.id}
                   type="button"
                   aria-pressed={services === mode.id}
+                  disabled={busy}
                   onClick={() => chooseServices(mode.id)}
                 >
                   <strong>{mode.label}</strong>
@@ -423,22 +548,24 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 services={services}
                 gpus={prices?.gpus ?? []}
                 busy={busy}
+                saved={templateSaved}
+                duplicateName={duplicateName}
+                resourceBusy={resourceBusy}
+                resourceMessage={resourceMessage}
+                overwrite={overwrite}
                 onEdit={edit}
-                onSelect={setTemplate}
-                onSave={() =>
-                  void run(async () => {
-                    const saved = { ...template, services };
-                    await api("workspace/template", saved);
-                    setTemplate(saved);
-                    templateDrafts.current[services] = saved;
-                  }, "Đã lưu template để dùng cho các đội.")
-                }
+                onSelect={selectTemplate}
+                onGpuChange={(gpu, cloud) => void changeGpu(gpu, cloud)}
+                onSave={saveSelectedTemplate}
+                onCancelOverwrite={() => setOverwrite(false)}
                 onClone={() =>
-                  setTemplate({
+                  selectTemplate({
                     ...template,
                     services,
                     id: crypto.randomUUID(),
-                    name: `${template.name} (bản sao)`.slice(0, 80),
+                    name: "",
+                    revision: undefined,
+                    tokenLimitMode: template.tokenLimitMode ?? "session",
                   })
                 }
               />
@@ -704,6 +831,7 @@ function WorkspaceCard({
   onCancel,
   sync,
   control,
+  toggleMetrics,
 }: {
   w: WorkspaceView;
   observedNow: number;
@@ -714,6 +842,7 @@ function WorkspaceCard({
   onCancel: () => void;
   sync: () => void;
   control: (action: string) => void;
+  toggleMetrics: () => void;
 }) {
   const active = w.status !== "terminated";
   const running = w.status === "running";
@@ -741,54 +870,62 @@ function WorkspaceCard({
           </div>
         </div>
         <div className="gpu-telemetry">
-          <span className="gpu-telemetry-label">
-            <Activity size={15} />
-            Thông số GPU
-          </span>
-          {telemetry ? (
-            <dl className="gpu-metric-grid">
-              <div className="gpu-metric-name">
-                <dt>GPU</dt>
-                <dd>{telemetry.name}</dd>
-              </div>
-              <div>
-                <dt>VRAM đang dùng / tổng</dt>
-                <dd>
-                  {telemetry.usedMiB !== null && telemetry.totalMiB !== null
-                    ? `${(telemetry.usedMiB / 1024).toFixed(1)} / ${(telemetry.totalMiB / 1024).toFixed(1)} GiB`
-                    : "Chưa có số liệu"}
-                </dd>
-              </div>
-              <div>
-                <dt>Mức sử dụng GPU</dt>
-                <dd>
-                  {telemetry.utilization !== null
-                    ? `${telemetry.utilization}%`
-                    : "Chưa có số liệu"}
-                </dd>
-              </div>
-              {telemetry.temperature !== null && (
-                <div>
-                  <dt>Nhiệt độ</dt>
-                  <dd>{telemetry.temperature}°C</dd>
-                </div>
+          {admin || w.metricsVisible !== false ? (
+            <>
+              <span className="gpu-telemetry-label">
+                <Activity size={15} />
+                Thông số GPU
+              </span>
+              {telemetry ? (
+                <dl className="gpu-metric-grid">
+                  <div className="gpu-metric-name">
+                    <dt>GPU</dt>
+                    <dd>{telemetry.name}</dd>
+                  </div>
+                  <div>
+                    <dt>VRAM đang dùng / tổng</dt>
+                    <dd>
+                      {telemetry.usedMiB !== null && telemetry.totalMiB !== null
+                        ? `${(telemetry.usedMiB / 1024).toFixed(1)} / ${(telemetry.totalMiB / 1024).toFixed(1)} GiB`
+                        : "Chưa có số liệu"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Mức sử dụng GPU</dt>
+                    <dd>
+                      {telemetry.utilization !== null
+                        ? `${telemetry.utilization}%`
+                        : "Chưa có số liệu"}
+                    </dd>
+                  </div>
+                  {telemetry.temperature !== null && (
+                    <div>
+                      <dt>Nhiệt độ</dt>
+                      <dd>{telemetry.temperature}°C</dd>
+                    </div>
+                  )}
+                </dl>
+              ) : (
+                <p className="gpu-metrics">
+                  {running ? "Đang chờ dữ liệu từ GPU…" : "GPU chưa hoạt động"}
+                </p>
               )}
-            </dl>
+              <Uptime
+                seconds={w.uptimeSeconds ?? null}
+                observedAt={w.uptimeObservedAt ?? null}
+                serverNow={observedNow}
+                running={running}
+              />
+              <div className="gpu-cost">
+                <strong>{money(w.estimatedUsd)}</strong>
+                <span>~{money(w.meterRate)}/giờ</span>
+              </div>
+            </>
           ) : (
-            <p className="gpu-metrics">
-              {running ? "Đang chờ dữ liệu từ GPU…" : "GPU chưa hoạt động"}
+            <p className="gpu-hint">
+              Quản trị viên đang ẩn thông số tài nguyên GPU.
             </p>
           )}
-          <Uptime
-            seconds={w.uptimeSeconds ?? null}
-            observedAt={w.uptimeObservedAt ?? null}
-            serverNow={observedNow}
-            running={running}
-          />
-          <div className="gpu-cost">
-            <strong>{money(w.estimatedUsd)}</strong>
-            <span>~{money(w.meterRate)}/giờ</span>
-          </div>
         </div>
         <div className="gpu-service-grid">
           <ServiceCard
@@ -852,6 +989,13 @@ function WorkspaceCard({
       </div>
       {admin && active && (
         <div className="gpu-actions">
+          {running && (
+            <button className="btn" disabled={busy} onClick={toggleMetrics}>
+              {w.metricsVisible === false
+                ? "Hiện metrics cho đội thi"
+                : "Ẩn metrics với đội thi"}
+            </button>
+          )}
           {w.status === "running" && (
             <button
               className="btn"

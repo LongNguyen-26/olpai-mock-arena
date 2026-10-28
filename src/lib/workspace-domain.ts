@@ -23,16 +23,18 @@ export const templateSchema = z
         /^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/,
         "Nhập image Docker đã build và push.",
       ),
-    minRAMPerGPU: z.number().int().min(16).max(1024),
-    minVCPUPerGPU: z.number().int().min(2).max(128),
+    minRAMPerGPU: z.number().int().min(1).max(1024),
+    minVCPUPerGPU: z.number().int().min(1).max(128),
     containerDiskInGb: z.number().int().min(20).max(500),
     volumeInGb: z.number().int().min(50).max(2000),
+    revision: z.string().uuid().optional(),
+    tokenLimitMode: z.enum(["session", "turn"]).optional(),
     sessionTokenLimit: z.number().int().min(256).max(16384),
     inputTokenLimit: z.number().int().min(64).max(8192),
     outputTokenLimit: z.number().int().min(64).max(4096),
   })
   .refine(
-    (t) => t.inputTokenLimit < t.sessionTokenLimit,
+    (t) => !!t.tokenLimitMode || t.inputTokenLimit < t.sessionTokenLimit,
     "Input limit phải nhỏ hơn tổng token mỗi phiên.",
   );
 export type WorkspaceTemplate = z.infer<typeof templateSchema>;
@@ -84,6 +86,8 @@ export interface Workspace {
   podId: string | null;
   status: WorkspaceStatus;
   template: WorkspaceTemplate;
+  contextWindowTokens?: number;
+  metricsVisible?: boolean;
   secret: string;
   jupyterSecret: string;
   createdAt: number;
@@ -156,6 +160,7 @@ export function workspaceAccess(
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  rejected?: boolean;
 }
 export interface ChatSession {
   messages: ChatMessage[];
@@ -163,6 +168,8 @@ export interface ChatSession {
   outputTokens: number;
   pending?: { requestId: string; reserved: number };
   lastRequestId?: string;
+  lastTurn?: { inputTokens: number; outputTokens: number; rejected?: boolean };
+  limitNotice?: string;
   exhausted?: {
     reason: "input" | "session";
     message: string;
@@ -193,12 +200,28 @@ export function outputBudget(
 ) {
   if (!Number.isInteger(promptTokens) || promptTokens < 1)
     throw new Error("Dịch vụ trả số token không hợp lệ.");
-  if (s.exhausted) throw new ChatLimitError("session", s.exhausted.message);
+  if (t.tokenLimitMode !== "turn" && s.exhausted)
+    throw new ChatLimitError("session", s.exhausted.message);
   if (promptTokens > t.inputTokenLimit)
     throw new ChatLimitError(
       "input",
       `Input vượt giới hạn ${t.inputTokenLimit} token (gồm lịch sử và định dạng hội thoại).`,
     );
+  if (t.tokenLimitMode === "turn") return t.outputTokenLimit;
+  if (t.tokenLimitMode === "session") {
+    if (s.inputTokens + promptTokens > t.inputTokenLimit)
+      throw new ChatLimitError(
+        "session",
+        "Input cộng dồn đã vượt ngân sách của phiên.",
+      );
+    const remainingOutput = t.outputTokenLimit - s.outputTokens;
+    if (remainingOutput < 1)
+      throw new ChatLimitError(
+        "session",
+        "Output của phiên đã hết ngân sách token.",
+      );
+    return remainingOutput;
+  }
   const remaining =
     t.sessionTokenLimit - s.inputTokens - s.outputTokens - promptTokens;
   if (remaining <= 0)
@@ -228,7 +251,13 @@ export function exhaustChatSession(
     ...s,
     messages: [...s.messages, { role: "user", content }],
     // A rejected oversized turn consumes the rest of this session by policy.
-    inputTokens: Math.max(s.inputTokens, t.sessionTokenLimit - s.outputTokens),
+    inputTokens: Math.max(
+      s.inputTokens,
+      t.tokenLimitMode === "session"
+        ? t.inputTokenLimit
+        : t.sessionTokenLimit - s.outputTokens,
+    ),
+    lastTurn: { inputTokens: promptTokens, outputTokens: 0, rejected: true },
     lastRequestId: requestId,
     exhausted: {
       reason: error.reason,
@@ -239,6 +268,19 @@ export function exhaustChatSession(
           : "Tin nhắn đã được lưu; phiên đã hết ngân sách token. Dùng /new hoặc Đoạn chat mới để tiếp tục.",
     },
   };
+}
+export const chatPolicyFields = [
+  "tokenLimitMode",
+  "sessionTokenLimit",
+  "inputTokenLimit",
+  "outputTokenLimit",
+] as const;
+export function chatContextWindow(t: WorkspaceTemplate) {
+  return (
+    (t.tokenLimitMode
+      ? t.inputTokenLimit + t.outputTokenLimit
+      : t.sessionTokenLimit) + 128
+  );
 }
 export function estimatedCost(
   w: Pick<Workspace, "meterAt" | "meterRate" | "accruedUsd">,
@@ -262,7 +304,11 @@ export function meter(
     updatedAt: now,
   };
 }
-export function workspaceView(w: Workspace, now: number): WorkspaceView {
+export function workspaceView(
+  w: Workspace,
+  now: number,
+  admin = true,
+): WorkspaceView {
   const {
     secret: _s,
     jupyterSecret: _j,
@@ -270,6 +316,14 @@ export function workspaceView(w: Workspace, now: number): WorkspaceView {
     reservationVersion: _r,
     ...safe
   } = w;
+  if (!admin && w.metricsVisible === false) {
+    if (safe.health) {
+      const { gpu: _gpu, ...health } = safe.health;
+      safe.health = health;
+    }
+    delete safe.uptimeSeconds;
+    delete safe.uptimeObservedAt;
+  }
   if (!w.podId) {
     safe.meterRate = 0;
     safe.accruedUsd = 0;

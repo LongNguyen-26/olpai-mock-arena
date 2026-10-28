@@ -14,6 +14,8 @@ import {
   controlWorkspace,
   deployWorkspace,
   gpuPrices,
+  gpuResources,
+  setMetricsVisible,
   launchNotebook,
   readChat,
   saveCredential,
@@ -97,7 +99,15 @@ async function handle(
       );
     }
     if (
-      ["credential", "template", "deploy", "control", "prices"].includes(path)
+      [
+        "credential",
+        "template",
+        "deploy",
+        "control",
+        "prices",
+        "gpu-resources",
+        "metrics",
+      ].includes(path)
     ) {
       await requireAdmin();
       if (path === "prices" && req.method === "GET")
@@ -106,6 +116,21 @@ async function handle(
         throw new ApiError("Không tìm thấy chức năng.", 404);
       await rateLimit(`gpu:admin:${user.id}`, 20, 60);
       const v = await payload(req);
+      if (path === "gpu-resources") {
+        const p = z
+          .object({
+            gpuTypeId: z.string().min(1).max(100),
+            cloudType: z.enum(["SECURE", "COMMUNITY"]),
+          })
+          .parse(v);
+        return json(await gpuResources(user, p.gpuTypeId, p.cloudType));
+      }
+      if (path === "metrics") {
+        const p = z
+          .object({ id: z.string().uuid(), visible: z.boolean() })
+          .parse(v);
+        return json(await setMetricsVisible(user, p.id, p.visible));
+      }
       if (path === "credential") {
         await saveCredential(
           user,
@@ -115,8 +140,15 @@ async function handle(
         return json({ ok: true });
       }
       if (path === "template") {
-        await saveTemplate(templateSchema.parse(v));
-        return json({ ok: true });
+        const options = z
+          .object({
+            overwrite: z.boolean().optional(),
+            expectedRevision: z.string().max(64).optional(),
+          })
+          .parse(v);
+        return json(
+          await saveTemplate(templateSchema.parse(v), user.id, options),
+        );
       }
       if (path === "deploy") {
         const p = z

@@ -678,6 +678,12 @@
   padding: 4px 12px;
   font-size: 12px;
 }
+.template-editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
 .chat-message .prose .chat-code-block pre {
   margin: 0;
   border: 0;

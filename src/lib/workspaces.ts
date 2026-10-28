@@ -24,6 +24,8 @@ import {
   exhaustChatSession,
   meter,
   outputBudget,
+  chatContextWindow,
+  chatPolicyFields,
   workspaceView,
   workspaceAccess,
   type ChatSession,
@@ -32,6 +34,11 @@ import {
   type WorkspaceTemplate,
 } from "./workspace-domain";
 import type { Contest, SafeUser, Team } from "./types";
+import {
+  readTemplates,
+  templateStore,
+  validateTemplateSave,
+} from "./workspace-templates";
 import {
   hasService,
   isShared,
@@ -142,15 +149,24 @@ export async function accessWorkspace(user: SafeUser, id: string) {
     if (!isShared(w)) await requireRegistration(user, c);
   }
   w = await currentRun(w, c);
+  w = await withChatPolicy(w);
   return { w, c };
+}
+async function withChatPolicy(w: Workspace) {
+  const contextWindowTokens =
+    w.contextWindowTokens ?? chatContextWindow(w.template);
+  const saved = (await readTemplates(w.ownerId))[w.template.id];
+  if (!saved) return { ...w, contextWindowTokens };
+  const template = { ...w.template };
+  for (const field of chatPolicyFields)
+    Object.assign(template, { [field]: saved[field] });
+  return { ...w, contextWindowTokens, template };
 }
 export async function workspaceState(user: SafeUser) {
   const [all, now, templates, hasCredential] = await Promise.all([
     allWorkspaces(),
     serverNow(),
-    user.admin
-      ? db().hgetall<Record<string, WorkspaceTemplate>>(key("gpu:templates"))
-      : null,
+    user.admin ? readTemplates(user.id) : null,
     user.admin ? db().exists(credentialKey(user.id)) : false,
   ]);
   const team =
@@ -176,7 +192,7 @@ export async function workspaceState(user: SafeUser) {
                 throw error;
               return user.admin
                 ? {
-                    ...workspaceView(record, now),
+                    ...workspaceView(record, now, user.admin),
                     notebookEnabled: false,
                     chatbotEnabled: false,
                     accessMessage: "Vòng luyện đã được xóa.",
@@ -192,7 +208,7 @@ export async function workspaceState(user: SafeUser) {
               registered = false;
             }
             return {
-              ...workspaceView(w, now),
+              ...workspaceView(await withChatPolicy(w), now, user.admin),
               ...workspaceAccess(w, c, now, user.admin, registered),
             };
           }),
@@ -240,8 +256,61 @@ export async function saveCredential(user: SafeUser, apiKey: string) {
     );
   await db().set(credentialKey(user.id), encrypted);
 }
-export async function saveTemplate(t: WorkspaceTemplate) {
-  await db().hset(key("gpu:templates"), { [t.id]: t });
+export async function saveTemplate(
+  t: WorkspaceTemplate,
+  owner?: string,
+  options: { overwrite?: boolean; expectedRevision?: string } = {},
+) {
+  // Internal QA/legacy setup can still initialize the shared catalogue.
+  if (!owner) {
+    await db().hset(key("gpu:templates"), { [t.id]: t });
+    return t;
+  }
+  return lock(`templates:${owner}`, async () => {
+    const templates = await readTemplates(owner);
+    validateTemplateSave(
+      t,
+      templates,
+      !!options.overwrite,
+      options.expectedRevision,
+    );
+    const saved = { ...t, revision: randomUUID() };
+    await db().hset(templateStore(owner), { ...templates, [saved.id]: saved });
+    return saved;
+  });
+}
+export async function gpuResources(
+  user: SafeUser,
+  gpuTypeId: string,
+  cloudType: "SECURE" | "COMMUNITY",
+) {
+  const cache = key(`gpu:resources:${user.id}:${cloudType}:${gpuTypeId}`);
+  const old = await db().get<Awaited<ReturnType<Runpod["resources"]>>>(cache);
+  if (old) return old;
+  const result = await (
+    await provider(user.id)
+  ).resources(gpuTypeId, cloudType);
+  await db().set(cache, result, { ex: 60 });
+  return result;
+}
+export async function setMetricsVisible(
+  user: SafeUser,
+  id: string,
+  visible: boolean,
+) {
+  if (!user.admin)
+    throw new ApiError("Chỉ admin được thay đổi hiển thị thông số GPU.", 403);
+  return lock(`pod:${id}`, async () => {
+    const w = await getWorkspace(id);
+    if (w.status !== "running")
+      throw new ApiError(
+        "Chỉ thay đổi hiển thị metrics khi Pod đang chạy.",
+        409,
+      );
+    w.metricsVisible = visible;
+    await save(w);
+    return workspaceView(w, await serverNow(), true);
+  });
 }
 export async function gpuPrices(user: SafeUser) {
   const cacheKey = key(`gpu:prices:${user.id}`),
@@ -274,7 +343,7 @@ export async function deployWorkspace(
   const [team, c, t] = await Promise.all([
     scope === "team" && teamId ? db().hget<Team>(key("teams"), teamId) : null,
     getContest(roundId),
-    db().hget<WorkspaceTemplate>(key("gpu:templates"), templateId),
+    readTemplates(user.id).then((templates) => templates[templateId]),
   ]);
   if (scope === "team" && (!team || !team.members.length))
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
@@ -341,6 +410,7 @@ export async function deployWorkspace(
     podId: null,
     status: "provisioning",
     template: t,
+    contextWindowTokens: chatContextWindow(t),
     secret: encryptSecret(randomBytes(32).toString("base64url")),
     jupyterSecret: encryptSecret(randomBytes(32).toString("base64url")),
     createdAt: now,
@@ -385,7 +455,7 @@ export async function deployWorkspace(
         ? { JUPYTER_TOKEN: decryptSecret(w.jupyterSecret) }
         : {}),
       ARENA_WORKSPACE_SERVICES: services,
-      ARENA_CONTEXT_SIZE: String(t.sessionTokenLimit + 128),
+      ARENA_CONTEXT_SIZE: String(chatContextWindow(t)),
     });
     if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
       throw new RunpodError(502, true);
@@ -524,20 +594,29 @@ export async function syncWorkspace(user: SafeUser, id: string) {
   const { w: cached } = await accessWorkspace(user, id);
   const now = await serverNow();
   if (cached.syncedAt && now - cached.syncedAt < 15000)
-    return workspaceView(cached, now);
+    return workspaceView(cached, now, user.admin);
   try {
     return await lock(`pod:${id}`, async () => {
       const record = await getWorkspace(id),
         w = await currentRun(record, await getContest(record.roundId)),
         now = await serverNow();
-      if (w.syncedAt && now - w.syncedAt < 15000) return workspaceView(w, now);
-      return workspaceView(await syncUnlocked(w), await serverNow());
+      if (w.syncedAt && now - w.syncedAt < 15000)
+        return workspaceView(await withChatPolicy(w), now, user.admin);
+      return workspaceView(
+        await withChatPolicy(await syncUnlocked(w)),
+        await serverNow(),
+        user.admin,
+      );
     });
   } catch (error) {
     // Concurrent viewers of a shared Pod can use the latest snapshot while one
     // viewer is already refreshing it. Never coalesce mutations this way.
     if (error instanceof ApiError && error.status === 409)
-      return workspaceView(await getWorkspace(id), await serverNow());
+      return workspaceView(
+        await withChatPolicy(await getWorkspace(id)),
+        await serverNow(),
+        user.admin,
+      );
     throw error;
   }
 }
@@ -697,6 +776,7 @@ export async function readChat(user: SafeUser, id: string, sessionId: string) {
   return {
     session,
     template: w.template,
+    contextWindowTokens: w.contextWindowTokens ?? chatContextWindow(w.template),
     enabled: workspaceAccess(w, c, now, user.admin).chatbotEnabled,
     policyOpen: chatbotOpen(w, c, now),
     statusMessage: workspaceAccess(w, c, now, user.admin).accessMessage,
@@ -722,13 +802,15 @@ export async function sendChat(
         now = await serverNow(),
         k = sessionKey(w, user, sessionId);
       const s = (await db().get<ChatSession>(k)) ?? emptySession();
-      if (s.lastRequestId === requestId) return { session: s };
+      if (s.lastRequestId === requestId)
+        return { session: s, template: w.template };
       if (!chatbotOpen(w, c, now))
         throw new ApiError(
           "Chatbot chỉ được dùng trong giai đoạn public của lượt thi này.",
           403,
         );
-      if (s.exhausted) return { session: s };
+      if (s.exhausted && w.template.tokenLimitMode !== "turn")
+        return { session: s, template: w.template };
       if (s.pending)
         throw new ApiError(
           "Lượt trước chưa xác nhận hoàn tất. Tạo phiên mới bằng /new.",
@@ -736,16 +818,54 @@ export async function sendChat(
         );
       if (w.status !== "running" || !w.health?.llm)
         throw new ApiError("Model đang được tải hoặc Pod chưa sẵn sàng.", 409);
-      const messages = [...s.messages, { role: "user" as const, content }];
-      const count = await runtime<{ count: number }>(w, "/token-count", {
+      let history = s.messages.filter((m) => !m.rejected);
+      let messages = [...history, { role: "user" as const, content }];
+      const window =
+        (w.contextWindowTokens ?? chatContextWindow(w.template)) - 128;
+      let count = await runtime<{ count: number }>(w, "/token-count", {
         messages,
       });
+      // New policies bound each model request. Trim complete oldest exchanges,
+      // while retaining the full transcript for the browser and usage ledger.
+      if (w.template.tokenLimitMode) {
+        const promptCap = Math.min(w.template.inputTokenLimit, window - 1);
+        while (count.count > promptCap && history.length) {
+          const nextUser = history.findIndex(
+            (m, i) => i > 0 && m.role === "user",
+          );
+          history = nextUser < 0 ? [] : history.slice(nextUser);
+          messages = [...history, { role: "user" as const, content }];
+          count = await runtime<{ count: number }>(w, "/token-count", {
+            messages,
+          });
+        }
+      }
       let maxTokens: number;
       try {
         maxTokens = outputBudget(w.template, s, count.count);
+        if (count.count >= window)
+          throw new ApiError(
+            "Prompt vượt cửa sổ context của Pod đang chạy. Cần cấp Pod mới để dùng cấu hình token lớn hơn.",
+            422,
+          );
+        maxTokens = Math.min(maxTokens, window - count.count);
       } catch (e) {
+        if (e instanceof ApiError) throw e;
         if (!(e instanceof ChatLimitError))
           throw new ApiError("Dịch vụ trả số token không hợp lệ.", 502);
+        if (w.template.tokenLimitMode === "turn") {
+          s.messages.push({ role: "user", content, rejected: true });
+          s.lastTurn = {
+            inputTokens: count.count,
+            outputTokens: 0,
+            rejected: true,
+          };
+          s.limitNotice = `${e.message} Tin nhắn đã lưu nhưng không gửi tới model. Hãy rút ngắn prompt rồi gửi lại; giới hạn chỉ áp dụng cho lượt này.`;
+          s.lastRequestId = requestId;
+          delete s.exhausted;
+          await db().set(k, s, { ex: 30 * 86400 });
+          return { session: s, template: w.template };
+        }
         const exhausted = exhaustChatSession(
           w.template,
           s,
@@ -755,12 +875,14 @@ export async function sendChat(
           e,
         );
         await db().set(k, exhausted, { ex: 30 * 86400 });
-        return { session: exhausted };
+        return { session: exhausted, template: w.template };
       }
       const reserved = count.count + maxTokens;
       // Reserve before inference. A function crash cannot silently reuse an uncertain budget.
       s.pending = { requestId, reserved };
-      s.messages = messages;
+      s.messages.push({ role: "user", content });
+      delete s.exhausted;
+      delete s.limitNotice;
       s.inputTokens += count.count;
       s.outputTokens += maxTokens;
       await db().set(k, s, { ex: 30 * 86400 });
@@ -798,12 +920,16 @@ export async function sendChat(
             "Đã chuyển khỏi public; phản hồi không được phát sau giờ khóa chatbot.",
             403,
           );
-        s.messages = [...messages, { role: "assistant", content: out.content }];
+        s.messages.push({ role: "assistant", content: out.content });
+        s.lastTurn = {
+          inputTokens: out.inputTokens,
+          outputTokens: out.outputTokens,
+        };
         s.outputTokens -= maxTokens - out.outputTokens;
         delete s.pending;
         s.lastRequestId = requestId;
         await db().set(k, s, { ex: 30 * 86400 });
-        return { session: s };
+        return { session: s, template: w.template };
       } catch (e) {
         // Charge the reserved maximum on uncertain delivery; retain the marker so this request cannot be repeated.
         await db().set(k, s, { ex: 30 * 86400 });

@@ -6,6 +6,11 @@ import { api } from "./arena-client";
 import type { readChat } from "@/lib/workspaces";
 import { chatSession } from "@/lib/chat-session";
 import { assistantText } from "@/lib/chat-presentation";
+import {
+  chatLimitSummary,
+  chatUsageLog,
+  isChatClosed,
+} from "@/lib/chat-limits";
 type Chat = Awaited<ReturnType<typeof readChat>>;
 export default function WorkspaceChat() {
   const [id, setId] = useState(""),
@@ -14,6 +19,7 @@ export default function WorkspaceChat() {
     [content, setContent] = useState(""),
     [error, setError] = useState(""),
     [info, setInfo] = useState(""),
+    [showUsage, setShowUsage] = useState(false),
     [busy, setBusy] = useState(false),
     [pendingText, setPendingText] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
@@ -38,9 +44,12 @@ export default function WorkspaceChat() {
   }, [id, session]);
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 30000);
+    const timer = setInterval(() => void load(), 10000);
+    const focus = () => void load();
+    window.addEventListener("focus", focus);
     return () => {
       clearInterval(timer);
+      window.removeEventListener("focus", focus);
       sequence.current++;
     };
   }, [load]);
@@ -62,18 +71,16 @@ export default function WorkspaceChat() {
     setPendingText("");
     setError("");
     setInfo("Đã tạo đoạn chat mới.");
+    setShowUsage(false);
   }
-  const used =
-      (data?.session.inputTokens ?? 0) + (data?.session.outputTokens ?? 0),
-    limit = data?.template.sessionTokenLimit ?? 2000;
-  const closed =
-    !!data?.session.exhausted || used >= limit || !!data?.session.pending;
+  const closed = !!data && isChatClosed(data.template, data.session);
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = content.trim();
     if (!text || sending.current || !data) return;
     setError("");
     setInfo("");
+    setShowUsage(false);
     if (text.startsWith("/")) {
       setContent("");
       if (text === "/new") {
@@ -81,11 +88,11 @@ export default function WorkspaceChat() {
         return;
       }
       if (["/usage", "/limits", "/help"].includes(text)) {
-        setInfo(
-          text === "/help"
-            ? "/usage — token đã dùng; /limits — các giới hạn; /new — phiên mới. Toàn bộ lịch sử đầu vào và token suy luận/đầu ra được tính."
-            : `Phiên này: ${used}/${limit} token. Input đã dùng ${data?.session.inputTokens ?? 0}; output đã dùng ${data?.session.outputTokens ?? 0}. Mỗi lượt: input ≤ ${data?.template.inputTokenLimit ?? 1800}, output ≤ ${data?.template.outputTokenLimit ?? 1024}; tổng vẫn ≤ ${limit}.`,
-        );
+        if (text === "/help")
+          setInfo(
+            "/usage — token đã dùng; /limits — các giới hạn; /new — phiên mới. Token suy luận được tính vào output.",
+          );
+        else setShowUsage(true);
         return;
       }
       setInfo("Lệnh chưa hỗ trợ. Dùng /help.");
@@ -104,7 +111,15 @@ export default function WorkspaceChat() {
         requestId: crypto.randomUUID(),
         content: text,
       });
-      setData((d) => (d ? { ...d, session: result.session } : d));
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              session: result.session,
+              template: result.template ?? d.template,
+            }
+          : d,
+      );
     } catch (e) {
       setError((e as Error).message);
       setContent((draft) => draft || text);
@@ -227,6 +242,16 @@ export default function WorkspaceChat() {
                 "Phiên đã hết ngân sách token. Dùng /new hoặc Đoạn chat mới để tiếp tục."}
             </div>
           )}
+          {data?.session.limitNotice && (
+            <div className="alert" role="status">
+              {data.session.limitNotice}
+            </div>
+          )}
+          {showUsage && data && (
+            <div className="alert" role="status">
+              {chatUsageLog(data.template, data.session)}
+            </div>
+          )}
           {error && (
             <div className="alert error" role="alert">
               {error}
@@ -273,8 +298,10 @@ export default function WorkspaceChat() {
           </button>
         </form>
         <small className="chat-footer">
-          {used}/{limit} token · Enter để gửi · Shift + Enter để xuống dòng ·
-          /limits để xem giới hạn
+          {data
+            ? chatLimitSummary(data.template, data.session)
+            : "Đang tải giới hạn token…"}{" "}
+          · Enter để gửi · Shift + Enter để xuống dòng · /limits để xem giới hạn
         </small>
       </section>
     </main>

@@ -11,6 +11,8 @@ import {
   deployWorkspace,
   getWorkspace,
   gpuPrices,
+  gpuResources,
+  setMetricsVisible,
   launchNotebook,
   readChat,
   saveCredential,
@@ -29,6 +31,7 @@ import type {
   User,
 } from "../src/lib/types";
 import type { RunpodPod } from "../src/lib/runpod";
+import { readTemplates } from "../src/lib/workspace-templates";
 
 async function main() {
   process.env.ARENA_NAMESPACE = `arena:qa:gpu:${randomUUID()}`;
@@ -62,6 +65,21 @@ async function main() {
     if (url === "https://api.runpod.io/graphql") {
       const request = JSON.parse(init?.body as string);
       const input = request.variables?.input;
+      if (request.query.includes("ArenaGpuResources"))
+        return json({
+          data: {
+            gpuTypes: [
+              {
+                id: request.variables.gpu.id,
+                lowestPrice: {
+                  minMemory: 50,
+                  minVcpu: 9,
+                  stockStatus: "Medium",
+                },
+              },
+            ],
+          },
+        });
       if (request.query.includes("ArenaCreate")) {
         creates++;
         if (mode === "reject")
@@ -346,6 +364,130 @@ async function main() {
     );
     assert.equal(fresh.session.exhausted, undefined);
     assert.equal(generations, 2);
+    assert.deepEqual(await gpuResources(admin, "NVIDIA A40", "SECURE"), {
+      minRAMPerGPU: 50,
+      minVCPUPerGPU: 9,
+      stockStatus: "Medium",
+    });
+    await assert.rejects(
+      () => setMetricsVisible(member, w.id, false),
+      /Chỉ admin/,
+    );
+    await setMetricsVisible(admin, w.id, false);
+    assert.equal(
+      (await workspaceState(member)).workspaces.find((x) => x.id === w.id)
+        ?.health?.gpu,
+      undefined,
+    );
+    assert.equal((await syncWorkspace(member, w.id)).health?.gpu, undefined);
+    assert.ok(
+      (await workspaceState(admin)).workspaces.find((x) => x.id === w.id)
+        ?.health?.gpu,
+    );
+    await setMetricsVisible(admin, w.id, true);
+    const otherOwner = randomUUID();
+    await saveTemplate({ ...t, name: "Other admin template" }, otherOwner, {
+      overwrite: true,
+      expectedRevision: "legacy",
+    });
+    assert.equal((await readTemplates(admin.id))[t.id].name, t.name);
+    assert.equal(
+      (await readTemplates(otherOwner))[t.id].name,
+      "Other admin template",
+    );
+    const competing = await Promise.allSettled([
+      saveTemplate(
+        { ...t, id: randomUUID(), name: "Concurrent name" },
+        otherOwner,
+      ),
+      saveTemplate(
+        { ...t, id: randomUUID(), name: "Concurrent name" },
+        otherOwner,
+      ),
+    ]);
+    assert.equal(competing.filter((x) => x.status === "fulfilled").length, 1);
+    let policy = await saveTemplate(
+      {
+        ...t,
+        tokenLimitMode: "turn",
+        inputTokenLimit: 64,
+        outputTokenLimit: 64,
+      },
+      admin.id,
+      { overwrite: true, expectedRevision: "legacy" },
+    );
+    assert.equal(
+      (await readChat(member, w.id, session)).template.tokenLimitMode,
+      "turn",
+    );
+    const turnId = randomUUID();
+    await db().set(key(`gpu:chat:${w.id}:${c.id}:${turnId}`), {
+      messages: [],
+      inputTokens: 5000,
+      outputTokens: 5000,
+    });
+    const unrestricted = await sendChat(
+      member,
+      w.id,
+      turnId,
+      randomUUID(),
+      "Per-turn QA",
+    );
+    assert.equal(unrestricted.session.inputTokens, 5020);
+    assert.equal(unrestricted.session.exhausted, undefined);
+    tokenCount = 65;
+    const rejectedId = randomUUID();
+    const rejectedTurn = await sendChat(
+      member,
+      w.id,
+      rejectedId,
+      randomUUID(),
+      "Oversized per-turn QA",
+    );
+    assert.equal(rejectedTurn.session.exhausted, undefined);
+    assert.equal(rejectedTurn.session.lastTurn?.rejected, true);
+    tokenCount = 20;
+    const recoveredTurn = await sendChat(
+      member,
+      w.id,
+      rejectedId,
+      randomUUID(),
+      "Short prompt",
+    );
+    assert.equal(recoveredTurn.session.messages.length, 3);
+    assert.equal(recoveredTurn.session.limitNotice, undefined);
+    policy = await saveTemplate(
+      { ...policy, tokenLimitMode: "session" },
+      admin.id,
+      { overwrite: true, expectedRevision: policy.revision },
+    );
+    const separateId = randomUUID();
+    await db().set(key(`gpu:chat:${w.id}:${c.id}:${separateId}`), {
+      messages: [],
+      inputTokens: 50,
+      outputTokens: 10,
+    });
+    const separate = await sendChat(
+      member,
+      w.id,
+      separateId,
+      randomUUID(),
+      "Per-session input budget",
+    );
+    assert.equal(separate.session.exhausted?.reason, "session");
+    assert.equal(separate.session.inputTokens, 64);
+    await assert.rejects(
+      () =>
+        saveTemplate({ ...policy, name: "stale" }, admin.id, {
+          overwrite: true,
+          expectedRevision: "legacy",
+        }),
+      /cửa sổ khác/,
+    );
+    await saveTemplate(t, admin.id, {
+      overwrite: true,
+      expectedRevision: policy.revision,
+    });
     const safe = await workspaceState(member);
     assert.ok(!JSON.stringify(safe).includes(stored.secret));
     assert.equal(safe.teams.length, 0);
