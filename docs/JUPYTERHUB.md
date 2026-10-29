@@ -32,6 +32,7 @@ Không nhận Pod PyTorch bất kỳ hoặc Pod có Chatbot. Không sửa image/
 
 - Admin thêm team đã được duyệt ngay trên thẻ Hub, không deploy hoặc restart Pod.
 - Thành viên đăng nhập Arena, mở workspace của đội. Server chỉ khởi động khi có yêu cầu; máy thứ hai vào cùng server.
+- Mở notebook từ file browser của Hub để hai máy vào cùng tài liệu cộng tác. Đường dẫn notebook tự ghép theo kiểu cũ có thể mở chế độ không cộng tác.
 - Nếu thiếu 4 GiB RAM khả dụng, thiếu 2 GiB đĩa trống hoặc hết chỗ hoạt động, workspace mới chờ và thử lại. Các server đang chạy được giữ. Đây là admission check, không phải quota bảo đảm.
 - **Dừng workspace** ngắt server/kernel và tiến trình của UID team đó, giữ home/venv. **Thu hồi quyền** ngăn đăng nhập mới và yêu cầu dừng server của team.
 - **Dừng Pod** ảnh hưởng mọi team. Volume disk giữ dữ liệu qua stop/start nhưng bị xóa khi terminate. Tải bản sao bài làm trước khi thu hồi Pod.

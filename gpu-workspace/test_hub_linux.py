@@ -181,7 +181,11 @@ class LinuxHubTests(unittest.TestCase):
             }""", "/user/" + a)
             self.assertIn(response, (200, 201))
             for page in (page1, page2):
-                page.goto(base + "/user/" + a + "/lab/tree/shared.ipynb")
+                # Collaboration 3.x supplies an RTC drive. A hand-built /tree/
+                # URL selects the non-collaborative default drive instead.
+                page.goto(base + "/user/" + a + "/lab")
+                with page.expect_websocket(lambda socket: "/api/collaboration/room/" in socket.url and "globalAwareness" not in socket.url, timeout=30000):
+                    page.locator(".jp-DirListing-item").filter(has_text="shared.ipynb").dblclick()
                 page.locator(".jp-Notebook .jp-CodeCell .cm-content").first.wait_for(timeout=60000)
                 dialog = page.locator(".jp-Dialog")
                 if dialog.is_visible():
