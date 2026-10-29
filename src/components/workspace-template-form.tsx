@@ -84,7 +84,8 @@ export default function WorkspaceTemplateForm({
         <span className="pill neutral">{label}</span>
       </div>
       <p className="template-intro">
-        Thiết lập tài nguyên và lưu template trước khi cấp Pod.
+        Kho dùng chung cho mọi admin. Thiết lập tài nguyên và lưu template trước
+        khi cấp Pod.
       </p>
       <form
         onSubmit={(e) => {
@@ -236,7 +237,7 @@ export default function WorkspaceTemplateForm({
                     Mỗi phiên · input/output cộng dồn riêng
                   </option>
                   <option value="turn">
-                    Mỗi lượt · không cộng dồn ngân sách
+                    Mỗi lượt · input/output cho từng prompt
                   </option>
                 </select>
               </label>
@@ -247,11 +248,17 @@ export default function WorkspaceTemplateForm({
               </p>
               {!t.tokenLimitMode && (
                 <p className="gpu-hint">
-                  Template cũ đang dùng tổng {t.sessionTokenLimit} token/phiên.
-                  Lưu template sẽ chuyển sang input/output cộng dồn riêng.
+                  Tổng input + output của phiên luôn bị giới hạn, kể cả khi chọn
+                  giới hạn từng lượt.
                 </p>
               )}
               <div className="gpu-form-grid template-resource-grid">
+                {number(
+                  "sessionTokenLimit",
+                  "Tổng token tối đa / phiên",
+                  256,
+                  16384,
+                )}
                 {number(
                   "inputTokenLimit",
                   `Input tối đa / ${t.tokenLimitMode === "session" ? "phiên" : "lượt"}`,
@@ -266,9 +273,11 @@ export default function WorkspaceTemplateForm({
                 )}
               </div>
               <p className="gpu-hint">
-                Lưu giới hạn mới sẽ cập nhật chatbot của Pod đang dùng template
-                này. Tăng quá cửa sổ context đã cấp cần Pod mới; không tự khởi
-                động lại Pod đang chạy.
+                Trần tổng luôn có hiệu lực cùng giới hạn input/output. Lịch sử
+                gửi lại tính vào input; token suy luận tính vào output. Lưu giới
+                hạn mới sẽ cập nhật chatbot của Pod đang dùng template này. Tăng
+                quá cửa sổ context đã cấp cần Pod mới; không tự khởi động lại
+                Pod đang chạy.
               </p>
             </fieldset>
           )}

@@ -7,7 +7,7 @@ import {
   requireRegistration,
   roundKey,
 } from "./rounds";
-import { canRead, phaseOf } from "./domain";
+import { canRead, phaseOf, privateStart } from "./domain";
 import { roundVisible } from "./round-visibility";
 import {
   decryptSecret,
@@ -19,26 +19,30 @@ import {
   chatbotOpen,
   defaultTemplate,
   driveFileId,
-  emptySession,
-  ChatLimitError,
-  exhaustChatSession,
   meter,
-  outputBudget,
   chatContextWindow,
   chatPolicyFields,
   workspaceView,
   workspaceAccess,
-  type ChatSession,
   type RuntimeHealth,
   type Workspace,
   type WorkspaceTemplate,
 } from "./workspace-domain";
 import type { Contest, SafeUser, Team } from "./types";
 import {
-  readTemplates,
-  templateStore,
-  validateTemplateSave,
-} from "./workspace-templates";
+  chatGroupViews,
+  getChatGroup,
+  groupTemplate,
+  groupKey,
+} from "./chat-groups";
+import {
+  chatQueueSummary,
+  readQueuedChat,
+  enqueueChat,
+  workerKey,
+  type ChatWorker,
+} from "./chat-queue";
+import { readTemplates, saveSharedTemplate } from "./workspace-templates";
 import {
   hasService,
   isShared,
@@ -50,6 +54,7 @@ const recordKey = (id: string) => key(`gpu:workspace:${id}`);
 const activeKey = (team: string) => key(`gpu:active:${team}`);
 const credentialKey = (id: string) => key(`gpu:credential:${id}`);
 function reservationKeys(w: Workspace) {
+  if (w.chatGroupId) return [];
   if (!w.reservationVersion) return [activeKey(w.teamId!)];
   return (["llm", "jupyter"] as const)
     .filter((s) => hasService(w, s))
@@ -114,6 +119,8 @@ async function lock<T>(
 export async function getWorkspace(id: string) {
   const w = await db().get<Workspace>(recordKey(id));
   if (!w) throw new ApiError("Không tìm thấy GPU Workspace.", 404);
+  w.teamId ??= null;
+  w.podId ??= null;
   return w;
 }
 async function currentRun(w: Workspace, c: Contest) {
@@ -152,7 +159,7 @@ export async function accessWorkspace(user: SafeUser, id: string) {
   w = await withChatPolicy(w);
   return { w, c };
 }
-async function withChatPolicy(w: Workspace) {
+export async function withChatPolicy(w: Workspace) {
   const contextWindowTokens =
     w.contextWindowTokens ?? chatContextWindow(w.template);
   const saved = (await readTemplates(w.ownerId))[w.template.id];
@@ -175,6 +182,27 @@ export async function workspaceState(user: SafeUser) {
       : null;
   const member = !!team?.members.includes(user.id);
   return {
+    chatGroups: await chatGroupViews(user),
+    chatOperations: user.admin
+      ? await Promise.all(
+          all
+            .filter((w) => hasService(w, "llm") && w.status !== "terminated")
+            .map(async (w) => ({
+              id: w.id,
+              canManage: w.ownerId === user.id,
+              groupId: w.chatGroupId,
+              draining: !!(await db().get(key(`gpu:drain:${w.id}`))),
+              worker: await db().get<ChatWorker>(workerKey(w.id)),
+              queue: !w.chatGroupId
+                ? await chatQueueSummary(
+                    `workspace:${w.id}`,
+                    (await getContest(w.roundId).catch(() => ({ id: w.runId })))
+                      .id,
+                  )
+                : null,
+            })),
+        )
+      : [],
     workspaces: (
       await Promise.all(
         all
@@ -207,9 +235,20 @@ export async function workspaceState(user: SafeUser) {
             } catch {
               registered = false;
             }
+            const worker = hasService(w, "llm")
+              ? await db().get<ChatWorker>(workerKey(w.id))
+              : null;
+            const access = workspaceAccess(w, c, now, user.admin, registered);
             return {
               ...workspaceView(await withChatPolicy(w), now, user.admin),
-              ...workspaceAccess(w, c, now, user.admin, registered),
+              ...access,
+              chatbotEnabled:
+                access.chatbotEnabled &&
+                !!worker?.ready &&
+                worker.protocol === 1 &&
+                worker.runId === c.id &&
+                now - worker.heartbeatAt < 45000 &&
+                !worker.draining,
             };
           }),
       )
@@ -266,18 +305,7 @@ export async function saveTemplate(
     await db().hset(key("gpu:templates"), { [t.id]: t });
     return t;
   }
-  return lock(`templates:${owner}`, async () => {
-    const templates = await readTemplates(owner);
-    validateTemplateSave(
-      t,
-      templates,
-      !!options.overwrite,
-      options.expectedRevision,
-    );
-    const saved = { ...t, revision: randomUUID() };
-    await db().hset(templateStore(owner), { ...templates, [saved.id]: saved });
-    return saved;
-  });
+  return saveSharedTemplate(t, owner, options);
 }
 export async function gpuResources(
   user: SafeUser,
@@ -336,15 +364,67 @@ export async function deployWorkspace(
     scope?: WorkspaceScope;
     services?: WorkspaceServices;
     loadDataset?: boolean;
+    groupId?: string;
+    requestId?: string;
   } = {},
 ) {
   const scope = options.scope ?? "team",
     services = options.services ?? "both";
-  const [team, c, t] = await Promise.all([
+  if (!user.admin) throw new ApiError("Chỉ admin được cấp GPU.", 403);
+  const allocationId = options.requestId ?? randomUUID();
+  const existing = await db().get<Workspace>(recordKey(allocationId));
+  if (existing) {
+    if (
+      existing.ownerId !== user.id ||
+      existing.roundId !== roundId ||
+      existing.template.id !== templateId ||
+      existing.chatGroupId !== options.groupId ||
+      (existing.scope ?? "team") !== scope ||
+      (existing.services ?? "both") !== services ||
+      existing.teamId !== (scope === "all" ? null : teamId)
+    )
+      throw new ApiError("Mã cấp phát đã được sử dụng.", 409);
+    return workspaceView(existing, await serverNow());
+  }
+  const group = options.groupId ? await getChatGroup(options.groupId) : null;
+  if (
+    group &&
+    (group.ownerId !== user.id ||
+      group.retired ||
+      group.roundId !== roundId ||
+      group.scope !== scope ||
+      group.teamId !== (scope === "all" ? null : teamId) ||
+      services !== "llm" ||
+      group.template.id !== templateId)
+  )
+    throw new ApiError("Cấu hình Pod không khớp nhóm Chatbot.", 409);
+  if (
+    group &&
+    (await Promise.all(group.workspaceIds.map(getWorkspace))).some(
+      (w) => !w.podId && ["provisioning", "reconciling"].includes(w.status),
+    )
+  )
+    throw new ApiError(
+      "Nhóm có allocation chưa xác nhận. Đối soát trước khi thêm Pod.",
+      409,
+    );
+  const [team, c, savedTemplate] = await Promise.all([
     scope === "team" && teamId ? db().hget<Team>(key("teams"), teamId) : null,
     getContest(roundId),
     readTemplates(user.id).then((templates) => templates[templateId]),
   ]);
+  const t = group ? await groupTemplate(group) : savedTemplate;
+  if (
+    t &&
+    services !== "jupyter" &&
+    t.imageName.endsWith(
+      "@sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf",
+    )
+  )
+    throw new ApiError(
+      "Image này chưa hỗ trợ hàng đợi Chatbot. Chọn image runtime mới đã publish.",
+      409,
+    );
   if (scope === "team" && (!team || !team.members.length))
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
   if (!t) throw new ApiError("Chọn template đã lưu.");
@@ -393,13 +473,15 @@ export async function deployWorkspace(
       409,
     );
   const now = await serverNow(),
-    id = randomUUID();
+    id = allocationId;
   const w: Workspace = {
     id,
     teamId: scope === "all" ? null : team!.id,
     teamName: scope === "all" ? "Tất cả các đội" : team!.name,
     scope,
     services,
+    ...(group ? { chatGroupId: group.id } : {}),
+    allocationRequestId: allocationId,
     reservationVersion: 2,
     roundId,
     loadDataset: services !== "llm" && options.loadDataset !== false,
@@ -410,7 +492,7 @@ export async function deployWorkspace(
     podId: null,
     status: "provisioning",
     template: t,
-    contextWindowTokens: chatContextWindow(t),
+    contextWindowTokens: group?.contextWindowTokens ?? chatContextWindow(t),
     secret: encryptSecret(randomBytes(32).toString("base64url")),
     jupyterSecret: encryptSecret(randomBytes(32).toString("base64url")),
     createdAt: now,
@@ -425,7 +507,7 @@ export async function deployWorkspace(
   };
   const slots = reservationKeys(w),
     checks = [...slots];
-  if (scope === "team") {
+  if (scope === "team" && !group) {
     const legacyId = await db().get<string>(activeKey(team!.id));
     const legacy = legacyId
       ? await db().get<Workspace>(recordKey(legacyId))
@@ -434,10 +516,19 @@ export async function deployWorkspace(
       checks.push(activeKey(team!.id));
   }
   const reserved = await db().eval<unknown[], number>(
-    "for i=1,tonumber(ARGV[1]) do if redis.call('EXISTS',KEYS[i])==1 then return 0 end end;for i=1,tonumber(ARGV[2]) do redis.call('SET',KEYS[i],ARGV[3]) end;redis.call('SET',KEYS[#KEYS-1],ARGV[4]);redis.call('SADD',KEYS[#KEYS],ARGV[3]);return 1",
-    [...checks, recordKey(id), key("gpu:workspaces")],
-    [checks.length, slots.length, id, JSON.stringify(w)],
+    `if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
+     if ARGV[5]~='' then local raw=redis.call('GET',KEYS[#KEYS]);if not raw then return 0 end;local g=cjson.decode(raw);if g.retired then return 0 end;table.insert(g.workspaceIds,ARGV[3]);redis.call('SET',KEYS[#KEYS],cjson.encode(g)) end
+     for i=1,tonumber(ARGV[1]) do if redis.call('EXISTS',KEYS[i])==1 then return 0 end end;for i=1,tonumber(ARGV[2]) do redis.call('SET',KEYS[i],ARGV[3]) end;redis.call('SET',KEYS[#KEYS-2],ARGV[4]);redis.call('SADD',KEYS[#KEYS-1],ARGV[3]);return 1`,
+    [
+      ...checks,
+      recordKey(id),
+      key("gpu:workspaces"),
+      group ? groupKey(group.id) : key("gpu:unused-group"),
+    ],
+    [checks.length, slots.length, id, JSON.stringify(w), group?.id ?? ""],
   );
+  if (reserved === 2)
+    return workspaceView(await getWorkspace(id), await serverNow());
   if (!reserved)
     throw new ApiError(
       "Phạm vi này đã có Pod hoặc yêu cầu chờ cung cấp dịch vụ đã chọn trong vòng luyện. Đối soát/thu hồi trước khi cấp lại.",
@@ -455,7 +546,7 @@ export async function deployWorkspace(
         ? { JUPYTER_TOKEN: decryptSecret(w.jupyterSecret) }
         : {}),
       ARENA_WORKSPACE_SERVICES: services,
-      ARENA_CONTEXT_SIZE: String(chatContextWindow(t)),
+      ARENA_CONTEXT_SIZE: String(w.contextWindowTokens),
     });
     if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
       throw new RunpodError(502, true);
@@ -629,6 +720,19 @@ export async function controlWorkspace(
     let w = await getWorkspace(id);
     if (w.ownerId !== user.id)
       throw new ApiError("Pod thuộc tài khoản quản trị khác.", 403);
+    if (["stop", "terminate"].includes(action)) {
+      const worker = await db().get<ChatWorker>(workerKey(id));
+      const job = worker?.jobId
+        ? await db().get<{ status: string }>(key(`gpu:job:${worker.jobId}`))
+        : null;
+      if (job && ["claimed", "running", "uncertain"].includes(job.status)) {
+        await db().set(key(`gpu:drain:${id}`), true);
+        throw new ApiError(
+          "Đã ngừng giao việc mới. Chờ lượt hiện tại hoàn tất hoặc đối soát trước khi dừng Pod.",
+          409,
+        );
+      }
+    }
     w = await syncUnlocked(w);
     const rp = await provider(w.ownerId);
     if (action === "cancel-failed") {
@@ -720,6 +824,12 @@ export async function agentManifest(id: string, authorization: string | null) {
   );
   return {
     active: true,
+    queueProtocol: 1,
+    policyExpiresAt: now + 45000,
+    publicEndsAt:
+      [privateStart(c), c.forcedEndAt]
+        .filter((v): v is number => v !== null)
+        .sort((a, b) => a - b)[0] ?? null,
     services: w.services ?? "both",
     runId: c.id,
     phase: phaseOf(c, now),
@@ -749,193 +859,30 @@ export async function launchNotebook(user: SafeUser, id: string) {
     );
   return `${podOrigin(w.podId, 8888)}/lab?token=${encodeURIComponent(decryptSecret(w.jupyterSecret))}`;
 }
-export async function readChat(user: SafeUser, id: string, sessionId: string) {
-  let { w, c } = await accessWorkspace(user, id);
-  if (!hasService(w, "llm"))
-    throw new ApiError("Pod này không cung cấp Chatbot.", 409);
-  let now = await serverNow();
-  // A chat tab must recover on its own when the model finishes loading or the
-  // round reopens, even if nobody has the GPU dashboard open.
-  if (
-    w.podId &&
-    !["terminated", "failed"].includes(w.status) &&
-    now - (w.syncedAt ?? 0) >= 15000
-  ) {
-    try {
-      await syncWorkspace(user, id);
-      ({ w, c } = await accessWorkspace(user, id));
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 409))
-        w = { ...w, health: null };
-    }
-    now = await serverNow();
-  }
-  const session =
-    (await db().get<ChatSession>(sessionKey(w, user, sessionId))) ??
-    emptySession();
-  return {
-    session,
-    template: w.template,
-    contextWindowTokens: w.contextWindowTokens ?? chatContextWindow(w.template),
-    enabled: workspaceAccess(w, c, now, user.admin).chatbotEnabled,
-    policyOpen: chatbotOpen(w, c, now),
-    statusMessage: workspaceAccess(w, c, now, user.admin).accessMessage,
-    runId: c.id,
-    serverNow: now,
-    teamName: w.teamName,
-    roundTitle: w.roundTitle,
-  };
+export async function readChat(
+  user: SafeUser,
+  id: string | undefined,
+  sessionId: string,
+  groupId?: string,
+) {
+  return readQueuedChat(user, id, sessionId, groupId);
 }
 export async function sendChat(
   user: SafeUser,
-  id: string,
+  id: string | undefined,
   sessionId: string,
   requestId: string,
   content: string,
+  groupId?: string,
+  expectedRunId?: string,
 ) {
-  await accessWorkspace(user, id);
-  await rateLimit(`gpu:chat:${user.id}`, 20, 60);
-  return lock(
-    `chat:${id}`,
-    async () => {
-      const { w, c } = await accessWorkspace(user, id),
-        now = await serverNow(),
-        k = sessionKey(w, user, sessionId);
-      const s = (await db().get<ChatSession>(k)) ?? emptySession();
-      if (s.lastRequestId === requestId)
-        return { session: s, template: w.template };
-      if (!chatbotOpen(w, c, now))
-        throw new ApiError(
-          "Chatbot chỉ được dùng trong giai đoạn public của lượt thi này.",
-          403,
-        );
-      if (s.exhausted && w.template.tokenLimitMode !== "turn")
-        return { session: s, template: w.template };
-      if (s.pending)
-        throw new ApiError(
-          "Lượt trước chưa xác nhận hoàn tất. Tạo phiên mới bằng /new.",
-          409,
-        );
-      if (w.status !== "running" || !w.health?.llm)
-        throw new ApiError("Model đang được tải hoặc Pod chưa sẵn sàng.", 409);
-      let history = s.messages.filter((m) => !m.rejected);
-      let messages = [...history, { role: "user" as const, content }];
-      const window =
-        (w.contextWindowTokens ?? chatContextWindow(w.template)) - 128;
-      let count = await runtime<{ count: number }>(w, "/token-count", {
-        messages,
-      });
-      // New policies bound each model request. Trim complete oldest exchanges,
-      // while retaining the full transcript for the browser and usage ledger.
-      if (w.template.tokenLimitMode) {
-        const promptCap = Math.min(w.template.inputTokenLimit, window - 1);
-        while (count.count > promptCap && history.length) {
-          const nextUser = history.findIndex(
-            (m, i) => i > 0 && m.role === "user",
-          );
-          history = nextUser < 0 ? [] : history.slice(nextUser);
-          messages = [...history, { role: "user" as const, content }];
-          count = await runtime<{ count: number }>(w, "/token-count", {
-            messages,
-          });
-        }
-      }
-      let maxTokens: number;
-      try {
-        maxTokens = outputBudget(w.template, s, count.count);
-        if (count.count >= window)
-          throw new ApiError(
-            "Prompt vượt cửa sổ context của Pod đang chạy. Cần cấp Pod mới để dùng cấu hình token lớn hơn.",
-            422,
-          );
-        maxTokens = Math.min(maxTokens, window - count.count);
-      } catch (e) {
-        if (e instanceof ApiError) throw e;
-        if (!(e instanceof ChatLimitError))
-          throw new ApiError("Dịch vụ trả số token không hợp lệ.", 502);
-        if (w.template.tokenLimitMode === "turn") {
-          s.messages.push({ role: "user", content, rejected: true });
-          s.lastTurn = {
-            inputTokens: count.count,
-            outputTokens: 0,
-            rejected: true,
-          };
-          s.limitNotice = `${e.message} Tin nhắn đã lưu nhưng không gửi tới model. Hãy rút ngắn prompt rồi gửi lại; giới hạn chỉ áp dụng cho lượt này.`;
-          s.lastRequestId = requestId;
-          delete s.exhausted;
-          await db().set(k, s, { ex: 30 * 86400 });
-          return { session: s, template: w.template };
-        }
-        const exhausted = exhaustChatSession(
-          w.template,
-          s,
-          content,
-          requestId,
-          count.count,
-          e,
-        );
-        await db().set(k, exhausted, { ex: 30 * 86400 });
-        return { session: exhausted, template: w.template };
-      }
-      const reserved = count.count + maxTokens;
-      // Reserve before inference. A function crash cannot silently reuse an uncertain budget.
-      s.pending = { requestId, reserved };
-      s.messages.push({ role: "user", content });
-      delete s.exhausted;
-      delete s.limitNotice;
-      s.inputTokens += count.count;
-      s.outputTokens += maxTokens;
-      await db().set(k, s, { ex: 30 * 86400 });
-      try {
-        const out = await runtime<{
-          content: string;
-          inputTokens: number;
-          outputTokens: number;
-        }>(
-          w,
-          "/generate",
-          {
-            messages,
-            maxTokens,
-            expectedInputTokens: count.count,
-            runId: c.id,
-          },
-          240000,
-        );
-        if (
-          !Number.isInteger(out.inputTokens) ||
-          !Number.isInteger(out.outputTokens) ||
-          out.inputTokens !== count.count ||
-          out.outputTokens < 0 ||
-          out.outputTokens > maxTokens ||
-          typeof out.content !== "string"
-        )
-          throw new ApiError("Dịch vụ trả số token không hợp lệ.", 502);
-        const current = await accessWorkspace(user, id);
-        if (
-          current.c.id !== c.id ||
-          !chatbotOpen(current.w, current.c, await serverNow())
-        )
-          throw new ApiError(
-            "Đã chuyển khỏi public; phản hồi không được phát sau giờ khóa chatbot.",
-            403,
-          );
-        s.messages.push({ role: "assistant", content: out.content });
-        s.lastTurn = {
-          inputTokens: out.inputTokens,
-          outputTokens: out.outputTokens,
-        };
-        s.outputTokens -= maxTokens - out.outputTokens;
-        delete s.pending;
-        s.lastRequestId = requestId;
-        await db().set(k, s, { ex: 30 * 86400 });
-        return { session: s, template: w.template };
-      } catch (e) {
-        // Charge the reserved maximum on uncertain delivery; retain the marker so this request cannot be repeated.
-        await db().set(k, s, { ex: 30 * 86400 });
-        throw e;
-      }
-    },
-    300,
+  return enqueueChat(
+    user,
+    id,
+    sessionId,
+    requestId,
+    content,
+    groupId,
+    expectedRunId,
   );
 }

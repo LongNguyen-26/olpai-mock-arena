@@ -2,7 +2,7 @@
 
 Website ôn luyện mô phỏng Olympic AI 2026: Next.js trên Vercel, Upstash Redis và Upstash Blob private.
 
-GPU Workspace theo đội: admin cấp Runpod Pod dùng chung một GPU cho JupyterLab và DeepSeek 32B Q4; có template, trạng thái dịch vụ, chi phí ước tính và quota token theo phiên. Xem [cấu hình và vận hành GPU Workspace](docs/GPU_WORKSPACE.md).
+GPU Workspace: admin cấp Pod riêng/chung cho JupyterLab và DeepSeek 32B Q4; nhóm nhiều Pod Chatbot có hàng đợi công bằng, template dùng chung giữa admin và trần tổng token chỉnh được. Thí sinh chỉ thấy prompt/câu trả lời, không có trạng thái hàng đợi hoặc nút hủy. Xem [hàng đợi và nhóm Chatbot](docs/CHAT_QUEUE.md), [cấu hình GPU Workspace](docs/GPU_WORKSPACE.md).
 
 - Danh sách nhiều vòng luyện. Đăng ký cá nhân, tự duyệt hoặc admin duyệt.
 - Đăng nhập, tạo đội, mã mời/lời mời. Đổi thành viên được phép trong lúc thi.

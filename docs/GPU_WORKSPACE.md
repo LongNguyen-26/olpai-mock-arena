@@ -1,8 +1,10 @@
 # GPU Workspace — cấu hình luyện tập
 
+Cập nhật 29/10/2026: xem [CHAT_QUEUE.md](CHAT_QUEUE.md) cho nhóm nhiều Pod, giao thức worker, quota tổng, template chung và trình tự reset/phát hành. Image mặc định cho Pod mới lấy từ env/template đã ghim digest; digest trong ghi chép triển khai cũ bên dưới không phải image hàng đợi mới.
+
 Admin cấp một GPU mỗi Pod, chọn riêng một đội hoặc dùng chung cho tất cả đội. Mỗi Pod chạy cả hai dịch vụ, chỉ Chatbot DeepSeek 32B Q4, hoặc chỉ JupyterLab. Mặc định A40 48 GB; không yêu cầu chặn Internet/cấm pip ở tầng hệ thống.
 
-Image task-root và không nạp dataset đã được [GitHub Actions build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40574925727), từ commit `06b3cb81658890db67cd59d628f6a774e692d075`. Digest mặc định cho Pod mới: `nguyenlong26/olpai-workspace@sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf`. Các Pod đang chạy giữ nguyên image và volume.
+Image task-root và không nạp dataset đã được [GitHub Actions build/push thành công](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40574925727), từ commit `06b3cb81658890db67cd59d628f6a774e692d075`. Digest của bản trước tính năng hàng đợi: `nguyenlong26/olpai-workspace@sha256:4510a9e0bfbb96ca83873df7535d61367b594d841387557b561df4ab5a5a94cf`. Các Pod đang chạy giữ nguyên image và volume.
 
 ## Pod chung, Pod riêng và loại dịch vụ
 
@@ -14,18 +16,18 @@ Image task-root và không nạp dataset đã được [GitHub Actions build/pus
 - Pod chung cấp quyền cho thành viên thật của mọi đội, kể cả đội tạo sau; không cần đăng ký riêng để nhận quyền chia sẻ này. Người chưa có đội không được truy cập. Pod riêng giữ yêu cầu đăng ký được duyệt. Cả hai vẫn theo lịch public/private của vòng đã chọn.
 - **Chỉ Chatbot**: không khởi động Jupyter, không mở cổng 8888, không tải dataset. Model và ngân sách token theo template; lịch sử và quota phiên tách theo đội, kể cả khi các đội dùng trùng session ID. GPU xử lý một yêu cầu chat mỗi lần.
 - **Chỉ JupyterLab**: không tải/nạp LLM, GPU dành cho notebook. Vẫn gắn lịch của vòng luyện; có thể nạp dataset hoặc mở notebook trống. Nếu nạp dữ liệu, public preload, private nạp khi mở private. Jupyter chung dùng chung tệp, kernel và GPU, không phải workspace tách biệt từng đội.
-- Mỗi phạm vi/vòng có tối đa một Pod cung cấp từng dịch vụ: cho phép một Pod LLM và một Pod Jupyter riêng biệt; một Pod chạy cả hai giữ cả hai slot. Không tạo trùng khi bấm đồng thời hoặc mất xác nhận. Pod cũ mặc định riêng một đội/cả hai dịch vụ và giữ tương thích khóa cấp phát cũ.
+- Ngoài nhóm Chatbot, mỗi phạm vi/vòng có tối đa một Pod cung cấp từng dịch vụ: cho phép một Pod LLM và một Pod Jupyter riêng biệt; một Pod chạy cả hai giữ cả hai slot. Không tạo trùng khi bấm đồng thời hoặc mất xác nhận. Pod cũ mặc định riêng một đội/cả hai dịch vụ và giữ tương thích khóa cấp phát cũ.
 - API deploy thêm `scope: team|all`, `services: both|llm|jupyter`, `loadDataset: boolean` (mặc định true); `teamId` chỉ bắt buộc với scope team. Runtime nhận `ARENA_WORKSPACE_SERVICES`, mặc định both để tương thích Pod cũ.
 
 ## Nguồn và phạm vi mô phỏng
 
 [Thông báo chính thức OLP](https://www.olp.vn/tin-t%E1%BB%A9c/olympic-icpc/th%C3%B4ng-b%C3%A1o), mục 21h30 ngày 01/11/2025: LLM dùng trong 5 giờ đầu, không giới hạn session, tối đa 2.000 token chung input + output cho mỗi session. Đây là nguồn 2025, chưa phải xác nhận luật 2026. Web mặc định khóa chatbot khi chuyển khỏi public, kể cả mở private/kết thúc sớm. Vòng vô thời hạn giữ LLM tới khi chuyển pha.
 
-Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử gửi tới model và token định dạng; phần suy luận tính vào output. Template mới có hai chế độ: **Mỗi phiên** cộng dồn input và output trong hai ngân sách riêng; **Mỗi lượt** áp input/output tối đa cho từng prompt, không trừ vào ngân sách phiên. Template cũ thiếu `tokenLimitMode` giữ tổng input + output cũ cho đến khi admin lưu sang chế độ mới. Không có quota tổng cả kỳ thi. `/usage`, `/limits`, `/help`, `/new` không gọi inference.
+Token dùng chính tokenizer/chat template của GGUF, bao gồm lịch sử gửi lại và token định dạng; reasoning tính vào output. Tổng input + output luôn cộng dồn theo phiên và bị chặn bởi trần tổng admin chỉnh được (mặc định 2.000). **Mỗi lượt** giới hạn thêm input/output từng prompt; **Mỗi phiên** giới hạn thêm input/output cộng dồn riêng. Không có quota tổng cả kỳ thi. `/usage`, `/limits`, `/help`, `/new` không gọi inference.
 
-Lượt vượt giới hạn vẫn lưu trên giao diện và không gọi sinh câu trả lời. Với chế độ phiên/cấu hình cũ, ngân sách input còn lại bị tiêu hết và phiên bị khóa kể cả sau refresh; dùng `/new` để tiếp tục. Với chế độ mỗi lượt, chỉ từ chối lượt đó, không tính token chưa chạy model; có thể gửi prompt ngắn hơn trong cùng phiên. Tin nhắn bị từ chối không được đưa trở lại prompt. Khi cần, lịch sử gửi tới model được rút gọn theo các lượt cũ hoàn chỉnh để vừa giới hạn/context; toàn bộ transcript trên giao diện được giữ. Đây là chính sách Arena, không khẳng định luật thi chính thức.
+Lượt vượt giới hạn được lưu nhưng không inference, không trừ token và không đưa vào context lượt sau. Lịch sử gửi tới model được rút gọn theo các lượt cũ hoàn chỉnh để vừa ngân sách/context; transcript trên giao diện giữ nguyên. Ngân sách chỉ được reserve khi worker bắt đầu, hoàn output chưa dùng khi có kết quả chắc chắn; mất xác nhận giữ reservation để đối soát. Đây là chính sách Arena, không khẳng định luật thi chính thức.
 
-Footer và `/limits` lấy giới hạn đang có hiệu lực trên template của owner Pod, tự cập nhật tối đa khoảng 10 giây hoặc khi tab nhận focus. Giới hạn token được áp dụng trực tiếp cho chatbot đang dùng template; phần cứng/image không thay đổi trên Pod đang chạy. Context của llama.cpp cố định theo lần cấp Pod: template mới cấp `input + output + 128`; Pod cũ giữ cửa sổ ban đầu. Tăng giới hạn quá context cần cấp Pod mới, không tự restart Pod cũ.
+Footer và `/limits` đọc quota hiện tại từ kho template chung; sửa quota áp dụng ở lượt bắt đầu tiếp theo, không cắt lượt đang chạy. Context cố định khi cấp Pod, mặc định `min(tổng phiên, input + output) + 128`; Pod cũ giữ cửa sổ đã cấp. Tăng quota không tự restart Pod.
 
 Giao diện chat hỗ trợ công thức `$...$`, `$$...$$`, `\(...\)`, `\[...\]` và công thức LaTeX trong ngoặc vuông nguyên dòng của phản hồi cũ. Khối code giữ nguyên nội dung, có khung và nút sao chép; không diễn giải LaTeX bên trong code.
 
@@ -87,9 +89,9 @@ node -e "require('fs').mkdirSync('.local',{recursive:true});require('fs').writeF
 
 ## Vận hành
 
-Trong UI quản trị, chọn **Dịch vụ trên Pod** trước khi chỉnh template. Mỗi chế độ (Chatbot + JupyterLab, Chỉ Chatbot, Chỉ JupyterLab) có bản nháp riêng. Template lưu riêng theo admin trong `gpu:templates:<admin-id>`; tài khoản chưa có kho riêng kế thừa catalogue cũ khi đọc và sao chép sang kho riêng khi lưu lần đầu. Thay đổi của admin này không ghi đè cấu hình admin khác.
+Trong UI quản trị, chọn **Dịch vụ trên Pod** trước khi chỉnh template. Mỗi chế độ (Chatbot + JupyterLab, Chỉ Chatbot, Chỉ JupyterLab) có bản nháp riêng. Template được lưu trong `gpu:templates:shared`; mọi admin được xem, dùng và sửa. Ghi đè kiểm tra revision/version để không làm mất thay đổi của admin khác. Credential Runpod và quyền điều khiển Pod vẫn riêng theo owner.
 
-Chọn **Cấu hình mới** trong dropdown hoặc **Tạo bản sao**, nhập tên khác với các template đã lưu của tài khoản (chuẩn hóa Unicode, khoảng trắng và chữ hoa/thường). Ghi đè template có sẵn cần xác nhận; API kiểm tra revision để ngăn cửa sổ cũ ghi đè thay đổi mới. Nút “Nạp lại template đã lưu” bỏ bản nháp để lấy cấu hình đã lưu hiện tại. Poll không ghi đè bản nháp đang chỉnh.
+Chọn **Cấu hình mới** trong dropdown hoặc **Tạo bản sao**, nhập tên khác với các template đã lưu trong kho chung (chuẩn hóa Unicode, khoảng trắng và chữ hoa/thường). Ghi đè template có sẵn cần xác nhận; API kiểm tra revision để ngăn cửa sổ cũ ghi đè thay đổi mới. Nút “Nạp lại template đã lưu” bỏ bản nháp để lấy cấu hình đã lưu hiện tại. Poll không ghi đè bản nháp đang chỉnh.
 
 Đổi GPU/cloud sẽ truy vấn [`gpuTypes.lowestPrice`](https://graphql-spec.runpod.io/) cho 1 GPU và tự điền `minMemory`/`minVcpu`. Đây là RAM hệ thống/vCPU theo offer, không phải VRAM; không bảo đảm tài nguyên host cuối cùng hoặc còn stock. Nếu không có thông số, form xóa số cũ và yêu cầu nhập thủ công. Response cũ đến muộn không ghi đè lựa chọn mới. Lưu template đúng chế độ trước khi cấp Pod; API kiểm tra dịch vụ. Phần cứng/image trong snapshot Pod không bị sửa khi lưu template.
 
@@ -116,7 +118,7 @@ Private chưa tải plaintext trước giờ: chỉ có `PRIVATE_LOCKED.txt`. Se
 - Redis giữ active record nguyên tử, không TTL, trước POST tạo Pod. Allocation ID/name duy nhất; timeout không retry POST. Hai máy/admin/HTTP retry không tạo Pod thứ hai cho cùng đội.
 - Mất xác nhận: Chờ đối soát, tìm Pod qua tên. Không tự giải phóng khóa mơ hồ. Hủy yêu cầu lỗi chỉ khi Runpod từ chối rõ ràng và list Pod không thấy tên. Pending mơ hồ cần đối chiếu Runpod trước bảo trì thủ công, không xóa khóa để thử mù.
 - Chi phí chỉ bắt đầu sau khi Runpod xác nhận Pod ID; yêu cầu thất bại/chờ đối soát chưa có Pod luôn hiển thị $0. Chi phí ước tính đơn giá × thời gian quan sát; khi thiếu rate dùng quote. Dừng dùng ước tính volume $0,20/GB/tháng / 730 giờ; có thể lệch invoice do độ trễ đồng bộ, storage/container disk, thuế hoặc thay đổi giá. [Giá lưu trữ](https://docs.runpod.io/pods/pricing).
-- Lock chat chung workspace chống sinh đồng thời. Giữ token tối đa trước inference, hoàn phần output chưa dùng khi thành công. Timeout/mất xác nhận giữ ngân sách và đánh dấu phiên cần `/new`, không tự tái chạy. Xác nhận lại pha/quyền trước khi phát câu trả lời.
+- Hàng đợi Redis giữ một prompt mỗi session, tối đa bốn prompt chưa hoàn tất/đội/run; worker giữ một slot mỗi Pod. Prepare giữ token tối đa trước inference, complete hoàn phần output chưa dùng. Mất xác nhận sau prepare giữ ngân sách và chuyển uncertain để đối soát, không tự tái chạy. Kiểm tra lại pha/quyền tại transition và trước khi phát câu trả lời.
 - Không log prompt, provider payload, key, môi trường Pod hay signed URL. DTO bỏ secret/owner ID. API key mã hóa trong Redis, chỉ backend giải mã.
 
 ## Kiểm tra

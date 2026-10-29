@@ -911,6 +911,21 @@
     grid-template-columns: 1fr;
   }
 }
+.chat-worker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.chat-worker-row > div {
+  flex: 1;
+  min-width: 180px;
+}
+.chat-worker-row p {
+  overflow-wrap: anywhere;
+}
 @media (prefers-reduced-motion: reduce) {
   .chat-thinking-dots i {
     animation: none;

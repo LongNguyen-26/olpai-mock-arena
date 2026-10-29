@@ -109,3 +109,13 @@
 - Truy vấn metadata Runpod thật đã kiểm chứng `gpuTypes.lowestPrice.minMemory/minVcpu` cho 1 GPU; A40 Secure trả 50 GB/9 vCPU tại thời điểm kiểm tra, A5000 Secure không có offer nên UI không đoán thông số. Đây là dữ liệu offer tại thời điểm đọc, không xác nhận stock hay tài nguyên Pod đã cấp.
 - Theo yêu cầu, kho template riêng Admin 1 (`arena_admin`) được khôi phục A40/Secure, RAM tối thiểu 48 GB, 8 vCPU, disk 30 GB, volume 100 GB, tổng legacy 2000/input 1800/output 1024; giữ image digest đang dùng cho Pod mới. Catalogue cũ giữ nguyên A5000 để Admin 2 kế thừa, không đổi Pod. Bản trước thao tác và kết quả nằm trong `.local/primary-template-restore-20261029.json`.
 
+
+
+## Hàng đợi, nhóm Pod và template chung — 29/10/2026
+
+- Thay thế chính sách template/token của mục trước: mọi admin dùng cùng catalogue; tổng input + output phiên luôn bị giới hạn ở cả hai mode. Script reset có dry-run, snapshot Redis + file local, ID preset mới và phục hồi; đã kiểm tra trong namespace QA.
+- Typecheck và 56 unit test TypeScript đạt; 21 Python CPU test đạt trên Python 3.10/FastAPI 0.115.11/httpx 0.28.1. Production build đạt. ASGI test/build cần chạy ngoài sandbox Windows do sandbox gây treo/EPERM; không có GPU/model thật trong các kiểm tra này.
+- Giữ các ca provider/quyền/vòng đời trong `qa-workspace-flow.ts`, cập nhật phần chat sang protocol worker và template chung; bộ này đã đạt với Redis thật/Runpod và model giả lập. `qa-chat-queue.ts` kiểm tra burst 28 prompt, claim/cấp phát đồng thời, chia lượt theo đội, cap liên dịch vụ, lease/uncertain, callback lặp/muộn, drain, reset/private/thu hồi thành viên, outage và phục hồi session cũ. Không cấp GPU tính phí.
+- HTTP QA xác minh 202/idempotency/xung đột nội dung, group/worker auth, Origin, cách ly đội và khóa private. Fixture thiếu runtime thật bị giữ ở readiness gate; redirect chỉ hợp lệ khi đủ readiness.
+- Playwright Edge desktop/mobile: prompt hiện ngay, không có nhãn tiến trình, animation suy luận hoặc nút hủy; giữ draft khi đang có request, khóa gửi/new, refresh không trùng prompt, outbox retry cùng ID, tách tab và browser. Admin 1/2 thấy và sửa cùng template, trần tổng hiện ở cả hai mode, payload thêm Pod có groupId/allocation UUID. Provider/model giả lập; không tràn ngang hoặc pageerror; đăng xuất sau QA.
+- Ảnh QA ở `output/playwright/chat-queue-*.png`, `chat-admin-*.png`. `benchmark-chat-queue.ts` chuẩn bị tải 14/28 request trên nhóm do admin cấp, mặc định dry-run; chưa đo throughput GPU thật.

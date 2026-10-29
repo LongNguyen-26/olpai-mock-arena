@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Cpu, Plus, Send, Sparkles } from "lucide-react";
 import ChatMarkdown from "./chat-markdown";
-import { api } from "./arena-client";
+import { api, ApiClientError } from "./arena-client";
 import type { readChat } from "@/lib/workspaces";
 import { chatSession } from "@/lib/chat-session";
 import { assistantText } from "@/lib/chat-presentation";
@@ -11,9 +11,11 @@ import {
   chatUsageLog,
   isChatClosed,
 } from "@/lib/chat-limits";
+type Outbox = { requestId: string; content: string; runId: string };
 type Chat = Awaited<ReturnType<typeof readChat>>;
 export default function WorkspaceChat() {
   const [id, setId] = useState(""),
+    [groupId, setGroupId] = useState(""),
     [session, setSession] = useState(""),
     [data, setData] = useState<Chat | null>(null),
     [content, setContent] = useState(""),
@@ -21,38 +23,129 @@ export default function WorkspaceChat() {
     [info, setInfo] = useState(""),
     [showUsage, setShowUsage] = useState(false),
     [busy, setBusy] = useState(false),
-    [pendingText, setPendingText] = useState("");
+    [outbox, setOutbox] = useState<Outbox | null>(null);
+  const outboxRef = useRef<Outbox | null>(null);
+  const target = groupId ? `group:${groupId}` : id;
+  const active = busy || !!outbox || !!data?.session.pending;
+  const pendingText = outbox?.content ?? "";
   const bottom = useRef<HTMLDivElement>(null);
   const sequence = useRef(0),
     sending = useRef(false);
   useEffect(() => {
-    const id = new URL(window.location.href).searchParams.get("id") ?? "";
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("id") ?? "",
+      group = url.searchParams.get("groupId") ?? "";
     setId(id);
-    if (id) setSession(chatSession(sessionStorage, id));
+    setGroupId(group);
+    const target = group ? `group:${group}` : id;
+    if (target) {
+      const session = chatSession(sessionStorage, target);
+      setSession(session);
+      try {
+        const saved = JSON.parse(
+          sessionStorage.getItem(`arena-chat-outbox:${target}:${session}`) ??
+            "null",
+        );
+        if (saved?.requestId && saved?.content && saved?.runId) {
+          outboxRef.current = saved;
+          setOutbox(saved);
+        }
+      } catch {
+        /* An invalid browser draft is never sent to the server. */
+      }
+    }
   }, []);
+  const clearOutbox = useCallback(() => {
+    outboxRef.current = null;
+    setOutbox(null);
+    sessionStorage.removeItem(`arena-chat-outbox:${target}:${session}`);
+  }, [target, session]);
+  const transmit = useCallback(
+    async (message: Outbox) => {
+      if (sending.current) return;
+      sending.current = true;
+      setBusy(true);
+      const version = ++sequence.current;
+      try {
+        const result = await api("workspace/chat", {
+          ...(groupId ? { groupId } : { id }),
+          session,
+          ...message,
+        });
+        if (version !== sequence.current) return;
+        setData((d) =>
+          d
+            ? {
+                ...d,
+                session: result.session,
+                template: result.template ?? d.template,
+              }
+            : d,
+        );
+        clearOutbox();
+        setError("");
+      } catch (e) {
+        if (
+          version === sequence.current &&
+          e instanceof ApiClientError &&
+          e.status < 500
+        ) {
+          clearOutbox();
+          setError(e.message);
+          setContent((draft) => draft || message.content);
+        }
+        // A lost ACK is retried with the same ID; it never creates a second prompt.
+      } finally {
+        sending.current = false;
+        setBusy(false);
+      }
+    },
+    [id, groupId, session, clearOutbox],
+  );
   const load = useCallback(async () => {
-    if (!id || !session || sending.current) return;
+    if (!target || !session || sending.current) return;
     const version = ++sequence.current;
     try {
-      const next = await api(
-        `workspace/chat?id=${encodeURIComponent(id)}&session=${encodeURIComponent(session)}`,
+      const next: Chat = await api(
+        `workspace/chat?${groupId ? `groupId=${encodeURIComponent(groupId)}` : `id=${encodeURIComponent(id)}`}&session=${encodeURIComponent(session)}`,
       );
-      if (version === sequence.current) setData(next);
+      if (version !== sequence.current) return;
+      setData(next);
+      const saved = outboxRef.current;
+      if (saved) {
+        if (
+          saved.runId !== next.runId ||
+          next.session.pending?.requestId === saved.requestId ||
+          next.session.lastRequestId === saved.requestId
+        )
+          clearOutbox();
+        else await transmit(saved);
+      }
     } catch (e) {
-      if (version === sequence.current) setError((e as Error).message);
+      if (
+        version === sequence.current &&
+        e instanceof ApiClientError &&
+        e.status < 500
+      )
+        setError(e.message);
     }
-  }, [id, session]);
+  }, [id, groupId, target, session, clearOutbox, transmit]);
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 10000);
+    const timer = setInterval(() => void load(), active ? 2000 : 10000);
     const focus = () => void load();
     window.addEventListener("focus", focus);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", focus);
-      sequence.current++;
     };
-  }, [load]);
+  }, [load, active]);
+  useEffect(
+    () => () => {
+      sequence.current++;
+    },
+    [session],
+  );
   useEffect(() => {
     bottom.current?.scrollIntoView({
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -62,13 +155,13 @@ export default function WorkspaceChat() {
     });
   }, [data?.session.messages.length, pendingText, busy, error, info]);
   function newSession() {
-    if (sending.current) return;
+    if (active) return;
     sequence.current++;
-    const next = chatSession(sessionStorage, id, true);
+    const next = chatSession(sessionStorage, target, true);
     setSession(next);
     setData(null);
     setContent("");
-    setPendingText("");
+    clearOutbox();
     setError("");
     setInfo("Đã tạo đoạn chat mới.");
     setShowUsage(false);
@@ -77,7 +170,7 @@ export default function WorkspaceChat() {
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = content.trim();
-    if (!text || sending.current || !data) return;
+    if (!text || active || !data) return;
     setError("");
     setInfo("");
     setShowUsage(false);
@@ -99,37 +192,21 @@ export default function WorkspaceChat() {
       return;
     }
     if (!data.enabled || closed) return;
-    setBusy(true);
-    setPendingText(text);
+    const message = {
+      requestId: crypto.randomUUID(),
+      content: text,
+      runId: data.runId,
+    };
+    sessionStorage.setItem(
+      `arena-chat-outbox:${target}:${session}`,
+      JSON.stringify(message),
+    );
+    outboxRef.current = message;
+    setOutbox(message);
     setContent("");
-    sending.current = true;
-    sequence.current++;
-    try {
-      const result = await api("workspace/chat", {
-        id,
-        session,
-        requestId: crypto.randomUUID(),
-        content: text,
-      });
-      setData((d) =>
-        d
-          ? {
-              ...d,
-              session: result.session,
-              template: result.template ?? d.template,
-            }
-          : d,
-      );
-    } catch (e) {
-      setError((e as Error).message);
-      setContent((draft) => draft || text);
-    } finally {
-      sending.current = false;
-      setPendingText("");
-      setBusy(false);
-      await load();
-    }
+    await transmit(message);
   }
+
   return (
     <main className="chat-shell">
       <header className="chat-header">
@@ -143,24 +220,11 @@ export default function WorkspaceChat() {
           </p>
         </div>
         <div className="chat-header-actions">
-          <span
-            className={`chat-connection ${data?.enabled ? "is-ready" : ""}`}
-            role="status"
+          <button
+            className="btn"
+            onClick={newSession}
+            disabled={active || !data}
           >
-            <i aria-hidden="true" />
-            {!data
-              ? "Đang kết nối…"
-              : data.session.pending
-                ? "Phiên đã gián đoạn"
-                : closed
-                  ? "Phiên đã hết token"
-                  : data.enabled
-                    ? "DeepSeek sẵn sàng"
-                    : data.policyOpen
-                      ? "DeepSeek đang khởi động"
-                      : "Chatbot đang khóa"}
-          </span>
-          <button className="btn" onClick={newSession} disabled={busy || !data}>
             <Plus size={17} />
             Đoạn chat mới
           </button>
@@ -180,8 +244,8 @@ export default function WorkspaceChat() {
               </span>
               <h1>Trợ lý cho đội thi của bạn</h1>
               <p>
-                Hỏi ngắn, cung cấp lỗi hoặc giả thuyết cần kiểm tra. Chatbot và
-                notebook dùng chung GPU; training có thể làm phản hồi chậm hơn.
+                Hỏi ngắn, cung cấp lỗi hoặc giả thuyết cần kiểm tra. Lịch sử và
+                ngân sách token được lưu riêng cho phiên chat này.
               </p>
               <p>
                 <code>/usage</code> · <code>/limits</code> · <code>/new</code> ·{" "}
@@ -212,29 +276,17 @@ export default function WorkspaceChat() {
               </div>
             </article>
           )}
-          {busy && (
-            <div className="chat-thinking" role="status">
-              <span className="chat-thinking-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-              DeepSeek đang suy luận…
-            </div>
-          )}
-          {data && !data.enabled && (
+          {data && !data.enabled && !active && (
             <p className="gpu-hint">
               {data.policyOpen
-                ? data.statusMessage ||
-                  "Đang chờ model sẵn sàng. Trang sẽ tự cập nhật."
+                ? data.statusMessage || "Chatbot tạm thời chưa khả dụng."
                 : "Chatbot chỉ mở trong public của vòng luyện. Các lệnh kiểm tra token vẫn xem được."}
             </p>
           )}
-          {data?.session.pending && (
-            <p role="alert">
-              Lượt trước bị gián đoạn; ngân sách tối đa đã được giữ. Dùng /new
-              để tiếp tục với phiên mới.
-            </p>
+          {data?.session.error && (
+            <div className="alert error" role="alert">
+              {data.session.error}
+            </div>
           )}
           {data && !data.session.pending && closed && (
             <div className="alert" role="status">
@@ -287,7 +339,7 @@ export default function WorkspaceChat() {
           <button
             className="btn primary"
             disabled={
-              busy ||
+              active ||
               !data ||
               !content.trim() ||
               ((!data.enabled || closed) && !content.trim().startsWith("/"))

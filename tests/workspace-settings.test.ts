@@ -18,8 +18,12 @@ import {
 import { validateTemplateSave } from "../src/lib/workspace-templates";
 import { Runpod } from "../src/lib/runpod";
 
-test("input and output budgets accumulate separately per session; turn limits never accumulate", () => {
-  const t = { ...defaultTemplate, tokenLimitMode: "session" as const };
+test("total session ceiling applies to both session and per-turn input/output modes", () => {
+  const t = {
+    ...defaultTemplate,
+    sessionTokenLimit: 4000,
+    tokenLimitMode: "session" as const,
+  };
   const s = { ...emptySession(), inputTokens: 1700, outputTokens: 1000 };
   assert.equal(outputBudget(t, s, 100), 24);
   assert.throws(() => outputBudget(t, s, 101), /Input cộng dồn/);
@@ -29,8 +33,16 @@ test("input and output budgets accumulate separately per session; turn limits ne
   );
   const turn = { ...t, tokenLimitMode: "turn" as const };
   const spent = { ...s, inputTokens: 50000, outputTokens: 50000 };
-  assert.equal(outputBudget(turn, spent, 100), 1024);
-  assert.equal(isChatClosed(turn, spent), false);
+  assert.throws(() => outputBudget(turn, spent, 100), /hết ngân sách/);
+  assert.equal(
+    outputBudget(
+      turn,
+      { ...emptySession(), inputTokens: 1800, outputTokens: 1500 },
+      100,
+    ),
+    600,
+  );
+  assert.equal(isChatClosed(turn, spent), true);
   assert.equal(isChatClosed(t, { ...s, inputTokens: 1800 }), true);
   assert.equal(chatContextWindow(turn), 1800 + 1024 + 128);
   assert.equal(chatContextWindow(defaultTemplate), 2128);
@@ -54,7 +66,7 @@ test("footer and usage logs use current mode and current input/output settings",
   assert.match(chatUsageLog(t, s), /40\/2500.*20\/1500/);
   assert.match(
     chatUsageLog({ ...t, tokenLimitMode: "turn" }, s),
-    /Input ≤ 2500.*Output ≤ 1500.*Không cộng dồn/,
+    /Input ≤ 2500.*Output ≤ 1500.*vẫn cộng dồn/,
   );
 });
 test("hidden metrics are removed from student DTOs and retained for administrators", () => {

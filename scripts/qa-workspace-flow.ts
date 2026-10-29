@@ -17,7 +17,7 @@ import {
   readChat,
   saveCredential,
   saveTemplate,
-  sendChat,
+  sendChat as enqueueChat,
   syncWorkspace,
   workspaceState,
 } from "../src/lib/workspaces";
@@ -32,6 +32,7 @@ import type {
 } from "../src/lib/types";
 import type { RunpodPod } from "../src/lib/runpod";
 import { readTemplates } from "../src/lib/workspace-templates";
+import { workerAction } from "../src/lib/chat-queue";
 
 async function main() {
   process.env.ARENA_NAMESPACE = `arena:qa:gpu:${randomUUID()}`;
@@ -43,6 +44,49 @@ async function main() {
     tokenCount = 20,
     tokenCounts = 0,
     mode: "ok" | "timeout" | "reject" = "ok";
+  // Drive the durable protocol explicitly; the model remains a CPU-only stub.
+  async function sendChat(...args: Parameters<typeof enqueueChat>) {
+    await enqueueChat(...args);
+    const w = await getWorkspace(args[1]!);
+    const base = {
+      workspaceId: w.id,
+      protocol: 1,
+      ready: true,
+      fingerprint: "qa-model",
+    };
+    const auth = `Bearer ${decryptSecret(w.secret)}`;
+    const claimed = (await workerAction("claim", base, auth)) as {
+      job?: { requestId: string; attempt: string };
+    };
+    if (claimed.job) {
+      const job = claimed.job;
+      tokenCounts++;
+      if (!Number.isInteger(tokenCount)) {
+        await workerAction("fail", { ...base, ...job }, auth);
+        throw new Error("Dịch vụ trả số token không hợp lệ.");
+      }
+      const prepared = (await workerAction(
+        "prepare",
+        { ...base, ...job, promptTokens: tokenCount },
+        auth,
+      )) as { execute?: boolean };
+      if (prepared.execute) {
+        generations++;
+        await workerAction(
+          "complete",
+          {
+            ...base,
+            ...job,
+            content: "Phản hồi QA từ runtime giả lập.",
+            inputTokens: tokenCount,
+            outputTokens: 10,
+          },
+          auth,
+        );
+      }
+    }
+    return readChat(args[0], args[1], args[2]);
+  }
   const pods: RunpodPod[] = [];
   const json = (value: unknown, status = 200) =>
     new Response(JSON.stringify(value), {
@@ -291,7 +335,7 @@ async function main() {
     );
     assert.equal(answer.session.inputTokens, 20);
     assert.equal(answer.session.outputTokens, 10);
-    await sendChat(member, w.id, session, requestId, "retry cùng requestId");
+    await sendChat(member, w.id, session, requestId, "Hướng dẫn baseline");
     assert.equal(generations, 1);
     assert.equal(
       (await readChat(member, w.id, session)).session.messages.length,
@@ -312,14 +356,16 @@ async function main() {
       closed.session.messages.at(-1)?.content,
       "Oversized QA prompt",
     );
-    assert.equal(
-      closed.session.inputTokens + closed.session.outputTokens,
-      2000,
-    );
-    assert.equal(closed.session.exhausted?.reason, "input");
+    assert.equal(closed.session.inputTokens + closed.session.outputTokens, 0);
+    assert.match(closed.session.error!, /Input vượt/);
     assert.equal(generations, 1);
-    await sendChat(member, w.id, closedId, closedRequest, "duplicate");
-    await sendChat(member, w.id, closedId, randomUUID(), "must not generate");
+    await sendChat(
+      member,
+      w.id,
+      closedId,
+      closedRequest,
+      "Oversized QA prompt",
+    );
     assert.equal(tokenCounts, beforeCounts + 1);
     assert.equal(
       (await readChat(member, w.id, closedId)).session.messages.length,
@@ -339,7 +385,7 @@ async function main() {
       randomUUID(),
       "Fits input but exceeds session budget",
     );
-    assert.equal(budgetClosed.session.exhausted?.reason, "session");
+    assert.match(budgetClosed.session.error!, /hết ngân sách/);
     assert.equal(budgetClosed.session.messages.length, 1);
     tokenCount = NaN;
     await assert.rejects(
@@ -390,7 +436,10 @@ async function main() {
       overwrite: true,
       expectedRevision: "legacy",
     });
-    assert.equal((await readTemplates(admin.id))[t.id].name, t.name);
+    assert.equal(
+      (await readTemplates(admin.id))[t.id].name,
+      "Other admin template",
+    );
     assert.equal(
       (await readTemplates(otherOwner))[t.id].name,
       "Other admin template",
@@ -414,7 +463,10 @@ async function main() {
         outputTokenLimit: 64,
       },
       admin.id,
-      { overwrite: true, expectedRevision: "legacy" },
+      {
+        overwrite: true,
+        expectedRevision: (await readTemplates(admin.id))[t.id].revision,
+      },
     );
     assert.equal(
       (await readChat(member, w.id, session)).template.tokenLimitMode,
@@ -426,15 +478,10 @@ async function main() {
       inputTokens: 5000,
       outputTokens: 5000,
     });
-    const unrestricted = await sendChat(
-      member,
-      w.id,
-      turnId,
-      randomUUID(),
-      "Per-turn QA",
+    await assert.rejects(
+      () => sendChat(member, w.id, turnId, randomUUID(), "Per-turn QA"),
+      /hết ngân sách/,
     );
-    assert.equal(unrestricted.session.inputTokens, 5020);
-    assert.equal(unrestricted.session.exhausted, undefined);
     tokenCount = 65;
     const rejectedId = randomUUID();
     const rejectedTurn = await sendChat(
@@ -445,7 +492,7 @@ async function main() {
       "Oversized per-turn QA",
     );
     assert.equal(rejectedTurn.session.exhausted, undefined);
-    assert.equal(rejectedTurn.session.lastTurn?.rejected, true);
+    assert.equal(rejectedTurn.session.messages.at(-1)?.rejected, true);
     tokenCount = 20;
     const recoveredTurn = await sendChat(
       member,
@@ -474,8 +521,8 @@ async function main() {
       randomUUID(),
       "Per-session input budget",
     );
-    assert.equal(separate.session.exhausted?.reason, "session");
-    assert.equal(separate.session.inputTokens, 64);
+    assert.match(separate.session.error!, /Input cộng dồn/);
+    assert.equal(separate.session.inputTokens, 50);
     await assert.rejects(
       () =>
         saveTemplate({ ...policy, name: "stale" }, admin.id, {
@@ -507,7 +554,7 @@ async function main() {
     await assert.rejects(
       () =>
         sendChat(member, w.id, randomUUID(), randomUUID(), "private request"),
-      /giai đoạn public/,
+      /public/,
     );
     const oldRun = c.id;
     c.id = randomUUID();
@@ -655,6 +702,10 @@ async function main() {
       captainId: secondMember.id,
     };
     await db().hset(key("teams"), { [secondTeam.id]: secondTeam });
+    await db().set(key(`user:${secondMember.id}`), {
+      ...secondMember,
+      password: "unused-qa-hash",
+    });
     // A shared grant includes new teams without copying records or requiring a
     // registration. Private allocations continue to require registration.
     const secondState = await workspaceState(secondMember);

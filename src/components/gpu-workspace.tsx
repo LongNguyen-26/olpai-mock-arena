@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
+import ChatGroups from "./chat-groups";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
 import { templateName } from "@/lib/template-presentation";
 import {
@@ -53,6 +54,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
     [template, setTemplate] = useState<WorkspaceTemplate | null>(null),
     [teamId, setTeamId] = useState(""),
     [scope, setScope] = useState<WorkspaceScope>("team"),
+    [groupId, setGroupId] = useState(""),
+    [groupName, setGroupName] = useState("Chatbot chung — Thi thử"),
     [services, setServices] = useState<WorkspaceServices>("both"),
     [loadDataset, setLoadDataset] = useState(true),
     [roundId, setRoundId] = useState(
@@ -71,6 +74,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
     Partial<Record<WorkspaceServices, WorkspaceTemplate>>
   >({});
   const resourceSequence = useRef(0);
+  const allocationRequest = useRef("");
+  const groupRequest = useRef({ signature: "", id: "" });
   const templateBaseline = useRef<WorkspaceTemplate[]>([]);
   const [resourceBusy, setResourceBusy] = useState(false),
     [resourceMessage, setResourceMessage] = useState(""),
@@ -106,9 +111,12 @@ export default function GpuWorkspace({ data }: ViewProps) {
   }, []);
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 30000);
+    const timer = setInterval(
+      () => void load(),
+      data.user.admin ? 10000 : 30000,
+    );
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, data.user.admin]);
   useEffect(() => {
     if (!data.user.admin || !state?.hasCredential) return;
     let active = true;
@@ -200,7 +208,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
               id: crypto.randomUUID(),
               services,
               name: "",
-              tokenLimitMode: "session",
+              tokenLimitMode: "turn",
               revision: undefined,
             }
           : null),
@@ -260,7 +268,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       const saved: WorkspaceTemplate = await api("workspace/template", {
         ...template,
         services,
-        tokenLimitMode: template.tokenLimitMode ?? "session",
+        tokenLimitMode: template.tokenLimitMode ?? "turn",
         overwrite: !!original,
         expectedRevision: original
           ? (template.revision ?? "legacy")
@@ -307,7 +315,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
       (scope === "all" || w.teamId === teamId) &&
       w.roundId === roundId &&
       servicesOverlap(w.services, services) &&
-      w.status !== "terminated",
+      w.status !== "terminated" &&
+      services !== "llm",
   );
   const templateSaved =
     !!template &&
@@ -327,10 +336,68 @@ export default function GpuWorkspace({ data }: ViewProps) {
         templateName(t.name) === templateName(template.name),
     );
   const current =
-    state?.workspaces.filter((w) => w.status !== "terminated") ?? [];
+    state?.workspaces.filter(
+      (w) => w.status !== "terminated" && (data.user.admin || !w.chatGroupId),
+    ) ?? [];
   const history =
-    state?.workspaces.filter((w) => w.status === "terminated") ?? [];
+    state?.workspaces.filter(
+      (w) => w.status === "terminated" && (data.user.admin || !w.chatGroupId),
+    ) ?? [];
   const visibleWorkspaces = allocationTab === "current" ? current : history;
+  const matchingGroups =
+    state?.chatGroups.filter(
+      (g) =>
+        g.canManage &&
+        g.roundId === roundId &&
+        g.scope === scope &&
+        g.teamId === (scope === "all" ? null : teamId),
+    ) ?? [];
+  const selectedGroup = matchingGroups.find((g) => g.id === groupId);
+  async function deploySelected() {
+    if (!template) return;
+    allocationRequest.current ||= crypto.randomUUID();
+    if (services === "llm") {
+      let chosenGroup = selectedGroup?.id;
+      if (!chosenGroup) {
+        const signature = JSON.stringify([
+          scope,
+          teamId,
+          roundId,
+          template.id,
+          groupName,
+        ]);
+        if (groupRequest.current.signature !== signature)
+          groupRequest.current = { signature, id: crypto.randomUUID() };
+        const created = await api("workspace/group/create", {
+          id: groupRequest.current.id,
+          name: groupName,
+          scope,
+          teamId: scope === "all" ? null : teamId,
+          roundId,
+          templateId: template.id,
+        });
+        chosenGroup = created.id;
+        setGroupId(created.id);
+      }
+      await api("workspace/group/deploy", {
+        groupId: chosenGroup,
+        requestId: allocationRequest.current,
+        maxHourlyUsd,
+      });
+    } else {
+      await api("workspace/deploy", {
+        teamId: scope === "team" ? teamId : null,
+        scope,
+        services,
+        loadDataset,
+        roundId,
+        templateId: template.id,
+        maxHourlyUsd,
+        requestId: allocationRequest.current,
+      });
+    }
+    allocationRequest.current = "";
+  }
   return (
     <div className="gpu-workspace">
       <div className="gpu-workspace-head">
@@ -361,6 +428,14 @@ export default function GpuWorkspace({ data }: ViewProps) {
       )}
       {!state && <p role="status">Đang tải GPU Workspace…</p>}
       {state && (
+        <ChatGroups
+          state={state}
+          admin={data.user.admin}
+          busy={busy}
+          run={run}
+        />
+      )}
+      {state && (
         <section className="gpu-allocations">
           <div className="section-title">
             <div
@@ -383,12 +458,14 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </button>
             </div>
           </div>
-          {allocationTab === "current" && !current.length && (
-            <EmptyWorkspace
-              teamName={data.team?.name}
-              admin={data.user.admin}
-            />
-          )}
+          {allocationTab === "current" &&
+            !current.length &&
+            !state.chatGroups.length && (
+              <EmptyWorkspace
+                teamName={data.team?.name}
+                admin={data.user.admin}
+              />
+            )}
           {allocationTab === "history" && !history.length && (
             <div className="panel gpu-empty">
               <Cpu size={30} />
@@ -565,7 +642,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     id: crypto.randomUUID(),
                     name: "",
                     revision: undefined,
-                    tokenLimitMode: template.tokenLimitMode ?? "session",
+                    tokenLimitMode: template.tokenLimitMode ?? "turn",
                   })
                 }
               />
@@ -615,19 +692,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!template) return;
-                  void run(
-                    () =>
-                      api("workspace/deploy", {
-                        teamId: scope === "team" ? teamId : null,
-                        scope,
-                        services,
-                        loadDataset: services !== "llm" && loadDataset,
-                        roundId,
-                        templateId: template.id,
-                        maxHourlyUsd,
-                      }),
-                    "Đã gửi yêu cầu cấp Pod.",
-                  );
+                  void run(deploySelected, "Đã gửi yêu cầu cấp Pod.");
                 }}
               >
                 <fieldset className="gpu-choices">
@@ -709,6 +774,44 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     ))}
                   </select>
                 </label>
+                {services === "llm" && (
+                  <>
+                    <label>
+                      Nhóm Chatbot
+                      <select
+                        value={selectedGroup?.id ?? ""}
+                        onChange={(e) => {
+                          setGroupId(e.target.value);
+                          allocationRequest.current = "";
+                        }}
+                      >
+                        <option value="">Tạo nhóm mới</option>
+                        {matchingGroups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name} · {g.total} Pod
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!selectedGroup && (
+                      <label>
+                        Tên nhóm
+                        <input
+                          value={groupName}
+                          onChange={(e) => setGroupName(e.target.value)}
+                          minLength={2}
+                          maxLength={80}
+                          required
+                        />
+                      </label>
+                    )}
+                    <p className="gpu-hint">
+                      Mỗi lần cấp một Pod, một GPU vào nhóm. Chọn nhóm hiện có
+                      để thêm Pod cùng điều phối; image/model/context giữ theo
+                      nhóm.
+                    </p>
+                  </>
+                )}
                 {services !== "llm" && (
                   <label>
                     Dữ liệu trên JupyterLab
@@ -758,11 +861,15 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   }
                 >
                   <Cpu size={17} />
-                  {hasActive
-                    ? "Dịch vụ đã có Pod / yêu cầu chờ"
-                    : scope === "all"
-                      ? "Cấp 1 GPU dùng chung"
-                      : "Cấp 1 GPU riêng cho đội"}
+                  {services === "llm"
+                    ? selectedGroup
+                      ? "Thêm một Pod vào nhóm"
+                      : "Tạo nhóm và cấp Pod đầu tiên"
+                    : hasActive
+                      ? "Dịch vụ đã có Pod / yêu cầu chờ"
+                      : scope === "all"
+                        ? "Cấp 1 GPU dùng chung"
+                        : "Cấp 1 GPU riêng cho đội"}
                 </button>
                 {(!prices || !templateSaved) && (
                   <small>Cập nhật giá và lưu template trước khi cấp GPU.</small>
@@ -848,7 +955,10 @@ function WorkspaceCard({
   const running = w.status === "running";
   const telemetry = gpuTelemetry(w.health?.gpu);
   return (
-    <article className={`panel gpu-card ${running ? "gpu-card-running" : ""}`}>
+    <article
+      id={`pod-${w.id}`}
+      className={`panel gpu-card ${running ? "gpu-card-running" : ""}`}
+    >
       <div className="gpu-card-main">
         <div className="gpu-card-identity">
           <span
@@ -928,27 +1038,42 @@ function WorkspaceCard({
           )}
         </div>
         <div className="gpu-service-grid">
-          <ServiceCard
-            kind="chat"
-            provided={hasService(w, "llm")}
-            running={running}
-            ready={!!w.health?.llm}
-            enabled={!!w.chatbotEnabled}
-            detail={
-              w.health?.chatLocked
-                ? "Đã khóa theo giờ của vòng luyện"
-                : w.health?.modelStage
-            }
-            href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
-          />
-          <ServiceCard
-            kind="jupyter"
-            provided={hasService(w, "jupyter")}
-            running={running}
-            ready={!!w.health?.jupyter}
-            enabled={!!w.notebookEnabled}
-            href={`/api/workspace/launch?id=${encodeURIComponent(w.id)}`}
-          />
+          {w.chatGroupId && (
+            <div className="gpu-service-card service-chat">
+              <MessageSquare size={21} />
+              <h4>Worker Chatbot</h4>
+              <p>{w.health?.llm ? "Model đã nạp" : "Model chưa sẵn sàng"}</p>
+              <small>
+                Nhận việc qua nhóm Chatbot; hội thoại và token được quản lý ở
+                cấp nhóm.
+              </small>
+            </div>
+          )}
+          {!w.chatGroupId && (
+            <ServiceCard
+              kind="chat"
+              provided={hasService(w, "llm")}
+              running={running}
+              ready={!!w.health?.llm}
+              enabled={!!w.chatbotEnabled}
+              detail={
+                w.health?.chatLocked
+                  ? "Đã khóa theo giờ của vòng luyện"
+                  : w.health?.modelStage
+              }
+              href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
+            />
+          )}
+          {!w.chatGroupId && (
+            <ServiceCard
+              kind="jupyter"
+              provided={hasService(w, "jupyter")}
+              running={running}
+              ready={!!w.health?.jupyter}
+              enabled={!!w.notebookEnabled}
+              href={`/api/workspace/launch?id=${encodeURIComponent(w.id)}`}
+            />
+          )}
         </div>
       </div>
       <div className="gpu-card-foot">

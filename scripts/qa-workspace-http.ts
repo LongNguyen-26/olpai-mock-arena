@@ -91,14 +91,87 @@ async function main() {
     `workspace/launch?id=${fixture.workspaceId}`,
     member,
   );
-  assert.equal(launch.status, 307);
-  assert.ok(
-    new URL(launch.headers.get("location")!).hostname.endsWith(
-      ".proxy.runpod.net",
-    ),
-  );
+  if (launch.status === 307)
+    assert.ok(
+      new URL(launch.headers.get("location")!).hostname.endsWith(
+        ".proxy.runpod.net",
+      ),
+    );
+  else {
+    // A fixture without a live runtime must remain gated, even if Runpod says RUNNING.
+    assert.equal(launch.status, 409);
+    assert.match(await launch.text(), /chưa sẵn sàng|khởi động/i);
+  }
   const c = await db().get<Contest>(key(`round:${fixture.roundId}`));
   assert.ok(c);
+  if (fixture.groupId) {
+    assert.equal(
+      (
+        await call("workspace/group/control", member, {
+          id: fixture.groupId,
+          action: "pause",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await call("workspace/worker/claim", admin, {
+          workspaceId: fixture.workspaceId,
+          protocol: 1,
+          ready: true,
+          fingerprint: "qa",
+        })
+      ).status,
+      401,
+    );
+    const session = randomUUID();
+    const before = await (
+      await call(
+        `workspace/chat?groupId=${fixture.groupId}&session=${session}`,
+        member,
+      )
+    ).json();
+    assert.equal("queue" in before, false);
+    const prompt = {
+      groupId: fixture.groupId,
+      session,
+      requestId: randomUUID(),
+      runId: before.runId,
+      content: "HTTP queue QA",
+    };
+    const accepted = await call("workspace/chat", member, prompt);
+    assert.equal(accepted.status, 202);
+    assert.equal((await accepted.json()).session.messages.length, 1);
+    assert.equal((await call("workspace/chat", member, prompt)).status, 202);
+    assert.equal(
+      (
+        await call("workspace/chat", member, {
+          ...prompt,
+          content: "Conflicting retry",
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await call(
+          `workspace/chat?groupId=${fixture.groupId}&session=${session}`,
+          outsiderCookie,
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await call("workspace/chat", member, {
+          ...prompt,
+          id: fixture.workspaceId,
+        })
+      ).status,
+      400,
+    );
+  }
   try {
     await db().set(key(`round:${fixture.roundId}`), {
       ...c,

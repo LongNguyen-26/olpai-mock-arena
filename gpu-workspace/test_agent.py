@@ -4,6 +4,9 @@ import importlib.util
 import os
 import stat
 import tempfile
+import json
+import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -156,6 +159,68 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             response=await self.client.post("/generate",json={"messages":[{"role":"user","content":"hello"}],"maxTokens":50,"expectedInputTokens":3,"runId":"old"})
         self.assertEqual(response.status_code,403)
         tokenizer.assert_not_called()
+
+class QueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_known_private_deadline_stops_model_even_without_control_connection(self):
+        stop = Mock(); stop.is_set.side_effect = [False, True]
+        enabled = threading.Event(); enabled.set()
+        with patch.object(agent, "STOP", stop), patch.object(agent, "MODEL_ENABLED", enabled), patch.object(agent, "POLICY_EXPIRES_AT", time.time() + 45), patch.object(agent, "PUBLIC_ENDS_AT", (time.time() - 1) * 1000), patch.object(agent, "stop_model") as terminate:
+            agent.policy_watchdog()
+            terminate.assert_called_once()
+            self.assertFalse(enabled.is_set())
+
+    async def test_trim_keeps_latest_prompt_and_respects_remaining_total(self):
+        job = {"messages": [{"role": "user", "content": "old"}, {"role": "assistant", "content": "old answer"}, {"role": "user", "content": "latest"}],
+               "template": {"sessionTokenLimit": 2000, "inputTokenLimit": 1800, "tokenLimitMode": "turn"},
+               "inputTokens": 1900, "outputTokens": 50, "contextWindowTokens": 2128}
+        with patch.object(agent, "tokenize", new=AsyncMock(side_effect=[list(range(100)), list(range(20))])):
+            messages, count = await agent.trim_job(job)
+        self.assertEqual([m.content for m in messages], ["latest"])
+        self.assertEqual(count, 20)
+
+    async def test_saved_result_is_reposted_without_inference(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / ".arena").mkdir()
+            stop = threading.Event()
+            async def callback(action, job, **extra):
+                self.assertEqual(action, "complete")
+                self.assertEqual(extra["content"], "saved")
+                stop.set(); return {"terminal": True}
+            with patch.object(agent, "ROOT", root), patch.object(agent, "STOP", stop), patch.object(agent, "worker_call", side_effect=callback), patch.object(agent, "generate", new=AsyncMock()) as generate:
+                agent.journal_write({"job": {"requestId": "r", "attempt": "a", "runId": "run"}, "result": {"content": "saved", "inputTokens": 20, "outputTokens": 5}})
+                await agent.queue_loop()
+                generate.assert_not_called()
+                self.assertFalse((root / ".arena/chat-job.json").exists())
+
+    async def test_restart_without_result_reports_failure_without_rerun(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / ".arena").mkdir(); stop = threading.Event()
+            async def callback(action, job, **extra):
+                self.assertEqual(action, "fail")
+                stop.set(); return {"terminal": True}
+            with patch.object(agent, "ROOT", root), patch.object(agent, "STOP", stop), patch.object(agent, "worker_call", side_effect=callback), patch.object(agent, "generate", new=AsyncMock()) as generate:
+                agent.journal_write({"job": {"requestId": "r", "attempt": "a", "runId": "run"}})
+                await agent.queue_loop(); generate.assert_not_called()
+
+    async def test_claim_prepare_generate_and_journal_complete_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / ".arena").mkdir(); stop = threading.Event()
+            actions = []
+            job = {"requestId": "r", "attempt": "a", "runId": "run"}
+            async def callback(action, job_arg=None, **extra):
+                actions.append(action)
+                if action == "claim": return {"job": job}
+                if action == "prepare": return {"execute": True, "maxTokens": 64}
+                stop.set(); return {"terminal": True}
+            with patch.object(agent, "ROOT", root), patch.object(agent, "STOP", stop), patch.object(agent, "MODEL_ENABLED", threading.Event()), patch.object(agent, "worker_call", side_effect=callback), patch.object(agent, "trim_job", new=AsyncMock(return_value=([agent.Message(role="user", content="hello")], 20))), patch.object(agent, "generate", new=AsyncMock(return_value={"content": "answer", "inputTokens": 20, "outputTokens": 5})) as generate:
+                await agent.queue_loop()
+                self.assertEqual(actions, ["claim", "prepare", "complete"])
+                generate.assert_awaited_once()
+
+    async def test_control_outage_does_not_stop_a_fresh_policy(self):
+        stop = Mock(); stop.is_set.side_effect = [False, True]
+        with patch.object(agent, "STOP", stop), patch.object(agent, "POLICY_EXPIRES_AT", time.time() + 45), patch.object(agent, "manifest", side_effect=RuntimeError("temporary")), patch.object(agent, "stop_model") as terminate:
+            agent.dataset_loop(); terminate.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

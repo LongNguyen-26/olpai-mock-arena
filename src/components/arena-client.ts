@@ -29,6 +29,14 @@ export const duration = (n: number) =>
     .padStart(2, "0")}`;
 export const endpoint = (route: string, round = "") =>
   `/api/${route}${round ? `?round=${encodeURIComponent(round)}` : ""}`;
+export class ApiClientError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
 export async function api(route: string, value?: unknown, round = "") {
   const res = await fetch(
     endpoint(route, round),
@@ -41,6 +49,10 @@ export async function api(route: string, value?: unknown, round = "") {
         },
   );
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Không thể thực hiện yêu cầu.");
+  if (!res.ok)
+    throw new ApiClientError(
+      data.error ?? "Không thể thực hiện yêu cầu.",
+      res.status,
+    );
   return data;
 }

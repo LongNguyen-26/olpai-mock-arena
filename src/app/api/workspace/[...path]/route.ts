@@ -9,6 +9,13 @@ import {
 } from "@/lib/auth";
 import { RunpodError } from "@/lib/runpod";
 import { templateSchema } from "@/lib/workspace-domain";
+import { workerAction, settleUncertain } from "@/lib/chat-queue";
+import {
+  createChatGroup,
+  controlChatGroup,
+  drainChatWorker,
+  getChatGroup,
+} from "@/lib/chat-groups";
 import {
   agentManifest,
   controlWorkspace,
@@ -62,6 +69,30 @@ async function handle(
     const path = (await context.params).path.join("/"),
       url = new URL(req.url);
     const id = () => z.string().uuid().parse(url.searchParams.get("id"));
+    if (path.startsWith("worker/") && req.method === "POST") {
+      const action = z
+        .enum(["claim", "prepare", "heartbeat", "complete", "fail"])
+        .parse(path.slice(7));
+      const v = z
+        .object({
+          workspaceId: z.string().uuid(),
+          protocol: z.number().int(),
+          ready: z.boolean(),
+          fingerprint: z.string().max(160),
+          requestId: z.string().uuid().optional(),
+          attempt: z.string().uuid().optional(),
+          promptTokens: z.number().int().min(1).max(8192).optional(),
+          content: z.string().max(96000).optional(),
+          inputTokens: z.number().int().min(1).max(8192).optional(),
+          outputTokens: z.number().int().min(0).max(4096).optional(),
+        })
+        .parse(await payload(req));
+      if (action === "prepare" && !v.promptTokens)
+        throw new ApiError("Thiếu số token.");
+      return json(
+        await workerAction(action, v, req.headers.get("authorization")),
+      );
+    }
     if (req.method === "POST") sameOrigin(req);
     if (path === "manifest" && req.method === "GET")
       return json(await agentManifest(id(), req.headers.get("authorization")));
@@ -73,12 +104,15 @@ async function handle(
         headers,
       });
     if (path === "chat" && req.method === "GET") {
-      const workspaceId = id(),
+      const workspaceId = url.searchParams.has("id") ? id() : undefined,
+        groupId = url.searchParams.has("groupId")
+          ? z.string().uuid().parse(url.searchParams.get("groupId"))
+          : undefined,
         sessionId = z
           .string()
           .uuid()
           .parse(url.searchParams.get("session") ?? workspaceId);
-      return json(await readChat(user, workspaceId, sessionId));
+      return json(await readChat(user, workspaceId, sessionId, groupId));
     }
     if (path === "sync" && req.method === "POST") {
       const v = z.object({ id: z.string().uuid() }).parse(await payload(req));
@@ -88,14 +122,25 @@ async function handle(
     if (path === "chat" && req.method === "POST") {
       const v = z
         .object({
-          id: z.string().uuid(),
+          id: z.string().uuid().optional(),
+          groupId: z.string().uuid().optional(),
           session: z.string().uuid(),
           requestId: z.string().uuid(),
           content: z.string().trim().min(1).max(16000),
+          runId: z.string().uuid().optional(),
         })
         .parse(await payload(req));
       return json(
-        await sendChat(user, v.id, v.session, v.requestId, v.content),
+        await sendChat(
+          user,
+          v.id,
+          v.session,
+          v.requestId,
+          v.content,
+          v.groupId,
+          v.runId,
+        ),
+        202,
       );
     }
     if (
@@ -107,6 +152,11 @@ async function handle(
         "prices",
         "gpu-resources",
         "metrics",
+        "group/create",
+        "group/control",
+        "group/deploy",
+        "worker-drain",
+        "job-settle",
       ].includes(path)
     ) {
       await requireAdmin();
@@ -116,6 +166,64 @@ async function handle(
         throw new ApiError("Không tìm thấy chức năng.", 404);
       await rateLimit(`gpu:admin:${user.id}`, 20, 60);
       const v = await payload(req);
+      if (path === "group/create") {
+        const p = z
+          .object({
+            id: z.string().uuid(),
+            name: z.string().trim().min(2).max(80),
+            scope: z.enum(["team", "all"]),
+            teamId: z.string().uuid().nullable().optional(),
+            roundId: z.string().uuid(),
+            templateId: z.string().uuid(),
+          })
+          .parse(v);
+        return json(await createChatGroup(user, p));
+      }
+      if (path === "group/control") {
+        const p = z
+          .object({
+            id: z.string().uuid(),
+            action: z.enum(["pause", "resume", "retire"]),
+          })
+          .parse(v);
+        return json(await controlChatGroup(user, p.id, p.action));
+      }
+      if (path === "group/deploy") {
+        const p = z
+          .object({
+            groupId: z.string().uuid(),
+            requestId: z.string().uuid(),
+            maxHourlyUsd: z.number().positive().max(100),
+          })
+          .parse(v);
+        const g = await getChatGroup(p.groupId);
+        return json(
+          await deployWorkspace(
+            user,
+            g.teamId,
+            g.roundId,
+            g.template.id,
+            p.maxHourlyUsd,
+            {
+              groupId: g.id,
+              requestId: p.requestId,
+              scope: g.scope,
+              services: "llm",
+              loadDataset: false,
+            },
+          ),
+        );
+      }
+      if (path === "worker-drain") {
+        const p = z
+          .object({ id: z.string().uuid(), draining: z.boolean() })
+          .parse(v);
+        return json(await drainChatWorker(user, p.id, p.draining));
+      }
+      if (path === "job-settle") {
+        const p = z.object({ requestId: z.string().uuid() }).parse(v);
+        return json({ ok: !!(await settleUncertain(user, p.requestId)) });
+      }
       if (path === "gpu-resources") {
         const p = z
           .object({
@@ -160,6 +268,7 @@ async function handle(
             roundId: z.string().uuid(),
             templateId: z.string().uuid(),
             maxHourlyUsd: z.number().positive().max(100),
+            requestId: z.string().uuid().optional(),
           })
           .refine((p) => p.scope === "all" || !!p.teamId, {
             message: "Chọn đội được cấp GPU.",
@@ -177,6 +286,7 @@ async function handle(
               scope: p.scope,
               services: p.services,
               loadDataset: p.loadDataset,
+              requestId: p.requestId,
             },
           ),
         );

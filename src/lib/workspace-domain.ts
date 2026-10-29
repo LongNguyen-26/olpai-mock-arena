@@ -28,6 +28,10 @@ export const templateSchema = z
     containerDiskInGb: z.number().int().min(20).max(500),
     volumeInGb: z.number().int().min(50).max(2000),
     revision: z.string().uuid().optional(),
+    createdBy: z.string().optional(),
+    updatedBy: z.string().optional(),
+    createdAt: z.number().optional(),
+    updatedAt: z.number().optional(),
     tokenLimitMode: z.enum(["session", "turn"]).optional(),
     sessionTokenLimit: z.number().int().min(256).max(16384),
     inputTokenLimit: z.number().int().min(64).max(8192),
@@ -69,6 +73,8 @@ export interface RuntimeHealth {
   gpu?: string;
   error?: string;
   modelStage?: string;
+  chatQueueProtocol?: number;
+  modelFingerprint?: string;
 }
 export interface Workspace {
   id: string;
@@ -76,6 +82,8 @@ export interface Workspace {
   scope?: WorkspaceScope;
   services?: WorkspaceServices;
   loadDataset?: boolean;
+  chatGroupId?: string;
+  allocationRequestId?: string;
   reservationVersion?: 2;
   teamName: string;
   roundId: string;
@@ -167,6 +175,7 @@ export interface ChatSession {
   inputTokens: number;
   outputTokens: number;
   pending?: { requestId: string; reserved: number };
+  error?: string;
   lastRequestId?: string;
   lastTurn?: { inputTokens: number; outputTokens: number; rejected?: boolean };
   limitNotice?: string;
@@ -200,14 +209,19 @@ export function outputBudget(
 ) {
   if (!Number.isInteger(promptTokens) || promptTokens < 1)
     throw new Error("Dịch vụ trả số token không hợp lệ.");
-  if (t.tokenLimitMode !== "turn" && s.exhausted)
-    throw new ChatLimitError("session", s.exhausted.message);
+  if (s.exhausted) throw new ChatLimitError("session", s.exhausted.message);
   if (promptTokens > t.inputTokenLimit)
     throw new ChatLimitError(
       "input",
       `Input vượt giới hạn ${t.inputTokenLimit} token (gồm lịch sử và định dạng hội thoại).`,
     );
-  if (t.tokenLimitMode === "turn") return t.outputTokenLimit;
+  const remaining =
+    t.sessionTokenLimit - s.inputTokens - s.outputTokens - promptTokens;
+  if (remaining <= 0)
+    throw new ChatLimitError(
+      "session",
+      "Phiên đã hết ngân sách token. Dùng /new để tạo phiên mới.",
+    );
   if (t.tokenLimitMode === "session") {
     if (s.inputTokens + promptTokens > t.inputTokenLimit)
       throw new ChatLimitError(
@@ -220,15 +234,8 @@ export function outputBudget(
         "session",
         "Output của phiên đã hết ngân sách token.",
       );
-    return remainingOutput;
+    return Math.min(remainingOutput, remaining);
   }
-  const remaining =
-    t.sessionTokenLimit - s.inputTokens - s.outputTokens - promptTokens;
-  if (remaining <= 0)
-    throw new ChatLimitError(
-      "session",
-      "Phiên đã hết ngân sách token. Dùng /new để tạo phiên mới.",
-    );
   return Math.min(t.outputTokenLimit, remaining);
 }
 export class ChatLimitError extends Error {
@@ -277,9 +284,7 @@ export const chatPolicyFields = [
 ] as const;
 export function chatContextWindow(t: WorkspaceTemplate) {
   return (
-    (t.tokenLimitMode
-      ? t.inputTokenLimit + t.outputTokenLimit
-      : t.sessionTokenLimit) + 128
+    Math.min(t.sessionTokenLimit, t.inputTokenLimit + t.outputTokenLimit) + 128
   );
 }
 export function estimatedCost(
