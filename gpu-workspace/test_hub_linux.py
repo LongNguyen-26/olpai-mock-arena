@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -236,6 +237,37 @@ class LinuxHubTests(unittest.TestCase):
             page1.get_by_text("venv-check True", exact=False).first.wait_for(timeout=30000)
             page1.reload(); page1.locator(".jp-DirListing").wait_for(timeout=60000)
             browser.close()
+
+    def test_05_single_lab_keeps_legacy_file_browser_and_kernel(self):
+        from playwright.sync_api import sync_playwright
+        import start as startup
+        legacy = Path(self.temp.name) / "legacy"
+        with patch.dict(os.environ, {"JUPYTER_TOKEN": "qa-legacy-only", "ARENA_JUPYTER_MODE": "single"}):
+            command = startup.launch_plan(legacy, "jupyter")[0]
+            command[0] = "/opt/arena/venv/bin/jupyter"
+            command = [arg.replace("--port=8888", "--port=8899") for arg in command]
+            process = subprocess.Popen(command, env=dict(os.environ), stdout=self.log, stderr=self.log, start_new_session=True)
+        base = "http://127.0.0.1:8899"
+        try:
+            self.wait(lambda: httpx.get(base + "/api/status", timeout=3).status_code == 200, 60)
+            body = {"type": "notebook", "content": {"nbformat": 4, "nbformat_minor": 5, "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"}}, "cells": [{"cell_type": "code", "metadata": {}, "source": "print('legacy-kernel-ok')", "outputs": [], "execution_count": None}]}}
+            response = httpx.put(base + "/api/contents/compat.ipynb", headers={"Authorization": "token qa-legacy-only"}, json=body, timeout=10)
+            self.assertIn(response.status_code, (200, 201))
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+                page = browser.new_page()
+                page.goto(base + "/lab?token=qa-legacy-only")
+                page.locator(".jp-DirListing-item").filter(has_text="compat.ipynb").dblclick(timeout=60000)
+                editor = page.locator(".jp-Notebook .jp-CodeCell .cm-content").first
+                editor.wait_for(timeout=30000); editor.click(); editor.press("Shift+Enter")
+                page.locator(".jp-OutputArea-output").get_by_text("legacy-kernel-ok", exact=False).first.wait_for(timeout=30000)
+                browser.close()
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL); process.wait()
 
 
 if __name__ == "__main__":

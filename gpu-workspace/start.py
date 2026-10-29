@@ -1,5 +1,6 @@
 """Start only the requested services. Never execute contestant notebooks."""
 import os
+import json
 import signal
 import subprocess
 import time
@@ -26,6 +27,17 @@ def launch_plan(root: Path, services: str):
         raise ValueError("Jupyter token required")
     config_dir = root / ".arena" / "jupyter"
     config_dir.mkdir(parents=True, exist_ok=True)
+    # The dependency image also contains RTC for Hub. Preserve the legacy Lab
+    # drive/executor when starting a single server without the RTC backend.
+    labconfig = config_dir / "labconfig"
+    labconfig.mkdir(exist_ok=True)
+    (labconfig / "page_config.json").write_text(json.dumps({"disabledExtensions": {
+        "@jupyter/docprovider-extension": True,
+        "@jupyter/collaboration-extension": True,
+        "@jupyterlab/filebrowser-extension:defaultFileBrowser": False,
+        "@jupyterlab/notebook-extension:cell-executor": False,
+    }}), encoding="utf-8")
+    os.environ["JUPYTER_CONFIG_PATH"] = str(config_dir) + os.pathsep + os.environ.get("JUPYTER_CONFIG_PATH", "")
     # Expose only minimal readiness; authenticated status keeps Jupyter's schema.
     (config_dir / "arena_readiness.py").write_text('''from jupyter_server.services.api.handlers import APIStatusHandler
 from jupyter_server.auth.decorator import allow_unauthenticated

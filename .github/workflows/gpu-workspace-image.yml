@@ -10,7 +10,7 @@ on:
       image_tag:
         description: Docker image tag
         type: string
-        default: "2026.10.27"
+        default: "2026.10.30-hub"
       full_build:
         description: Rebuild CUDA, Python and library dependencies
         type: boolean
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 120
     env:
       IMAGE: nguyenlong26/olpai-workspace
-      IMAGE_TAG: ${{ inputs.image_tag || '2026.10.27' }}
+      IMAGE_TAG: ${{ inputs.image_tag || '2026.10.30-hub' }}
       PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -158,7 +158,7 @@ jobs:
             --file "$dockerfile" \
             --tag "$IMAGE:$IMAGE_TAG" --tag "$IMAGE:sha-$GITHUB_SHA" \
             --provenance=false --sbom=false \
-            --cache-from "type=registry,ref=$IMAGE:$IMAGE_TAG" --cache-to type=inline \
+            --cache-from "type=registry,ref=$IMAGE:$IMAGE_TAG" --cache-from "type=registry,ref=$IMAGE:2026.10.27" --cache-to type=inline \
             --metadata-file "$RUNNER_TEMP/gpu-image-metadata.json" \
             "${publish_args[@]}" gpu-workspace 2>&1 | tee "$RUNNER_TEMP/gpu-image-build.log"
           build_status=${PIPESTATUS[0]}
