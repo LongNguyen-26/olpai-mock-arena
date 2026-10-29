@@ -49,6 +49,9 @@ class TeamSpawner(LocalProcessSpawner):
             if measured["availableRAMGiB"] is None or measured["availableRAMGiB"] < 4 or measured["freeDiskGiB"] < 2:
                 raise RuntimeError("Waiting for RAM or storage")
             self.notebook_dir = str(root / "teams" / team["teamId"])
+            kernel_dirs = [self.notebook_dir + "/.local/share/jupyter/kernels", "/opt/arena/venv/share/jupyter/kernels"]
+            self.args = [arg for arg in self.args if not arg.startswith("--KernelSpecManager.kernel_dirs=")]
+            self.args.append("--KernelSpecManager.kernel_dirs=" + json.dumps(kernel_dirs))
             return await super().start()
 
 

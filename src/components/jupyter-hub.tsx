@@ -194,7 +194,11 @@ export default function JupyterHubPanel({
                 <span className="pill neutral">
                   {!t.enabled
                     ? "Đã thu hồi quyền"
-                    : names[t.server?.state ?? "stopped"]}
+                    : t.server
+                      ? names[t.server.state]
+                      : t.desiredState === "running"
+                        ? "Chưa có trạng thái mới"
+                        : "Đã dừng"}
                 </span>
               </div>
               {t.server?.error && <p role="status">{t.server.error}</p>}

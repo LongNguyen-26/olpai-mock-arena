@@ -179,18 +179,29 @@ class LinuxHubTests(unittest.TestCase):
                 page.goto(base + "/user/" + a + "/lab/tree/shared.ipynb")
                 page.locator(".jp-Notebook .jp-CodeCell .cm-content").first.wait_for(timeout=60000)
             editor = page1.locator(".jp-Notebook .jp-CodeCell .cm-content").first
-            editor.fill("print('rtc-shared')")
-            page2.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('rtc-shared')")
-            page2.locator(".jp-Notebook .jp-CodeCell .cm-content").first.fill("print('rtc-shared')\nprint('second-client')")
+            editor.click()
+            editor.press_sequentially("print('rtc-shared')", delay=15)
+            try:
+                page2.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('rtc-shared')")
+            except Exception:
+                for client in (page1, page2):
+                    print("RTC diagnostics", client.evaluate("""() => { const c=JSON.parse(document.getElementById('jupyter-config-data').textContent); return {collaborative:c.collaborative,disabled:c.disabledExtensions,extensions:c.federated_extensions?.map(x=>x.name),text:document.querySelector('.jp-Notebook .cm-content')?.textContent} }"""))
+                self.log.flush()
+                print((Path(self.temp.name) / "hub.log").read_text(errors="replace")[-7000:])
+                raise
+            second = page2.locator(".jp-Notebook .jp-CodeCell .cm-content").first
+            second.click(); second.press("ControlOrMeta+End"); second.press("Enter"); second.press_sequentially("print('second-client')", delay=15)
             page1.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('second-client')")
             editor.press("Shift+Enter")
             page1.get_by_text("rtc-shared\nsecond-client", exact=False).first.wait_for(timeout=60000)
             self.assertIn(page3.request.get(base + "/user/" + a + "/api/contents").status, (401, 403, 404))
             # Execute through the actual browser kernel; root credentials must be absent.
             editor = page1.locator(".jp-Notebook .jp-CodeCell .cm-content").first
-            editor.fill("import os\nprint('uid-check', os.geteuid() != 0, 'ARENA_AGENT_TOKEN' not in os.environ, 'CONFIGPROXY_AUTH_TOKEN' not in os.environ)")
+            editor.click(); editor.press("ControlOrMeta+A")
+            editor.press_sequentially("import os, sys\nprint('uid-check', os.geteuid() != 0, 'ARENA_AGENT_TOKEN' not in os.environ, 'CONFIGPROXY_AUTH_TOKEN' not in os.environ)\nprint('venv-check', '.venvs/pytorch' in sys.prefix)")
             editor.press("Shift+Enter")
             page1.get_by_text("uid-check True True True", exact=False).first.wait_for(timeout=30000)
+            page1.get_by_text("venv-check True", exact=False).first.wait_for(timeout=30000)
             page1.reload(); page1.locator(".jp-DirListing").wait_for(timeout=60000)
             browser.close()
 
