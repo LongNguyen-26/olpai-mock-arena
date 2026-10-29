@@ -1048,7 +1048,11 @@ function WorkspaceCard({
             <div className="gpu-service-card service-chat">
               <MessageSquare size={21} />
               <h4>Worker Chatbot</h4>
-              <p>{w.health?.llm ? "Model đã nạp" : "Model chưa sẵn sàng"}</p>
+              <p>
+                {w.health?.llm
+                  ? "Model đã nạp"
+                  : (w.health?.modelStage ?? "Model chưa sẵn sàng")}
+              </p>
               <small>
                 Nhận việc qua nhóm Chatbot; hội thoại và token được quản lý ở
                 cấp nhóm.
