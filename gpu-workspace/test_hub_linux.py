@@ -166,6 +166,11 @@ class LinuxHubTests(unittest.TestCase):
             browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
             one, two, other = [browser.new_context() for _ in range(3)]
             page1, page2, page3 = one.new_page(), two.new_page(), other.new_page()
+            for client in (page1, page2, page3):
+                client.on("pageerror", lambda error: print("Browser error:", str(error)))
+                client.on("console", lambda message: print("Browser console:", message.text[-500:]) if message.type == "error" else None)
+                client.on("response", lambda response: print("HTTP error:", response.status, urlparse(response.url).path) if response.status >= 400 else None)
+                client.on("websocket", lambda socket: print("WebSocket:", urlparse(socket.url).path))
             for page, team in ((page1, self.team_ids[0]), (page2, self.team_ids[0]), (page3, self.team_ids[1])):
                 page.goto(base + "/hub/arena-login?teamId=" + team)
                 page.locator(".jp-DirListing").wait_for(timeout=60000)
@@ -196,9 +201,10 @@ class LinuxHubTests(unittest.TestCase):
                 page2.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('rtc-shared')")
             except Exception:
                 for client in (page1, page2):
-                    print("RTC diagnostics", client.evaluate("""() => { const c=JSON.parse(document.getElementById('jupyter-config-data').textContent); return {collaborative:c.collaborative,disabled:c.disabledExtensions,extensions:c.federated_extensions?.map(x=>x.name),text:document.querySelector('.jp-Notebook .cm-content')?.textContent} }"""))
+                    print("RTC diagnostics", client.evaluate("""() => { const c=JSON.parse(document.getElementById('jupyter-config-data').textContent); return {disableRTC:c.disableRTC,serverSideExecution:c.serverSideExecution,disabled:c.disabledExtensions,extensions:c.federated_extensions?.map(x=>x.name),text:document.querySelector('.jp-Notebook .cm-content')?.textContent} }"""))
                 self.log.flush()
-                print((Path(self.temp.name) / "hub.log").read_text(errors="replace")[-7000:])
+                logs = (Path(self.temp.name) / "hub.log").read_text(errors="replace").splitlines()
+                print("\n".join(line for line in logs if any(term in line for term in ("ydoc", "collabor", "403", "404", "500", "Error", "Exception", "Traceback")))[-9000:])
                 raise
             second = page2.locator(".jp-Notebook .jp-CodeCell .cm-content").first
             second.click(); second.press("ControlOrMeta+End"); second.press("Enter"); second.press_sequentially("print('second-client')", delay=15)

@@ -31,7 +31,8 @@ class TeamSpawner(LocalProcessSpawner):
         team_id = next(k for k, v in users.items() if v["name"] == self.user.name)
         home = str(root / "teams" / team_id)
         env.update(HOME=home, USER=self.user.name, LOGNAME=self.user.name, SHELL="/bin/bash",
-                   PATH="/opt/arena/venv/bin:/usr/local/bin:/usr/bin:/bin",
+                   PATH=home + "/.venvs/pytorch/bin:/opt/arena/venv/bin:/usr/local/bin:/usr/bin:/bin",
+                   VIRTUAL_ENV=home + "/.venvs/pytorch",
                    OMP_NUM_THREADS="2", MKL_NUM_THREADS="2", OPENBLAS_NUM_THREADS="2",
                    JUPYTER_PREFER_ENV_PATH="0", JUPYTER_PATH=home + "/.local/share/jupyter:/opt/arena/venv/share/jupyter")
         for name in ("LD_LIBRARY_PATH", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES", "CUDA_VISIBLE_DEVICES"):
@@ -85,3 +86,6 @@ if pod:
     public = "https://" + pod + "-8888.proxy.runpod.net"
     c.JupyterHub.public_url = public + "/"
     c.Spawner.args.append("--ServerApp.allow_origin=" + public)
+elif os.getenv("ARENA_TEST_HTTP") == "1":
+    c.JupyterHub.public_url = "http://127.0.0.1:8888/"
+    c.Spawner.args.append("--ServerApp.allow_origin=http://127.0.0.1:8888")

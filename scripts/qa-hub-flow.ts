@@ -272,6 +272,27 @@ async function main() {
       ),
     );
     assert.equal((await readGpuTurns(id, c.id)).length, 1);
+    const beforeReset = { ...c };
+    const oldState = randomBytes(32).toString("base64url");
+    const oldTicket = await authorizeHub(members[1], id, oldState);
+    assert.ok(oldTicket.url);
+    c.chatEpoch = 1; // reset while keeping leaderboard/run ID
+    await db().set(key(`round:${c.roundId}`), c);
+    await assert.rejects(
+      redeemHub(
+        id,
+        auth,
+        new URL(oldTicket.url!).searchParams.get("ticket")!,
+        oldState,
+      ),
+    );
+    await assert.rejects(
+      gpuTurn(w, beforeReset, members[1], "start", randomUUID()),
+    );
+    assert.equal(
+      (await workspaceState(members[1])).workspaces[0].hub?.turns.length,
+      0,
+    );
     await changeHubTeam(
       admin,
       id,
