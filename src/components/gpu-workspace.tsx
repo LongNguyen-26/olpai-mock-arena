@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
-import ChatGroups from "./chat-groups";
+import ChatGroups, { ChatWorkerOperations, GpuBoard } from "./chat-groups";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
 import { templateName } from "@/lib/template-presentation";
 import {
@@ -338,14 +338,17 @@ export default function GpuWorkspace({ data }: ViewProps) {
         templateName(t.name) === templateName(template.name),
     );
   const current =
-    state?.workspaces.filter(
-      (w) => w.status !== "terminated" && (data.user.admin || !w.chatGroupId),
-    ) ?? [];
+    state?.workspaces.filter((w) => w.status !== "terminated") ?? [];
   const history =
-    state?.workspaces.filter(
-      (w) => w.status === "terminated" && (data.user.admin || !w.chatGroupId),
-    ) ?? [];
-  const visibleWorkspaces = allocationTab === "current" ? current : history;
+    state?.workspaces.filter((w) => w.status === "terminated") ?? [];
+  const visibleWorkspaces =
+    allocationTab === "current"
+      ? current.filter(
+          (w) =>
+            !w.chatGroupId ||
+            !state?.chatGroups.some((g) => g.id === w.chatGroupId),
+        )
+      : history;
   const matchingGroups =
     state?.chatGroups.filter(
       (g) =>
@@ -400,6 +403,45 @@ export default function GpuWorkspace({ data }: ViewProps) {
     }
     allocationRequest.current = "";
   }
+  function renderWorkspace(w: WorkspaceView, canManage = data.user.admin) {
+    return (
+      <WorkspaceCard
+        key={w.id}
+        w={w}
+        observedNow={state!.serverNow}
+        admin={data.user.admin}
+        canManage={canManage}
+        busy={busy}
+        confirm={confirmId === w.id}
+        onConfirm={() => setConfirmId(w.id)}
+        onCancel={() => setConfirmId("")}
+        sync={() =>
+          void run(
+            () => api("workspace/sync", { id: w.id }),
+            "Đã đối soát trạng thái.",
+          )
+        }
+        control={(action) =>
+          void run(async () => {
+            await api("workspace/control", { id: w.id, action });
+            setConfirmId("");
+          }, "Đã xử lý yêu cầu điều khiển Pod.")
+        }
+        toggleMetrics={() =>
+          void run(
+            () =>
+              api("workspace/metrics", {
+                id: w.id,
+                visible: w.metricsVisible === false,
+              }),
+            w.metricsVisible === false
+              ? "Đã hiện metrics GPU cho đội thi."
+              : "Đã ẩn metrics GPU với đội thi.",
+          )
+        }
+      />
+    );
+  }
   return (
     <div className="gpu-workspace">
       <div className="gpu-workspace-head">
@@ -430,14 +472,6 @@ export default function GpuWorkspace({ data }: ViewProps) {
       )}
       {!state && <p role="status">Đang tải GPU Workspace…</p>}
       {state && (
-        <ChatGroups
-          state={state}
-          admin={data.user.admin}
-          busy={busy}
-          run={run}
-        />
-      )}
-      {state && (
         <section className="gpu-allocations">
           <div className="section-title">
             <div
@@ -460,6 +494,29 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </button>
             </div>
           </div>
+          {allocationTab === "current" && (
+            <ChatGroups
+              state={state}
+              admin={data.user.admin}
+              busy={busy}
+              run={run}
+              renderWorkspace={renderWorkspace}
+              onAddPod={(g) => {
+                chooseServices("llm");
+                setScope(g.scope);
+                setTeamId(g.teamId ?? "");
+                setRoundId(g.roundId);
+                setGroupId(g.id);
+                const saved = state.templates.find(
+                  (t) => t.id === g.templateId,
+                );
+                if (saved) setTemplate(saved);
+                document
+                  .querySelector(".gpu-deploy-panel")
+                  ?.scrollIntoView({ block: "center", behavior: "smooth" });
+              }}
+            />
+          )}
           {allocationTab === "current" &&
             !current.length &&
             !state.chatGroups.length && (
@@ -495,42 +552,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   </p>
                 )}
                 <div className="gpu-card-grid">
-                  {items.map((w) => (
-                    <WorkspaceCard
-                      key={w.id}
-                      w={w}
-                      observedNow={state.serverNow}
-                      admin={data.user.admin}
-                      busy={busy}
-                      confirm={confirmId === w.id}
-                      onConfirm={() => setConfirmId(w.id)}
-                      onCancel={() => setConfirmId("")}
-                      sync={() =>
-                        void run(
-                          () => api("workspace/sync", { id: w.id }),
-                          "Đã đối soát trạng thái.",
-                        )
-                      }
-                      control={(action) =>
-                        void run(async () => {
-                          await api("workspace/control", { id: w.id, action });
-                          setConfirmId("");
-                        }, "Đã xử lý yêu cầu điều khiển Pod.")
-                      }
-                      toggleMetrics={() =>
-                        void run(
-                          () =>
-                            api("workspace/metrics", {
-                              id: w.id,
-                              visible: w.metricsVisible === false,
-                            }),
-                          w.metricsVisible === false
-                            ? "Đã hiện metrics GPU cho đội thi."
-                            : "Đã ẩn metrics GPU với đội thi.",
-                        )
-                      }
-                    />
-                  ))}
+                  {items.map((w) => renderWorkspace(w))}
                 </div>
               </section>
             );
@@ -541,6 +563,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
             volume của Pod. Đóng tab không dừng kernel hay dừng tính phí.
           </p>
         </section>
+      )}
+      {state && data.user.admin && (
+        <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
       {state && data.user.admin && (
         <>
@@ -934,6 +959,7 @@ function WorkspaceCard({
   w,
   observedNow,
   admin,
+  canManage,
   busy,
   confirm,
   onConfirm,
@@ -945,6 +971,7 @@ function WorkspaceCard({
   w: WorkspaceView;
   observedNow: number;
   admin: boolean;
+  canManage: boolean;
   busy: boolean;
   confirm: boolean;
   onConfirm: () => void;
@@ -959,16 +986,20 @@ function WorkspaceCard({
   return (
     <article
       id={`pod-${w.id}`}
-      className={`panel gpu-card ${running ? "gpu-card-running" : ""}`}
+      className={`panel gpu-card ${running ? "gpu-card-running" : ""} ${w.chatGroupId ? "gpu-worker-card" : w.services !== "both" ? "gpu-single-service" : ""}`}
     >
       <div className="gpu-card-main">
         <div className="gpu-card-identity">
-          <span
-            className={`gpu-chip ${running ? "is-on" : ""}`}
-            aria-hidden="true"
-          >
-            <Cpu size={34} />
-          </span>
+          {w.chatGroupId ? (
+            <GpuBoard />
+          ) : (
+            <span
+              className={`gpu-chip ${running ? "is-on" : ""}`}
+              aria-hidden="true"
+            >
+              <Cpu size={34} />
+            </span>
+          )}
           <span className={`pill ${running ? "green" : "neutral"}`}>
             {w.status === "failed" && w.podId
               ? "Lỗi khởi động Pod"
@@ -1043,48 +1074,37 @@ function WorkspaceCard({
             </p>
           )}
         </div>
-        <div className="gpu-service-grid">
-          {w.chatGroupId && (
-            <div className="gpu-service-card service-chat">
-              <MessageSquare size={21} />
-              <h4>Worker Chatbot</h4>
-              <p>
-                {w.health?.llm
-                  ? "Model đã nạp"
-                  : (w.health?.modelStage ?? "Model chưa sẵn sàng")}
-              </p>
-              <small>
-                Nhận việc qua nhóm Chatbot; hội thoại và token được quản lý ở
-                cấp nhóm.
-              </small>
-            </div>
-          )}
-          {!w.chatGroupId && (
-            <ServiceCard
-              kind="chat"
-              provided={hasService(w, "llm")}
-              running={running}
-              ready={!!w.health?.llm}
-              enabled={!!w.chatbotEnabled}
-              detail={
-                w.health?.chatLocked
-                  ? "Đã khóa theo giờ của vòng luyện"
-                  : w.health?.modelStage
-              }
-              href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
-            />
-          )}
-          {!w.chatGroupId && (
-            <ServiceCard
-              kind="jupyter"
-              provided={hasService(w, "jupyter")}
-              running={running}
-              ready={!!w.health?.jupyter}
-              enabled={!!w.notebookEnabled}
-              href={`/api/workspace/launch?id=${encodeURIComponent(w.id)}`}
-            />
-          )}
-        </div>
+        {!w.chatGroupId && (
+          <div
+            className={`gpu-service-grid ${w.services !== "both" ? "single-service" : ""}`}
+          >
+            {hasService(w, "llm") && (
+              <ServiceCard
+                kind="chat"
+                provided={hasService(w, "llm")}
+                running={running}
+                ready={!!w.health?.llm}
+                enabled={!!w.chatbotEnabled}
+                detail={
+                  w.health?.chatLocked
+                    ? "Đã khóa theo giờ của vòng luyện"
+                    : w.health?.modelStage
+                }
+                href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
+              />
+            )}
+            {hasService(w, "jupyter") && (
+              <ServiceCard
+                kind="jupyter"
+                provided={hasService(w, "jupyter")}
+                running={running}
+                ready={!!w.health?.jupyter}
+                enabled={!!w.notebookEnabled}
+                href={`/api/workspace/launch?id=${encodeURIComponent(w.id)}`}
+              />
+            )}
+          </div>
+        )}
       </div>
       <div className="gpu-card-foot">
         <div className="gpu-card-notes">
@@ -1104,6 +1124,9 @@ function WorkspaceCard({
             {w.podId ? `Pod ${w.podId}` : "Chưa nhận Pod ID"} ·{" "}
             {w.syncedAt ? `Đối soát ${when(w.syncedAt)}` : "Chưa đối soát"}
           </small>
+          {w.chatGroupId && w.health?.modelStage && (
+            <span>{w.health.modelStage}</span>
+          )}
           {(w.health?.stage || w.accessMessage) && (
             <details className="gpu-status-detail">
               <summary>Chi tiết trạng thái</summary>
@@ -1122,7 +1145,7 @@ function WorkspaceCard({
           </button>
         )}
       </div>
-      {admin && active && (
+      {admin && canManage && active && (
         <div className="gpu-actions">
           {running && (
             <button className="btn" disabled={busy} onClick={toggleMetrics}>
