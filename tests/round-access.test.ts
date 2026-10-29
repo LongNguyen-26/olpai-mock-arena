@@ -41,6 +41,78 @@ function change(contest: Contest, value: Record<string, unknown>, now: number) {
     now,
   );
 }
+test("waiting and scheduled rounds can enter practice directly without a competition phase", () => {
+  for (const startAt of [null, 8000]) {
+    const waiting = {
+      ...c,
+      startAt,
+      privateAt: startAt == null ? null : 10000,
+    };
+    const practice = change(
+      waiting,
+      {
+        action: "practice-open",
+        endAt: null,
+        publicVisible: true,
+        privateVisible: true,
+        chatbotEnabled: true,
+        chatbotUntil: null,
+        notebookEnabled: true,
+      },
+      1500,
+    );
+    assert.equal(practice.id, c.id);
+    assert.equal(practice.startAt, null);
+    assert.equal(practice.privateAt, null);
+    assert.equal(phaseOf(practice, 1500), "practice");
+    assert.equal(phaseOf(practice, 10001), "practice");
+    assert.equal(canRead(practice, 1500, "private"), true);
+    assert.equal(submissionAccess(practice, 1500, "public").accepting, true);
+    assert.equal(submissionAccess(practice, 1500, "private").accepting, true);
+    assert.equal(chatbotAllowed(practice, 10001), true);
+  }
+});
+test("reset keeping the leaderboard keeps the run and quota ledger while fencing previous chat work", () => {
+  const source = { ...c, chatEpoch: 10, publicLimit: 33, privateLimit: 8 };
+  const reset = change(
+    source,
+    { action: "reset-round", keepLeaderboard: true },
+    2400,
+  );
+  assert.equal(reset.id, source.id);
+  assert.equal(reset.publicLimit, source.publicLimit);
+  assert.equal(reset.privateLimit, source.privateLimit);
+  assert.equal(phaseOf(reset, 2400), "waiting");
+  assert.equal(reset.privateStartedAt, undefined);
+  assert.ok(reset.chatEpoch! > source.chatEpoch);
+  const practice = change(
+    reset,
+    {
+      action: "practice-open",
+      endAt: null,
+      publicVisible: true,
+      privateVisible: true,
+      chatbotEnabled: false,
+      chatbotUntil: null,
+      notebookEnabled: true,
+    },
+    2500,
+  );
+  assert.equal(practice.id, source.id);
+  assert.equal(phaseOf(practice, 2500), "practice");
+});
+test("reset without keeping the leaderboard creates a new run and clears active schedules", () => {
+  const reset = change(
+    { ...c, practice: { startAt: 4000, endAt: null } },
+    { action: "reset-round", keepLeaderboard: false },
+    4500,
+  );
+  assert.notEqual(reset.id, c.id);
+  assert.equal(phaseOf(reset, 4500), "waiting");
+  assert.equal(reset.practice, undefined);
+  assert.equal(reset.startAt, null);
+  assert.equal(reset.privateAt, null);
+});
 test("private effects run once for all four policy combinations; visibility never replays them", () => {
   for (const lockPublic of [true, false])
     for (const revokeChatbot of [true, false]) {

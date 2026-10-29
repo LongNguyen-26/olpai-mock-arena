@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { ApiError } from "./auth";
 import {
   applyPrivateTransition,
@@ -19,6 +20,7 @@ export const guardedRoundActions = [
   "notebook-access",
   "practice-open",
   "practice-close",
+  "reset-round",
 ];
 export const roundControlSchema = z
   .discriminatedUnion("action", [
@@ -56,6 +58,10 @@ export const roundControlSchema = z
       notebookEnabled: z.boolean(),
     }),
     z.object({ action: z.literal("practice-close") }),
+    z.object({
+      action: z.literal("reset-round"),
+      keepLeaderboard: z.boolean(),
+    }),
   ])
   .and(
     z.object({
@@ -65,6 +71,31 @@ export const roundControlSchema = z
     }),
   );
 export type RoundControl = z.infer<typeof roundControlSchema>;
+
+/** Keeping the ledger also keeps used quota; a fresh run leaves the old ledger archived. */
+export function resetRound(
+  c: Contest,
+  now: number,
+  keepLeaderboard: boolean,
+): Contest {
+  return {
+    ...c,
+    id: keepLeaderboard ? c.id : randomUUID(),
+    startAt: null,
+    privateAt: null,
+    forcedEndAt: null,
+    timingVersion: undefined,
+    endAt: undefined,
+    privateStartedAt: undefined,
+    practice: undefined,
+    submissionAccess: undefined,
+    chatbotAllowed: true,
+    chatbotUntil: null,
+    notebookAllowed: true,
+    chatEpoch: keepLeaderboard ? (c.chatEpoch ?? 0) + 1 : 0,
+    createdAt: keepLeaderboard ? c.createdAt : now,
+  };
+}
 
 export function reduceRoundControl(
   original: Contest,
@@ -132,15 +163,25 @@ export function reduceRoundControl(
       now,
     );
   } else if (v.action === "practice-open") {
-    if (phase !== "ended")
+    if (!["waiting", "scheduled", "ended"].includes(phase))
       throw new ApiError(
-        "Chỉ mở luyện tập tiếp sau khi vòng đã kết thúc.",
+        "Mở luyện tập khi vòng chưa bắt đầu hoặc đã kết thúc.",
         409,
       );
     future(v.endAt);
     if (v.chatbotEnabled) future(v.chatbotUntil);
     next = {
       ...next,
+      ...(["waiting", "scheduled"].includes(phase)
+        ? {
+            startAt: null,
+            privateAt: null,
+            forcedEndAt: null,
+            privateStartedAt: undefined,
+            timingVersion: undefined,
+            endAt: undefined,
+          }
+        : {}),
       practice: { startAt: now, endAt: v.endAt },
       submissionAccess: {
         public: { visible: v.publicVisible, enabled: true },
@@ -173,6 +214,8 @@ export function reduceRoundControl(
     next.chatbotUntil = v.enabled ? v.until : null;
     next.chatEpoch = (c.chatEpoch ?? 0) + 1;
   } else if (v.action === "notebook-access") next.notebookAllowed = v.enabled;
+  else if (v.action === "reset-round")
+    next = resetRound(c, now, v.keepLeaderboard);
   return { ...next, revision: (c.revision ?? 0) + 1 };
 }
 
@@ -190,5 +233,6 @@ if action=='timing' or action=='open-private' or action=='practice-open' then
 end
 if action=='timing' and arena_phase(c,now)=='public' then local p=arena_private(next);if p and p<=now then return 'conflict' end end
 if (action=='chatbot-access' or action=='practice-open') and next.chatbotAllowed and arena_value(next.chatbotUntil) and next.chatbotUntil<=now then return 'conflict' end
+if action=='reset-round' then redis.call('SET',KEYS[3],cjson.encode(c)) end
 redis.call('SET',KEYS[1],ARGV[5]);redis.call('SET',KEYS[2],ARGV[1],'EX',604800);return 'ok'
 `;

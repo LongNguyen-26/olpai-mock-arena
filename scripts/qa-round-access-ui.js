@@ -61,7 +61,9 @@ async (page) => {
     return body;
   }
   async function visit(section) {
-    await page.goto(base + "/?round=" + rid + "#" + section);
+    const target = base + "/?round=" + rid + "#" + section;
+    if (page.url() === target) await page.reload();
+    else await page.goto(target);
     await page
       .getByRole("heading", {
         level: 1,
@@ -71,6 +73,47 @@ async (page) => {
       .waitFor();
     await page.locator(".round-access-controls").waitFor();
   }
+  // The seeded ledger lets the browser prove that keeping/clearing the leaderboard is real.
+  const seeded = await snap();
+  check(seeded.submissions.length > 0, "Seeded submissions required for keep/clear checks");
+  const seededRun = seeded.contest.id;
+  await visit("admin");
+  const resetButton = () => page.getByRole("button", { name: "Đặt lại / mở lượt mới", exact: true });
+  const modal = page.getByRole("dialog");
+  await page.getByRole("button", { name: "Mở luyện tập tiếp", exact: true }).click();await modal.waitFor();
+  await modal.getByRole("button", { name: "Xác nhận", exact: true }).click();await modal.waitFor({ state: "detached" });
+  check((await snap()).phase === "practice", "Waiting round cannot open practice");
+  await resetButton().click();await modal.waitFor();
+  check(await modal.locator('input[name="keepLeaderboard"]').isChecked(), "Reset must default to keeping the leaderboard");
+  await page.keyboard.press("Escape");await modal.waitFor({ state: "detached" });
+  check((await snap()).phase === "practice", "Cancel reset changed the round");
+  await resetButton().click();await modal.waitFor();
+  await page.screenshot({ path: shots + "reset-keep-desktop.png", fullPage: true });
+  await modal.getByRole("button", { name: "Xác nhận", exact: true }).click();await modal.waitFor({ state: "detached" });
+  const kept = await snap();
+  check(kept.phase === "waiting" && kept.contest.id === seededRun, "Keep reset changed the run");
+  check(kept.submissions.length === seeded.submissions.length, "Keep reset lost submission history");
+  check(JSON.stringify(kept.leaderboard.public) === JSON.stringify(seeded.leaderboard.public), "Keep reset lost leaderboard");
+  check(await page.getByRole("button", { name: "Bắt đầu ngay", exact: true }).count() === 1, "Start competition option missing after reset");
+  check(await page.getByRole("button", { name: "Mở luyện tập tiếp", exact: true }).count() === 1, "Practice option missing after reset");
+  const usage = page.locator(".round-access-table tbody tr").first();
+  check((await usage.innerText()).includes("Nhận bài nộp"), "Submission acceptance label not updated");
+  await resetButton().click();await modal.waitFor();
+  await modal.locator('input[name="keepLeaderboard"]').uncheck();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: shots + "reset-clear-mobile.png", fullPage: true });
+  check(await modal.evaluate(e => e.scrollWidth <= e.clientWidth + 1), "Reset modal mobile overflow");
+  await modal.getByRole("button", { name: "Xác nhận", exact: true }).click();await modal.waitFor({ state: "detached" });
+  const cleared = await snap();
+  check(cleared.contest.id !== seededRun && cleared.submissions.length === 0 && cleared.leaderboard.public.length === 0, "Clear reset retained the active leaderboard");
+  const scheduleTime = new Date(cleared.serverNow + 3600000).toISOString();
+  check((await page.request.post(base + "/api/admin/control?round=" + rid, { headers: { Origin: base }, data: { action: "schedule", scheduledAt: scheduleTime } })).ok(), "QA schedule");
+  await visit("admin");
+  await page.getByRole("button", { name: "Mở luyện tập tiếp", exact: true }).click();await modal.waitFor();
+  check((await modal.innerText()).includes("Lịch bắt đầu thi đã hẹn sẽ được hủy"), "Scheduled practice needs an explicit schedule notice");
+  await modal.getByRole("button", { name: "Xác nhận", exact: true }).click();await modal.waitFor({ state: "detached" });
+  const direct = await snap();check(direct.phase === "practice" && direct.contest.startAt === null, "Scheduled start was not canceled by direct practice");
+  await page.setViewportSize({ width: 1600, height: 1050 });
   await page.request.post(base + "/api/admin/control?round=" + rid, {
     headers: { Origin: base },
     data: { action: "reset" },

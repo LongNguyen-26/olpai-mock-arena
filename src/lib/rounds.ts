@@ -13,6 +13,7 @@ import {
   CONTROL_ROUND_SCRIPT,
   guardedRoundActions,
   reduceRoundControl,
+  resetRound,
   roundControlSchema,
 } from "./round-control";
 import { taskStatements } from "./statements";
@@ -338,6 +339,7 @@ export async function control(
     privateVisible?: boolean;
     chatbotEnabled?: boolean;
     notebookEnabled?: boolean;
+    keepLeaderboard?: boolean;
   },
   id: string,
 ) {
@@ -360,10 +362,12 @@ export async function control(
   if (v) {
     if (c.id !== v.runId || (c.revision ?? 0) !== v.revision)
       throw new ApiError("Vòng luyện vừa được cập nhật. Hãy tải lại.", 409);
+    if (v.action === "practice-open" && !(await getPackage(c)))
+      throw new ApiError("Chưa nạp bộ đề.", 409);
     next = reduceRoundControl(c, v, now);
     const result = await db().eval<unknown[], string>(
       CONTROL_ROUND_SCRIPT,
-      [roundKey(c), requestKey],
+      [roundKey(c), requestKey, key(`runs:${c.id}`)],
       [fingerprint, c.id, v.revision, phase, JSON.stringify(next), action],
     );
     if (result !== "ok")
@@ -447,23 +451,7 @@ export async function control(
     next.forcedEndAt = now;
     next.chatEpoch = (c.chatEpoch ?? 0) + 1;
   } else if (action === "reset" || action === "new") {
-    next = {
-      ...c,
-      id: randomUUID(),
-      startAt: null,
-      privateAt: null,
-      forcedEndAt: null,
-      timingVersion: undefined,
-      endAt: undefined,
-      privateStartedAt: undefined,
-      practice: undefined,
-      submissionAccess: undefined,
-      chatbotAllowed: true,
-      chatbotUntil: null,
-      notebookAllowed: true,
-      chatEpoch: 0,
-      createdAt: now,
-    };
+    next = resetRound(c, now, values.keepLeaderboard === true);
   } else throw new ApiError("Thao tác không hợp lệ.");
   next.revision = (c.revision ?? 0) + 1;
   const ok = await db().eval<unknown[], number>(

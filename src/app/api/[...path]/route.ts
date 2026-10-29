@@ -372,8 +372,16 @@ async function handle(
             action: z.literal("schedule"),
             scheduledAt: z.string().datetime(),
           }),
-          ...(["start", "cancel", "finish", "new", "reset"] as const).map(
-            (action) => z.object({ action: z.literal(action) }),
+          z.object({
+            action: z.literal("reset"),
+            keepLeaderboard: z.boolean().optional(),
+          }),
+          z.object({
+            action: z.literal("new"),
+            keepLeaderboard: z.boolean().optional(),
+          }),
+          ...(["start", "cancel", "finish"] as const).map((action) =>
+            z.object({ action: z.literal(action) }),
           ),
           z.object({
             action: z.literal("announce"),

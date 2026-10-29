@@ -724,10 +724,36 @@ async function main() {
     await assert.rejects(() => launchNotebook(member, w.id), /đang khóa/);
     await roundChange("practice-close");
     assert.equal((await agentManifest(w.id, workerAuth)).llmEnabled, false);
+    const podBeforeReset = (await getWorkspace(w.id)).podId;
+    const runBeforeReset = (await getContest(c.roundId!)).id;
+    await roundChange("reset-round", { keepLeaderboard: true });
+    assert.equal((await getContest(c.roundId!)).id, runBeforeReset);
+    const directPractice = {
+      endAt: null,
+      publicVisible: true,
+      privateVisible: true,
+      chatbotEnabled: true,
+      chatbotUntil: null,
+      notebookEnabled: true,
+    };
+    await roundChange("practice-open", directPractice);
+    assert.equal((await agentManifest(w.id, workerAuth)).phase, "practice");
+    await roundChange("reset-round", { keepLeaderboard: false });
+    const freshPracticeRun = (await getContest(c.roundId!)).id;
+    assert.notEqual(freshPracticeRun, runBeforeReset);
+    await roundChange("practice-open", directPractice);
+    const rebound = await agentManifest(w.id, workerAuth);
+    assert.equal(rebound.runId, freshPracticeRun);
+    assert.equal(rebound.llmEnabled, true);
+    assert.equal((await getWorkspace(w.id)).podId, podBeforeReset);
+    await syncWorkspace(member, w.id);
+    assert.ok(
+      (await launchNotebook(member, w.id)).includes("8888.proxy.runpod.net"),
+    );
     assert.equal(providerControls, beforeControls);
     assert.equal(creates, beforeCreates);
     console.log(
-      "PASS: private chatbot reopen, late-response fence, independent submission visibility, practice manifest/chat/Lab, and zero Pod lifecycle mutations.",
+      "PASS: private chatbot reopen, late-response fence, independent visibility, reset keep/clear with direct practice, run rebinding, and zero Pod lifecycle mutations.",
     );
     const oldRun = c.id;
     c.id = randomUUID();

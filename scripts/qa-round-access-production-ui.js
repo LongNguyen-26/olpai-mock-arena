@@ -23,9 +23,13 @@ async page => {
       check(await page.getByRole("checkbox", { name: "Hiện public submission", exact: true }).count() === 1, "Public visibility");
       check(await page.getByRole("checkbox", { name: "Hiện private submission", exact: true }).count() === 1, "Private visibility");
       check(await page.getByRole("checkbox", { name: "Cho phép mở JupyterLab từ web", exact: true }).count() === 1, "Lab control");
+      check((await page.locator(".round-access-table tbody tr").first().innerText()).includes("Nhận bài nộp"), "Submission acceptance label");
       const snapshot = await (await page.request.get(base + "/api/arena?round=" + encodeURIComponent(round.id))).json();
       phases.push(snapshot.phase);
       const dialog = page.getByRole("dialog");
+      await page.getByRole("button", { name: "Đặt lại / mở lượt mới", exact: true }).click();await dialog.waitFor();
+      check(await dialog.locator('input[name="keepLeaderboard"]').isChecked(), "Reset keep leaderboard default");
+      await page.keyboard.press("Escape");await dialog.waitFor({ state: "detached" });
       if (["waiting", "scheduled", "public"].includes(snapshot.phase)) {
         check(await page.locator(".private-policy-form input[type=checkbox]").count() === 2, "Private transition policy");
       }
@@ -42,7 +46,7 @@ async page => {
         check(await dialog.locator('input[type="checkbox"]').count() === 2, "Private dialog choices");
         await page.keyboard.press("Escape");await dialog.waitFor({ state: "detached" });
       }
-      if (snapshot.phase === "ended") {
+      if (["waiting", "scheduled", "ended"].includes(snapshot.phase)) {
         await page.getByRole("button", { name: "Mở luyện tập tiếp", exact: true }).click();await dialog.waitFor();
         check(await dialog.locator('input[name="publicVisible"]').isChecked(), "Practice public default");
         check(await dialog.locator('input[name="privateVisible"]').isChecked(), "Practice private default");

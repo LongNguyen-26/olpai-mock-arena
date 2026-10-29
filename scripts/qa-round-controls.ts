@@ -130,10 +130,14 @@ async function main() {
       await control(action, value, rid);
       return value;
     }
-    async function submit(split: "public" | "private", nonce = randomUUID()) {
+    async function submit(
+      split: "public" | "private",
+      nonce = randomUUID(),
+      runId = initial.id,
+    ) {
       const s: Submission = {
         id: randomUUID(),
-        runId: initial.id,
+        runId,
         teamId: tid,
         userId: uid,
         task: "1",
@@ -152,15 +156,15 @@ async function main() {
         SUBMIT_SCRIPT,
         [
           key(`round:${rid}`),
-          key(`quota:${initial.id}:${tid}:1:${split}`),
-          key(`submissions:${initial.id}`),
+          key(`quota:${runId}:${tid}:1:${split}`),
+          key(`submissions:${runId}`),
           key(`qa-request:${nonce}`),
           key(`user:${uid}`),
           key(`registrations:${rid}`),
           key("admin"),
           key("admins"),
         ],
-        [initial.id, split, JSON.stringify(s), tid],
+        [runId, split, JSON.stringify(s), tid],
       );
     }
     // Compare TS and actual Lua at exact boundaries, including cjson-omitted nulls.
@@ -225,9 +229,27 @@ local out={};for _,v in ipairs(cjson.decode(ARGV[1])) do local c=v.c;arena_trans
     );
     assert.notEqual(await submit("public"), "closed");
     assert.equal(await submit("private"), "closed");
-    assert.equal(await db().eval(CONTROL_ROUND_SCRIPT,
-      [key(`round:${rid}`), key("qa-expired-timing")],
-      ["qa-expired-timing", initial.id, 0, "public", JSON.stringify({ ...initial, timingVersion: 1, privateAt: (await serverNow()) - 1, endAt: now + 7200000, revision: 1 }), "timing"]), "conflict");
+    assert.equal(
+      await db().eval(
+        CONTROL_ROUND_SCRIPT,
+        [key(`round:${rid}`), key("qa-expired-timing")],
+        [
+          "qa-expired-timing",
+          initial.id,
+          0,
+          "public",
+          JSON.stringify({
+            ...initial,
+            timingVersion: 1,
+            privateAt: (await serverNow()) - 1,
+            endAt: now + 7200000,
+            revision: 1,
+          }),
+          "timing",
+        ],
+      ),
+      "conflict",
+    );
     const granted = await change("timing", {
       privateAt: initial.privateAt,
       endAt: now + 7200000,
@@ -320,6 +342,85 @@ local out={};for _,v in ipairs(cjson.decode(ARGV[1])) do local c=v.c;arena_trans
     await change("practice-close");
     assert.equal(await submit("public"), "closed");
     assert.equal(await submit("private"), "closed");
+    const ledgerBeforeReset = await snapshot(member, rid);
+    const quotaBeforeReset = await db().get(
+      key(`quota:${initial.id}:${tid}:1:public`),
+    );
+    const preserve = await change("reset-round", { keepLeaderboard: true });
+    await control("reset-round", preserve, rid);
+    let afterReset = await snapshot(member, rid);
+    assert.equal(afterReset.phase, "waiting");
+    assert.equal(afterReset.contest!.id, initial.id);
+    assert.deepEqual(
+      afterReset.leaderboard.public,
+      ledgerBeforeReset.leaderboard.public,
+    );
+    assert.equal(
+      afterReset.submissions.length,
+      ledgerBeforeReset.submissions.length,
+    );
+    assert.equal(
+      await db().get(key(`quota:${initial.id}:${tid}:1:public`)),
+      quotaBeforeReset,
+    );
+    const practiceOptions = {
+      endAt: null,
+      publicVisible: true,
+      privateVisible: true,
+      chatbotEnabled: true,
+      chatbotUntil: null,
+      notebookEnabled: true,
+    };
+    await change("practice-open", practiceOptions);
+    assert.equal((await snapshot(member, rid)).phase, "practice");
+    assert.notEqual(await submit("public"), "closed");
+    const concurrentReset = await getContest(rid);
+    const resets = await Promise.allSettled(
+      [true, false].map((keepLeaderboard) =>
+        control(
+          "reset-round",
+          {
+            action: "reset-round",
+            keepLeaderboard,
+            runId: concurrentReset.id,
+            revision: concurrentReset.revision ?? 0,
+            requestId: randomUUID(),
+          },
+          rid,
+        ),
+      ),
+    );
+    assert.equal(resets.filter((r) => r.status === "fulfilled").length, 1);
+    const clear = await change("reset-round", { keepLeaderboard: false });
+    await control("reset-round", clear, rid);
+    afterReset = await snapshot(member, rid);
+    const freshRun = afterReset.contest!.id;
+    assert.notEqual(freshRun, initial.id);
+    assert.equal(afterReset.phase, "waiting");
+    assert.equal(afterReset.submissions.length, 0);
+    assert.equal(afterReset.leaderboard.public.length, 0);
+    assert.equal(
+      await db().get(key(`quota:${freshRun}:${tid}:1:public`)),
+      null,
+    );
+    assert.ok(await db().hlen(key(`submissions:${initial.id}`)));
+    assert.equal(await db().exists(key(`runs:${clear.runId}`)), 1);
+    await change("practice-open", practiceOptions);
+    assert.notEqual(await submit("public", randomUUID(), freshRun), "closed");
+    await change("reset-round", { keepLeaderboard: true });
+    await control(
+      "schedule",
+      { scheduledAt: new Date((await serverNow()) + 3600000).toISOString() },
+      rid,
+    );
+    assert.equal((await snapshot(member, rid)).phase, "scheduled");
+    await change("practice-open", practiceOptions);
+    const scheduledPractice = await snapshot(member, rid);
+    assert.equal(scheduledPractice.phase, "practice");
+    assert.equal(scheduledPractice.contest!.startAt, null);
+    console.log(
+      "PASS: reset preserves or clears the ledger/quota as selected, archives old runs, fences duplicate/concurrent resets, and opens practice directly from waiting/scheduled.",
+    );
     // Future private entry must reject a form captured in the public stage.
     const preBoundary = { ...initial, privateAt: (await serverNow()) - 1 };
     await db().set(key(`round:${rid}`), preBoundary);

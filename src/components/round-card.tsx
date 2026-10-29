@@ -48,6 +48,7 @@ export default function RoundCard({
 }) {
   const timing = roundTiming(r, now);
   const live = ["public", "private", "practice"].includes(timing.phase);
+  const startAt = r.practice?.startAt ?? r.startAt;
   return (
     <article className={`panel round-card ${live ? "round-is-live" : ""}`}>
       <a
@@ -122,11 +123,11 @@ export default function RoundCard({
                   ? "Không giới hạn"
                   : duration(timing.seconds)}
           </strong>
-          {r.startAt !== null && (
+          {startAt != null && (
             <p className="round-start">
               Bắt đầu vào{" "}
-              <time dateTime={new Date(r.startAt).toISOString()}>
-                {startDateFormat.format(r.startAt)}
+              <time dateTime={new Date(startAt).toISOString()}>
+                {startDateFormat.format(startAt)}
               </time>
             </p>
           )}

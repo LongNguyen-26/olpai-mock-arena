@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Clock3, Flag, Play } from "lucide-react";
+import { Clock3, Flag, Play, RotateCcw } from "lucide-react";
 import {
   contestEnd,
   phaseOf,
@@ -64,7 +64,7 @@ function Dialog({
     </dialog>
   );
 }
-type Editor = "timing" | "private" | "practice" | "chatbot" | null;
+type Editor = "timing" | "private" | "practice" | "chatbot" | "reset" | null;
 export default function RoundAccessControls({ data, busy, action }: ViewProps) {
   const [editor, setEditor] = useState<Editor>(null);
   const [saveError, setSaveError] = useState("");
@@ -132,6 +132,11 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
         chatbotUntil: timestamp(f.get("chatbotUntil")),
         notebookEnabled: f.has("notebookEnabled"),
       };
+    else if (editor === "reset")
+      value = {
+        action: "reset-round",
+        keepLeaderboard: f.has("keepLeaderboard"),
+      };
     else
       value = {
         action: "chatbot-access",
@@ -142,7 +147,9 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
     if (
       (await send(
         value,
-        "Đã cập nhật lịch và quyền truy cập.",
+        editor === "reset"
+          ? "Đã đặt lại. Bạn có thể bắt đầu thi hoặc mở luyện tập tiếp."
+          : "Đã cập nhật lịch và quyền truy cập.",
         context.contest,
       )) !== false
     )
@@ -175,10 +182,10 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
             Chuyển sang private ngay
           </button>
         )}
-        {phase === "ended" && (
+        {["waiting", "scheduled", "ended"].includes(phase) && (
           <button
             className="btn primary"
-            disabled={busy}
+            disabled={busy || !data.ready}
             onClick={() => openEditor("practice")}
           >
             <Play size={16} />
@@ -204,6 +211,14 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
             Kết thúc luyện tập
           </button>
         )}
+        <button
+          className="btn"
+          disabled={busy}
+          onClick={() => openEditor("reset")}
+        >
+          <RotateCcw size={16} />
+          Đặt lại / mở lượt mới
+        </button>
       </div>
       {["waiting", "scheduled", "public"].includes(phase) && (
         <form
@@ -292,7 +307,7 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
                     <label className="check-label">
                       <input
                         type="checkbox"
-                        aria-label={`Mở nhận bài ${split}`}
+                        aria-label={`Mở nhận bài nộp ${split}`}
                         checked={access.enabled}
                         disabled={busy}
                         onChange={(e) =>
@@ -307,7 +322,7 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
                           )
                         }
                       />
-                      Nhận bài
+                      Nhận bài nộp
                     </label>
                   </td>
                   <td>
@@ -403,7 +418,9 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
                 ? "Chuyển sang private ngay"
                 : editor === "practice"
                   ? "Mở luyện tập tiếp"
-                  : "Cấp quyền chatbot"
+                  : editor === "reset"
+                    ? "Đặt lại / mở lượt mới"
+                    : "Cấp quyền chatbot"
           }
           close={() => {
             if (!busy) setEditor(null);
@@ -412,6 +429,7 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
           <form onSubmit={save}>
             <fieldset disabled={busy}>
               {saveError && <p role="alert">{saveError}</p>}
+              {editor === "reset" && <ResetFields />}
               {editor === "timing" && (
                 <TimingFields phase={phase} privateAt={p} endAt={end} />
               )}
@@ -446,6 +464,13 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
                     Tiếp tục lượt cũ, giữ kết quả, BXH và số lượt đã dùng.
                     Public và private cùng nhận bài; tăng quota riêng nếu cần.
                   </p>
+                  {["waiting", "scheduled"].includes(phase) && (
+                    <p>
+                      Mở luyện tập ngay mà không cần bắt đầu thi theo giai đoạn.
+                      {phase === "scheduled" &&
+                        " Lịch bắt đầu thi đã hẹn sẽ được hủy."}
+                    </p>
+                  )}
                   <EndField endAt={null} />
                   <label className="check-label">
                     <input
@@ -505,6 +530,32 @@ export default function RoundAccessControls({ data, busy, action }: ViewProps) {
         </Dialog>
       )}
     </div>
+  );
+}
+function ResetFields() {
+  const [keep, setKeep] = useState(true);
+  return (
+    <>
+      <p>
+        Đưa vòng về trạng thái chưa mở. Sau đó có thể bắt đầu thi hoặc mở luyện
+        tập ngay.
+      </p>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          name="keepLeaderboard"
+          checked={keep}
+          onChange={(e) => setKeep(e.target.checked)}
+        />
+        Giữ BXH và bài nộp hiện tại
+      </label>
+      <p role="status">
+        {keep
+          ? "Giữ kết quả, lịch sử bài nộp và số lượt quota đã dùng. Lịch và quyền truy cập được đặt lại."
+        : "Tạo lượt mới với BXH trống và số lượt nộp đã dùng về 0. Dữ liệu lượt trước vẫn lưu riêng."}
+      </p>
+      <p>Đăng ký tham gia, Pod và tệp làm việc được giữ nguyên.</p>
+    </>
   );
 }
 function EndField({ endAt }: { endAt: number | null }) {

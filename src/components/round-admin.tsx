@@ -5,7 +5,6 @@ import {
   Play,
   Plus,
   ShieldCheck,
-  RotateCcw,
   Bell,
   ArrowDownToLine,
 } from "lucide-react";
@@ -55,19 +54,35 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
         <div className="round-control-body">
           <dl className="round-times round-time-grid">
             <div>
-              <dt>Bắt đầu</dt>
-              <dd>{c.startAt ? when(c.startAt) : "Chưa đặt"}</dd>
+              <dt>{c.practice ? "Bắt đầu luyện tập" : "Bắt đầu"}</dt>
+              <dd>
+                {c.practice
+                  ? when(c.practice.startAt)
+                  : c.startAt
+                    ? when(c.startAt)
+                    : "Chưa đặt"}
+              </dd>
             </div>
             <div>
               <dt>Mở private</dt>
               <dd>
-                {p ? when(p) : c.unlimited ? "Do quản trị viên mở" : "Chưa đặt"}
+                {c.practice
+                  ? "Mở cùng luyện tập"
+                  : p
+                    ? when(p)
+                    : c.unlimited
+                      ? "Do quản trị viên mở"
+                      : "Chưa đặt"}
               </dd>
             </div>
             <div>
               <dt>Kết thúc</dt>
               <dd>
-                {end ? when(end) : c.unlimited ? "Không giới hạn" : "Chưa đặt"}
+                {end
+                  ? when(end)
+                  : c.unlimited || c.practice || open
+                    ? "Không giới hạn"
+                    : "Chưa đặt"}
               </dd>
             </div>
           </dl>
@@ -111,25 +126,6 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
                   Kết thúc
                 </button>
               )}
-              <button
-                className="btn"
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    confirm(
-                      "Đưa vòng luyện về trạng thái chưa mở? Lượt nộp hiện tại sẽ được lưu riêng, lượt mới bắt đầu với quota và bảng điểm trống. Đăng ký tham gia vẫn được giữ.",
-                    )
-                  )
-                    void action(
-                      "admin/control",
-                      { action: "reset" },
-                      "Đã đặt lại vòng luyện; đề chưa mở.",
-                    );
-                }}
-              >
-                <RotateCcw size={16} />
-                Đặt lại / mở lượt mới
-              </button>
             </div>
             {waiting && (
               <form
