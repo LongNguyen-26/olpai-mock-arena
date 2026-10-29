@@ -323,7 +323,13 @@ class LinuxHubTests(unittest.TestCase):
         user = self.manager.ensure_user(team)
         self.assertEqual(self.run_team(team, "open('restart-check.txt','w').write('saved')").returncode, 0)
         cls.process.terminate()
-        cls.process.wait(timeout=40)
+        try:
+            cls.process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            # A stopped/replaced Pod can lose processes before Hub's graceful
+            # cleanup finishes. Recovery must work after that abrupt stop too.
+            os.killpg(cls.process.pid, signal.SIGKILL)
+            cls.process.wait()
         before = {k: dict(v) for k, v in self.manager.users.items()}
         # Recreate the ephemeral container account database, retaining the volume.
         for account in before.values():
