@@ -12,7 +12,7 @@
 
 Public và private đều trả điểm ngay khi nộp hợp lệ. Mỗi tác vụ lấy điểm cao nhất của từng bộ kiểm thử. Tổng là tổng hai tác vụ, tối đa 200 điểm. Nếu bằng tổng, ưu tiên EM tác vụ 2, rồi thời điểm đạt điểm sớm hơn. Không còn chọn bản private cuối để tính điểm.
 
-Private chưa mở: không phát input/link Drive và chưa hiển thị BXH private cho thí sinh. Khi mở private: đóng nhận public, mở nhận private và BXH private trực tiếp. Hết giờ: khóa tất cả bài nộp.
+Private chưa mở: không phát input/link Drive và chưa hiển thị BXH private cho thí sinh. Khi mở private: mặc định khóa nhận public và thu hồi chatbot; admin có thể đổi hai lựa chọn trước khi chuyển. Hết giờ khóa tất cả bài nộp, trừ khi admin mở chế độ luyện tập tiếp.
 
 ## Quản trị
 
@@ -26,12 +26,34 @@ Private chưa mở: không phát input/link Drive và chưa hiển thị BXH pri
 - Header hiển thị tên vòng và tên trang ở cạnh nút quay về danh sách; link vòng đã ẩn/xóa tự quay về danh sách để tránh giữ trang cũ.
 
 - Bắt đầu ngay hoặc hẹn giờ Việt Nam (UTC+7).
-- Mở private sớm: chuyển sang nhận private ngay; trong vòng có thời hạn, private kéo dài đúng số phút đã cấu hình tính từ lúc mở sớm.
+- Chuyển sang private ngay: hộp thoại cho chọn khóa nộp public/thu hồi chatbot và sửa giờ kết thúc. Mặc định giữ giờ kết thúc hiện tại, không tính lại thời lượng private từ lúc chuyển sớm. Vòng vô thời hạn tiếp tục không có hạn kết thúc.
 - Mở vô thời hạn: public giữ mở đến khi admin mở private; private giữ mở đến khi admin kết thúc.
 - Đặt lại / mở lượt mới: trở về chưa mở, quota và BXH lượt mới trống. Đăng ký và bộ đề giữ nguyên. Lượt cũ vẫn lưu ở các khóa Redis theo run ID.
 - Có thể duyệt hoặc thu hồi quyền tham gia từng người. Đổi chế độ tự duyệt chỉ áp dụng cho đăng ký mới; đăng ký đang chờ vẫn cần admin xử lý.
 - Khi public hoặc private đang mở, **Tăng quota cho tất cả đội** cộng thêm 1–100 lượt cho mỗi tác vụ của bộ kiểm thử đã chọn. Tổng hạn mức tối đa 1.000. Các đội giữ số lượt đã dùng; lượt tăng áp dụng cả đội mới tham gia sau đó. Yêu cầu cùng ID chỉ cộng một lần, yêu cầu độc lập đồng thời không làm mất phần tăng của nhau, yêu cầu từ lượt luyện cũ bị từ chối.
-- Luồng giai đoạn giữ nguyên: mở private thì đóng public. Tăng quota không đổi mốc giờ hoặc mở lại bộ kiểm thử đã khóa.
+- Tăng quota không đổi lịch hoặc mở lại bộ kiểm thử đang khóa; sử dụng được cả trong chế độ luyện tập tiếp.
+
+## Điều chỉnh lịch và quyền khi đang chạy
+
+**Điều chỉnh thời gian** không đổi run ID, giờ bắt đầu thực tế, bài nộp, quota, Pod hay kernel. Trong public có thể dời mốc private về tương lai hoặc để trống để chuyển thủ công; trong private chỉ sửa hạn kết thúc. Để trống hạn kết thúc để mở vô thời hạn. Các trường giờ dùng UTC+7 và có phần xem trước; mốc đã lưu giữ chính xác cả giây. Muốn vào private ngay dùng nút chuyển giai đoạn để xác nhận các quyền.
+
+**Khi private bắt đầu** lưu hai lựa chọn khóa public và thu hồi chatbot, mặc định bật. Lịch tự động áp dụng chúng bằng thời gian server, không cần trang admin mở. Chuyển giai đoạn được ghi nhận nguyên tử đúng một lần; private đã bắt đầu không thể dời ngược về public. Sau đó quản lý quyền bằng bảng **Quyền hiện tại của thí sinh**.
+
+- Public/private submission có hai công tắc riêng: **Hiện** và **Nhận bài**. Ẩn chặn API nộp nhưng giữ lựa chọn nhận bài; hiện lại khôi phục lựa chọn đó. Lịch sử, BXH và dữ liệu đã mở vẫn xem được. Private chưa tới giờ vẫn không nhận bài dù cấu hình đã bật.
+- Ẩn/hiện private không đổi giai đoạn hay chạy lại quy tắc thu hồi chatbot/khóa public. Trong private có thể mở lại nhận public và cấp lại chatbot độc lập.
+- **Cấp / hẹn giờ** cho phép dùng chatbot trong thời gian vòng đang mở, kèm giờ thu hồi tùy chọn. Không hẹn giờ nghĩa là dùng đến khi vòng/luyện tập kết thúc hoặc admin thu hồi. Đổi quyền vẫn giữ ngân sách và lịch sử chat; công việc trước lần thu hồi không thể phát câu trả lời sau khi được cấp lại.
+- JupyterLab chỉ có công tắc mở từ website, không có bộ hẹn giờ riêng. Khóa quyền hoặc hết giờ không ngắt tab Lab đã mở, kernel, training hay Pod. Cấp quyền không tự cấp tài nguyên mới.
+- Form sửa lịch/cấp quyền gắn với run và phiên bản lúc mở. Khi admin khác cập nhật hoặc private tự bắt đầu, form cũ bị từ chối để tránh ghi đè; đóng và mở lại form. Request trùng chỉ áp dụng một lần.
+
+## Luyện tập tiếp sau thi
+
+Khi đã kết thúc, bấm **Mở luyện tập tiếp**. Chế độ `practice` dùng một hạn chung hoặc không giới hạn; không có lịch chuyển public → private. Cả hai split mặc định cùng nhận bài, hiện/ẩn riêng. Chatbot mặc định tắt; JupyterLab mặc định được phép mở nếu đã có Workspace phù hợp. Có thể cấp chatbot cùng giờ thu hồi riêng; quy tắc thu hồi khi vào private không áp dụng trong chế độ này.
+
+Lượt luyện dùng nguyên run ID, đăng ký, bài nộp, BXH và số lượt đã dùng. Điểm mới tiếp tục ảnh hưởng BXH cũ; quota đã hết cần tăng bằng chức năng hiện có. Hết hạn hoặc **Kết thúc luyện tập** khóa nhận bài, chatbot và mở Lab từ web, giữ Pod/tệp/tiến trình. Mở luyện tiếp lần nữa vẫn tích lũy trên lượt này. Chỉ **Đặt lại / mở lượt mới** tạo run mới.
+
+API quản trị vẫn dùng `/api/admin/control`. Các action mới: `timing`, `private-policy`, `submission-access`, `chatbot-access`, `notebook-access`, `practice-open`, `practice-close`; `open-private` nay yêu cầu hai lựa chọn và `endAt`. Chúng gửi `runId`, `revision` và UUID `requestId`. Trường thời gian là Unix milliseconds hoặc `null`; quyền tiếp tục được kiểm tra ở server và trong Redis Lua trước khi ghi bài/phát phản hồi. Bản ghi cũ tự dùng mặc định tương thích, không cần migration production.
+
+QA không cấp GPU: `node --env-file=.env --import tsx scripts/qa-round-controls.ts` kiểm tra Redis thật trong namespace mới và tự dọn. Thêm `--keep` để tạo `.local/round-access-qa.json`; chạy `scripts/serve-round-access-qa.ts` để mở cổng 3016, rồi Playwright CLI `run-code --filename scripts/qa-round-access-ui.js`. Sau khi đăng xuất/đóng browser và dừng server QA, chạy `scripts/cleanup-round-access-qa.ts` để dọn fixture. Fixture dùng đề giả nội bộ, không sao chép hay ghi vào vòng production.
 
 ## Nạp bộ đề tiếp theo
 

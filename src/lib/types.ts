@@ -1,4 +1,5 @@
-export type Phase = "waiting" | "scheduled" | "public" | "private" | "ended";
+export type Phase =
+  "waiting" | "scheduled" | "public" | "private" | "practice" | "ended";
 export type Split = "public" | "private";
 export type TaskId = "1" | "2" | "3";
 export interface User {
@@ -23,6 +24,18 @@ export interface Contest {
   roundId?: string;
   packageId?: string;
   privateAt?: number | null;
+  /** Version 1 uses explicit privateAt/endAt; absent fields retain legacy timing. */
+  timingVersion?: 1;
+  endAt?: number | null;
+  privateStartedAt?: number;
+  revision?: number;
+  chatEpoch?: number;
+  privatePolicy?: { lockPublic: boolean; revokeChatbot: boolean };
+  submissionAccess?: Record<Split, { visible: boolean; enabled: boolean }>;
+  chatbotAllowed?: boolean;
+  chatbotUntil?: number | null;
+  notebookAllowed?: boolean;
+  practice?: { startAt: number; endAt: number | null };
   unlimited?: boolean;
   autoApprove?: boolean;
   hidden?: boolean;

@@ -31,6 +31,7 @@ import {
 } from "@/lib/rounds";
 import { taskStatements } from "@/lib/statements";
 import { canRead } from "@/lib/domain";
+import { guardedRoundActions, roundControlSchema } from "@/lib/round-control";
 import { SubmissionError } from "@/lib/judge";
 import type { Submission, User } from "@/lib/types";
 import { readSubmissionFile } from "@/lib/submission-storage";
@@ -331,6 +332,18 @@ async function handle(
     if (route === "admin/control") {
       await requireAdmin();
       await rateLimit(`admin:${user.id}`, 30, 60);
+      const rawControl = await payload(req);
+      if (
+        rawControl &&
+        typeof rawControl === "object" &&
+        guardedRoundActions.includes(
+          (rawControl as { action?: string }).action ?? "",
+        )
+      ) {
+        const value = roundControlSchema.parse(rawControl);
+        await control(value.action, value, selectedRound());
+        return json({ ok: true });
+      }
       const value = z
         .discriminatedUnion("action", [
           z.object({ action: z.literal("visibility"), hidden: z.boolean() }),
@@ -359,22 +372,15 @@ async function handle(
             action: z.literal("schedule"),
             scheduledAt: z.string().datetime(),
           }),
-          ...(
-            [
-              "start",
-              "cancel",
-              "finish",
-              "new",
-              "reset",
-              "open-private",
-            ] as const
-          ).map((action) => z.object({ action: z.literal(action) })),
+          ...(["start", "cancel", "finish", "new", "reset"] as const).map(
+            (action) => z.object({ action: z.literal(action) }),
+          ),
           z.object({
             action: z.literal("announce"),
             text: z.string().trim().min(1).max(1000),
           }),
         ])
-        .parse(await payload(req));
+        .parse(rawControl);
       await control(value.action, value, selectedRound());
       return json({ ok: true });
     }

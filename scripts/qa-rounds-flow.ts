@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { db, key } from "../src/lib/db";
 import type { Contest } from "../src/lib/types";
+import { contestEnd } from "../src/lib/domain";
 const base = "http://localhost:3000";
 async function main() {
   if (!process.env.ARENA_NAMESPACE?.startsWith("arena:qa:"))
@@ -19,6 +20,19 @@ async function main() {
     round = "",
     expected = 200,
   ) {
+    if ((value as { action?: string } | undefined)?.action === "open-private") {
+      const current = (await request("arena", cookie, undefined, round)).data
+        .contest;
+      value = {
+        action: "open-private",
+        runId: current.id,
+        revision: current.revision ?? 0,
+        requestId: randomUUID(),
+        lockPublic: true,
+        revokeChatbot: true,
+        endAt: contestEnd(current),
+      };
+    }
     const res = await fetch(
       base + "/api/" + route + (round ? "?round=" + round : ""),
       {

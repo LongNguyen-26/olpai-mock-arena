@@ -17,6 +17,8 @@ import { accessChatGroup, getChatGroup, groupTemplate } from "./chat-groups";
 import { decryptSecret, matchesSecret } from "./workspace-crypto";
 import { hasService } from "./workspace-options";
 import type { Contest, SafeUser, User } from "./types";
+import { applyPrivateTransition } from "./domain";
+import { ROUND_POLICY_LUA } from "./round-policy-lua";
 
 export const QUEUE_PROTOCOL = 2;
 export const supportedQueueProtocol = (protocol: number) =>
@@ -36,6 +38,8 @@ type Status =
   | "failed"
   | "cancelled";
 export interface ChatJob {
+  chatEpoch?: number;
+  accessDeadline?: number | null;
   id: string;
   fingerprint: string;
   target: string;
@@ -106,16 +110,16 @@ interface Target {
 }
 
 // Every transition fences the round, worker attempt and session. No prompt or credential is logged.
-const LUA = `
-local p=ARGV[1]; local now=tonumber(ARGV[2]); local ttl=tonumber(ARGV[3]);
+const LUA =
+  ROUND_POLICY_LUA +
+  `
+local p=ARGV[1]; local now=arena_now(); local ttl=tonumber(ARGV[3]);
 local function read(k) local v=redis.call('GET',k);if v then return cjson.decode(v) end end
 local function write(k,v) redis.call('SET',k,cjson.encode(v),'EX',ttl) end
 local function valid(j)
- local c=read(j.roundKey);if not c or c.id~=j.runId or c.hidden or c.deletedAt then return false end
- if c.startAt==cjson.null or not c.startAt or now<c.startAt then return false end
- if c.forcedEndAt and c.forcedEndAt~=cjson.null and now>=c.forcedEndAt then return false end
- local cutoff=c.privateAt;if not cutoff or cutoff==cjson.null then if not c.unlimited then cutoff=c.startAt+c.publicSeconds*1000 end end
- if cutoff and cutoff~=cjson.null and now>=cutoff then return false end
+ local c=arena_round(j.roundKey,now);if not c or c.id~=j.runId or not arena_chat(c,now) then return false end
+ if (j.chatEpoch or 0)~=(c.chatEpoch or 0) then return false end
+ local deadline=arena_value(j.accessDeadline);if deadline and now>=deadline then return false end
  if j.admin then return redis.call('GET',p..':admin')==j.userId or redis.call('SISMEMBER',p..':admins',j.userId)==1 end
  local u=read(p..':user:'..j.userId);if not u or u.teamId~=j.teamId then return false end
  local raw=redis.call('HGET',p..':teams',j.teamId);if not raw then return false end
@@ -328,9 +332,12 @@ export async function enqueueChat(
   await reconcileChat(t.id, t.c.id);
   if (t.paused) throw new ApiError("Chatbot tạm ngừng nhận tin nhắn mới.", 409);
   if (!chatbotOpen({ runId: t.c.id, services: "llm" }, t.c, now))
-    throw new ApiError("Chatbot chỉ mở trong public của lượt thi.", 403);
+    throw new ApiError("Quyền sử dụng chatbot của vòng này đang khóa.", 403);
   const audience = user.admin ? `admin-${user.id}` : `team-${user.teamId}`;
   const j: ChatJob = {
+    chatEpoch: applyPrivateTransition(t.c, now).chatEpoch ?? 0,
+    // A grant expiring while a job is in flight cannot be revived by a later grant.
+    accessDeadline: t.c.chatbotUntil ?? null,
     id: requestId,
     fingerprint,
     target: t.id,

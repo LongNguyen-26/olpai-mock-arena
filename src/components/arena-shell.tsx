@@ -74,6 +74,7 @@ export const names = {
   scheduled: "Đã hẹn giờ",
   public: "PUBLIC",
   private: "PRIVATE",
+  practice: "Luyện tập tiếp",
   ended: "Đã kết thúc",
 };
 export default function Arena() {
@@ -198,8 +199,11 @@ export default function Arena() {
       await api(route, value, target);
       setToast(message);
       await load();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Thao tác thất bại.");
+      await load();
+      return false;
     } finally {
       setBusy(false);
     }
@@ -227,7 +231,7 @@ export default function Arena() {
   const isAdmin = data.user.admin,
     transitioning = (c?.roundId ?? "") !== selected.current,
     inside = !!c && !transitioning,
-    open = inside && ["public", "private"].includes(phase),
+    open = inside && ["public", "private", "practice"].includes(phase),
     props = { data, busy, action },
     views = {
       ...props,

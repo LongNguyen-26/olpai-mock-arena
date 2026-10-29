@@ -7,7 +7,7 @@ GPU Workspace: admin cấp Pod riêng/chung cho JupyterLab và DeepSeek 32B Q4; 
 - Danh sách nhiều vòng luyện. Đăng ký cá nhân, tự duyệt hoặc admin duyệt.
 - Đăng nhập, tạo đội, mã mời/lời mời. Đổi thành viên được phép trong lúc thi.
 - Hai đề riêng trong mỗi bộ. Tài nguyên chỉ mở cho người đã đăng ký và được duyệt, theo giờ của từng vòng.
-- Bắt đầu ngay/hẹn giờ, mở private sớm, mở vô thời hạn, kết thúc và đặt lại vòng.
+- Bắt đầu ngay/hẹn giờ, sửa lịch khi đang chạy, chuyển private sớm với lựa chọn quyền, mở luyện sau thi có hạn/vô hạn trên cùng lượt; điều khiển độc lập submission, chatbot và mở JupyterLab từ web.
 - CSV UTF-8 tối đa 3 MB. Public/private chấm ngay, chọn điểm cao nhất từng tác vụ, tổng tối đa 200 điểm.
 - Tải trực tiếp hoặc mở cùng ZIP trên Drive. Link private chỉ hiển thị khi mở private.
 - Bộ đề mới ở danh sách admin trước; admin xác nhận phát hành vòng thì thí sinh mới thấy để đăng ký.

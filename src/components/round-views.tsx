@@ -26,7 +26,7 @@ import {
   when,
   type ViewProps,
 } from "./arena-client";
-import { contestEnd } from "@/lib/domain";
+import { contestEnd, submissionAccess } from "@/lib/domain";
 import type { Phase, TaskId, TaskStatement } from "@/lib/types";
 type Props = ViewProps & {
   phase: Phase;
@@ -40,6 +40,7 @@ const names = {
   scheduled: "Đã hẹn giờ",
   public: "PUBLIC",
   private: "PRIVATE",
+  practice: "Luyện tập tiếp",
   ended: "Đã kết thúc",
 };
 function Locked({
@@ -66,14 +67,9 @@ export function OverviewView({ data, phase, now, go }: Props) {
   const c = data.contest;
   if (!c) return null;
   const locked = !data.canReadStatement,
-    open = ["public", "private"].includes(phase),
+    open = ["public", "private", "practice"].includes(phase),
     end = contestEnd(c),
-    target =
-      phase === "scheduled"
-        ? c.startAt
-        : phase === "public" || phase === "private"
-          ? end
-          : null,
+    target = phase === "scheduled" ? c.startAt : open ? end : null,
     remaining = target
       ? Math.max(0, Math.ceil((target - now) / 1000))
       : c.publicSeconds + c.privateSeconds;
@@ -95,9 +91,13 @@ export function OverviewView({ data, phase, now, go }: Props) {
           <div className="hero-meta">
             <span>
               <Clock3 size={20} />
-              {c.unlimited
-                ? "Không giới hạn"
-                : `${(c.publicSeconds + c.privateSeconds) / 3600} giờ thi`}
+              {phase === "practice"
+                ? end == null
+                  ? "Luyện tập không giới hạn"
+                  : "Luyện tập có thời hạn"
+                : c.unlimited
+                  ? "Không giới hạn"
+                  : `${(c.publicSeconds + c.privateSeconds) / 3600} giờ thi`}
             </span>
             <span>
               <BookOpen size={20} />
@@ -124,23 +124,19 @@ export function OverviewView({ data, phase, now, go }: Props) {
                 ? "THỜI GIAN CÒN LẠI"
                 : "THỜI LƯỢNG"}
           </span>
-          <strong
-            className={c.unlimited && target === null ? "infinite-clock" : ""}
-          >
+          <strong className={open && target === null ? "infinite-clock" : ""}>
             {phase === "ended"
               ? "00:00:00"
-              : c.unlimited && target === null
+              : open && target === null
                 ? "Không giới hạn"
                 : duration(remaining)}
           </strong>
           <p>
-            {phase === "public"
-              ? "Nhận bài public"
-              : phase === "private"
-                ? "Nhận bài private"
-                : phase === "ended"
-                  ? "Đã kết thúc"
-                  : "Chờ quản trị viên bắt đầu"}
+            {open
+              ? `Nhận bài: ${(["public", "private"] as const).filter((s) => submissionAccess(c, now, s).accepting).join(" + ") || "đang khóa"}`
+              : phase === "ended"
+                ? "Đã kết thúc"
+                : "Chờ quản trị viên bắt đầu"}
           </p>
         </div>
       </section>
@@ -220,6 +216,16 @@ export function OverviewView({ data, phase, now, go }: Props) {
               caption: "Điểm chung cuộc",
               active: phase === "ended",
             },
+            ...(c.practice
+              ? [
+                  {
+                    n: "05",
+                    title: "Luyện tập tiếp",
+                    caption: "Tiếp tục kết quả và quota",
+                    active: phase === "practice",
+                  },
+                ]
+              : []),
           ].map((s) => (
             <div
               className={`timeline-step ${s.active ? "current" : ""}`}
@@ -255,9 +261,13 @@ export function OverviewView({ data, phase, now, go }: Props) {
                   {fmt(
                     mySubs
                       .filter((s) => s.task === id && s.split === "public")
-                      .reduce<
-                        number | null
-                      >((best, s) => (best === null ? s.score : Math.max(best, s.score ?? 0)), null),
+                      .reduce<number | null>(
+                        (best, s) =>
+                          best === null
+                            ? s.score
+                            : Math.max(best, s.score ?? 0),
+                        null,
+                      ),
                   )}
                 </b>
               </span>

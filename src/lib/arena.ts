@@ -2,7 +2,8 @@ import { randomUUID, createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { db, key, serverNow, storage } from "./db";
 import { ApiError } from "./auth";
-import { phaseOf } from "./domain";
+import { submissionAccess } from "./domain";
+import { ROUND_POLICY_LUA } from "./round-policy-lua";
 import {
   getContest,
   getPackage,
@@ -33,27 +34,22 @@ export {
   control,
 } from "./rounds";
 export { teamAction } from "./teams";
-export const SUBMIT_SCRIPT = `
+export const SUBMIT_SCRIPT =
+  ROUND_POLICY_LUA +
+  `
 local cached=redis.call('GET',KEYS[4]);if cached then return cached end
-local raw=redis.call('GET',KEYS[1]);if not raw then return 'run' end
-local c=cjson.decode(raw);if c.id~=ARGV[1] then return 'run' end
+local now=arena_now();local c=arena_round(KEYS[1],now);if not c or c.id~=ARGV[1] then return 'run' end
 if c.deletedAt and c.deletedAt~=cjson.null then return 'run' end
 local rawUser=redis.call('GET',KEYS[5]);if not rawUser then return 'role' end
 local user=cjson.decode(rawUser);local admin=redis.call('GET',KEYS[7])==user.id or redis.call('SISMEMBER',KEYS[8],user.id)==1
-local tm=redis.call('TIME');local now=tonumber(tm[1])*1000+math.floor(tonumber(tm[2])/1000)
 local s=cjson.decode(ARGV[3]);if s.adminTest and not admin then return 'role' end
 if not admin then
  if c.hidden==true then return 'closed' end
- local phase='closed';if c.startAt~=cjson.null and now>=c.startAt then
-  local p=c.privateAt;if p==nil or p==cjson.null then if c.unlimited then p=nil else p=c.startAt+c.publicSeconds*1000 end end
-  if p==nil or now<p then phase='public' elseif c.unlimited or now<p+c.privateSeconds*1000 then phase='private' end
- end
- if c.forcedEndAt~=cjson.null and now>=c.forcedEndAt then phase='closed' end
- if phase~=ARGV[2] then return 'closed' end
+ if not arena_submit(c,now,ARGV[2]) then return 'closed' end
  if user.teamId~=ARGV[4] then return 'team' end
  local reg=redis.call('HGET',KEYS[6],user.id);if not reg or cjson.decode(reg).status~='approved' then return 'registration' end
  if s.status~='invalid' then
-  local limit=c.publicLimit;if phase=='private' then limit=c.privateLimit end
+  local limit=c.publicLimit;if ARGV[2]=='private' then limit=c.privateLimit end
   if tonumber(redis.call('GET',KEYS[2]) or '0')>=limit then return 'quota' end
   redis.call('INCR',KEYS[2])
  end
@@ -85,7 +81,7 @@ export async function submit(
   const contest = await getContest(roundId);
   await requireRegistration(user, contest);
   const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
-  if (!admin && phaseOf(contest, now) !== split)
+  if (!admin && !submissionAccess(contest, now, split).accepting)
     throw new ApiError("Chưa mở hoặc đã khóa nhận bài cho tập này.", 409);
   if (!pkg) throw new ApiError("Chưa có bộ chấm.", 503);
   const judgeKeys = pkg.judges[task];

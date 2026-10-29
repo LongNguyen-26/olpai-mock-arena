@@ -5,6 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { db, key } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 import type { Contest } from "../src/lib/types";
+import { contestEnd } from "../src/lib/domain";
 import { defaultTemplate } from "../src/lib/workspace-domain";
 
 const filename = ".local/qa-admin-refinements.json",
@@ -155,6 +156,18 @@ async function run() {
     value?: unknown,
     status = 200,
   ) {
+    if ((value as { action?: string } | undefined)?.action === "open-private") {
+      const current = (await request("arena", cookie)).data.contest;
+      value = {
+        action: "open-private",
+        runId: current.id,
+        revision: current.revision ?? 0,
+        requestId: randomUUID(),
+        lockPublic: true,
+        revokeChatbot: true,
+        endAt: contestEnd(current),
+      };
+    }
     const res = await fetch(`${base}/api/${route}?round=${state.roundId}`, {
       method: value === undefined ? "GET" : "POST",
       headers: {

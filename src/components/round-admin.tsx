@@ -5,7 +5,6 @@ import {
   Play,
   Plus,
   ShieldCheck,
-  Flag,
   RotateCcw,
   Bell,
   ArrowDownToLine,
@@ -13,11 +12,12 @@ import {
 import { api, when, type ViewProps } from "./arena-client";
 import { phaseOf, privateStart, contestEnd } from "@/lib/domain";
 import RoundVisibilityButton from "./round-visibility-button";
+import RoundAccessControls from "./round-access-controls";
 export default function RoundAdmin({ data, busy, action }: ViewProps) {
   const c = data.contest;
   if (!c) return null;
   const phase = phaseOf(c, data.serverNow),
-    open = ["public", "private"].includes(phase),
+    open = ["public", "private", "practice"].includes(phase),
     waiting = ["waiting", "scheduled"].includes(phase),
     p = privateStart(c),
     end = contestEnd(c);
@@ -90,23 +90,6 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
                   Bắt đầu ngay
                 </button>
               )}
-              {phase === "public" && (
-                <button
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={() => {
-                    if (confirm("Khóa nộp public và mở private ngay?"))
-                      void action(
-                        "admin/control",
-                        { action: "open-private" },
-                        "Đã mở private.",
-                      );
-                  }}
-                >
-                  <Flag size={16} />
-                  Mở private sớm
-                </button>
-              )}
               {phase === "scheduled" && (
                 <button
                   className="btn"
@@ -116,7 +99,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
                   Hủy lịch hẹn
                 </button>
               )}
-              {open && (
+              {open && phase !== "practice" && (
                 <button
                   className="btn danger-ghost"
                   disabled={busy}
@@ -178,6 +161,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             )}
           </div>
         </div>
+        <RoundAccessControls data={data} busy={busy} action={action} />
       </section>
       <section className="panel round-config-panel">
         <div className="section-title">

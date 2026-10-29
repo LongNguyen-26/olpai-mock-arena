@@ -33,6 +33,7 @@ import type {
 import type { RunpodPod } from "../src/lib/runpod";
 import { readTemplates } from "../src/lib/workspace-templates";
 import { workerAction } from "../src/lib/chat-queue";
+import { control, getContest } from "../src/lib/rounds";
 
 async function main() {
   process.env.ARENA_NAMESPACE = `arena:qa:gpu:${randomUUID()}`;
@@ -40,6 +41,7 @@ async function main() {
   process.env.GPU_WORKSPACE_PUBLIC_URL = "https://qa.example.test";
   const originalFetch = globalThis.fetch;
   let creates = 0,
+    providerControls = 0,
     generations = 0,
     tokenCount = 20,
     tokenCounts = 0,
@@ -161,14 +163,17 @@ async function main() {
       const pod = pods.find((p) => p.id === input.podId);
       if (!pod) return json({}, 404);
       if (request.query.includes("ArenaTerminate")) {
+        providerControls++;
         pods.splice(pods.indexOf(pod), 1);
         return json({ data: { podTerminate: null } });
       }
       if (request.query.includes("ArenaStop")) {
+        providerControls++;
         pod.desiredStatus = "EXITED";
         return json({ data: { podStop: pod } });
       }
       if (request.query.includes("ArenaResume")) {
+        providerControls++;
         pod.desiredStatus = "RUNNING";
         return json({ data: { podResume: pod } });
       }
@@ -607,7 +612,122 @@ async function main() {
     await assert.rejects(
       () =>
         sendChat(member, w.id, randomUUID(), randomUUID(), "private request"),
-      /public/,
+      /khóa/,
+    );
+    const beforeControls = providerControls,
+      beforeCreates = creates;
+    await syncWorkspace(member, w.id);
+    async function roundChange(
+      action: string,
+      values: Record<string, unknown> = {},
+    ) {
+      const current = await getContest(c.roundId!);
+      await control(
+        action,
+        {
+          ...values,
+          action,
+          runId: current.id,
+          revision: current.revision ?? 0,
+          requestId: randomUUID(),
+        },
+        c.roundId!,
+      );
+    }
+    await roundChange("chatbot-access", { enabled: true, until: null });
+    assert.equal(
+      (await agentManifest(w.id, `Bearer ${decryptSecret(stored.secret)}`))
+        .llmEnabled,
+      true,
+    );
+    const lateSession = randomUUID(),
+      lateRequest = randomUUID();
+    await enqueueChat(
+      member,
+      w.id,
+      lateSession,
+      lateRequest,
+      "Must not publish after revoke",
+    );
+    const workerBase = {
+      workspaceId: w.id,
+      protocol: 1,
+      ready: true,
+      fingerprint: "qa-model",
+    };
+    const workerAuth = `Bearer ${decryptSecret(stored.secret)}`;
+    const claim = (await workerAction("claim", workerBase, workerAuth)) as {
+      job: { requestId: string; attempt: string };
+    };
+    assert.ok(claim.job);
+    assert.equal(
+      (
+        (await workerAction(
+          "prepare",
+          { ...workerBase, ...claim.job, promptTokens: 20 },
+          workerAuth,
+        )) as { execute: boolean }
+      ).execute,
+      true,
+    );
+    await roundChange("chatbot-access", { enabled: false, until: null });
+    await roundChange("chatbot-access", { enabled: true, until: null });
+    const late = (await workerAction(
+      "complete",
+      {
+        ...workerBase,
+        ...claim.job,
+        content: "Late forbidden output",
+        inputTokens: 20,
+        outputTokens: 10,
+      },
+      workerAuth,
+    )) as { accepted: boolean };
+    assert.equal(late.accepted, false);
+    assert.ok(
+      !(await readChat(member, w.id, lateSession)).session.messages.some(
+        (m) => m.content === "Late forbidden output",
+      ),
+    );
+    for (const visible of [false, true, false, true])
+      await roundChange("submission-access", {
+        split: "private",
+        visible,
+        enabled: true,
+      });
+    assert.equal((await agentManifest(w.id, workerAuth)).llmEnabled, true);
+    await control("finish", {}, c.roundId!);
+    await roundChange("practice-open", {
+      endAt: null,
+      publicVisible: true,
+      privateVisible: true,
+      chatbotEnabled: true,
+      chatbotUntil: null,
+      notebookEnabled: true,
+    });
+    const practiceManifest = await agentManifest(w.id, workerAuth);
+    assert.equal(practiceManifest.phase, "practice");
+    assert.equal(practiceManifest.llmEnabled, true);
+    assert.equal(practiceManifest.publicEndsAt, null);
+    assert.ok(
+      (await launchNotebook(member, w.id)).includes("8888.proxy.runpod.net"),
+    );
+    const practiceAnswer = await sendChat(
+      member,
+      w.id,
+      randomUUID(),
+      randomUUID(),
+      "Practice still allows chatbot",
+    );
+    assert.equal(practiceAnswer.session.messages.length, 2);
+    await roundChange("notebook-access", { enabled: false });
+    await assert.rejects(() => launchNotebook(member, w.id), /đang khóa/);
+    await roundChange("practice-close");
+    assert.equal((await agentManifest(w.id, workerAuth)).llmEnabled, false);
+    assert.equal(providerControls, beforeControls);
+    assert.equal(creates, beforeCreates);
+    console.log(
+      "PASS: private chatbot reopen, late-response fence, independent submission visibility, practice manifest/chat/Lab, and zero Pod lifecycle mutations.",
     );
     const oldRun = c.id;
     c.id = randomUUID();

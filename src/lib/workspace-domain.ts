@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { phaseOf } from "./domain";
+import { chatbotAllowed, notebookAllowed } from "./domain";
 import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
 import type { PodStartupFailure } from "./runpod-startup";
@@ -158,11 +158,9 @@ export function workspaceAccess(
   admin = false,
   registered = true,
 ) {
-  const phase = phaseOf(c, now);
   const current =
     w.runId === c.id && w.status === "running" && roundVisible(c, admin);
-  const notebookWindow =
-    admin || (registered && ["public", "private"].includes(phase));
+  const notebookWindow = admin || (registered && notebookAllowed(c, now));
   const chatWindow = (admin || registered) && chatbotOpen(w, c, now);
   return {
     notebookEnabled:
@@ -181,7 +179,7 @@ export function workspaceAccess(
       : !registered && !admin
         ? "Bạn cần được duyệt tham gia vòng luyện này."
         : hasService(w, "jupyter") && !notebookWindow
-          ? "Notebook mở trong giai đoạn public và private."
+          ? "Quản trị viên chưa mở quyền JupyterLab cho vòng này."
           : hasService(w, "jupyter") && !w.health?.jupyter
             ? "JupyterLab đang khởi động; chưa mở truy cập."
             : hasService(w, "llm") && chatWindow && !w.health?.llm
@@ -223,7 +221,7 @@ export function chatbotOpen(
     roundVisible(c) &&
     hasService(w, "llm") &&
     w.runId === c.id &&
-    phaseOf(c, now) === "public"
+    chatbotAllowed(c, now)
   );
 }
 export function outputBudget(

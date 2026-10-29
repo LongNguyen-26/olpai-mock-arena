@@ -280,7 +280,7 @@ export default function WorkspaceChat() {
             <p className="gpu-hint">
               {data.policyOpen
                 ? data.statusMessage || "Chatbot tạm thời chưa khả dụng."
-                : "Chatbot chỉ mở trong public của vòng luyện. Các lệnh kiểm tra token vẫn xem được."}
+                : "Quyền chatbot đang khóa hoặc đã hết hạn theo cấu hình của quản trị viên. Các lệnh kiểm tra token vẫn xem được."}
             </p>
           )}
           {data?.session.error && (

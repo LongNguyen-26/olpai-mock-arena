@@ -6,6 +6,7 @@ import { resolve, join } from "node:path";
 import { db, key, storage } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 import { packageSchema } from "../src/lib/package-schema";
+import { contestEnd } from "../src/lib/domain";
 
 const root = resolve("../statements/Arena_02/web_ready"),
   statePath = ".local/qa-arena02.json";
@@ -22,7 +23,7 @@ async function setup() {
   const password = "Arena-QA-Fixture-2026!",
     hash = await hashPassword(password);
   const round = {
-    id: "qa-run",
+    id: randomUUID(),
     roundId: ROUND_ID,
     packageId: pkg.version,
     title: "QA Bộ đề 02",
@@ -97,6 +98,19 @@ async function run() {
     round = ROUND_ID,
     status = 200,
   ) {
+    if ((value as { action?: string } | undefined)?.action === "open-private") {
+      const current = (await request("arena", cookie, undefined, round)).data
+        .contest;
+      value = {
+        action: "open-private",
+        runId: current.id,
+        revision: current.revision ?? 0,
+        requestId: randomUUID(),
+        lockPublic: true,
+        revokeChatbot: true,
+        endAt: contestEnd(current),
+      };
+    }
     const res = await fetch(
       `${base}/api/${route}${round ? "?round=" + round : ""}`,
       {

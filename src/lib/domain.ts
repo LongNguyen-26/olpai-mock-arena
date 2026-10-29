@@ -7,28 +7,43 @@ export type ContestTiming = Pick<
   | "unlimited"
   | "publicSeconds"
   | "privateSeconds"
+  | "timingVersion"
+  | "endAt"
+  | "privateStartedAt"
+  | "practice"
 >;
 export function privateStart(c: ContestTiming) {
+  if (c.privateStartedAt != null) return c.privateStartedAt;
+  if (c.timingVersion === 1) return c.privateAt ?? null;
   return (
     c.privateAt ??
-    (c.startAt === null
+    (c.startAt == null
       ? null
       : c.unlimited
         ? null
         : c.startAt + c.publicSeconds * 1000)
   );
 }
-export function contestEnd(c: ContestTiming) {
-  if (c.forcedEndAt !== null) return c.forcedEndAt;
+export function competitionEnd(c: ContestTiming) {
+  if (c.forcedEndAt != null) return c.forcedEndAt;
+  if (c.timingVersion === 1) return c.endAt ?? null;
   const start = privateStart(c);
   return c.unlimited || start === null ? null : start + c.privateSeconds * 1000;
 }
+export function contestEnd(c: ContestTiming) {
+  return c.practice ? (c.practice.endAt ?? null) : competitionEnd(c);
+}
 export function phaseOf(c: ContestTiming, now: number): Phase {
-  if (c.forcedEndAt !== null && now >= c.forcedEndAt) return "ended";
-  if (c.startAt === null) return "waiting";
+  if (c.practice)
+    return now >= c.practice.startAt &&
+      (c.practice.endAt == null || now < c.practice.endAt)
+      ? "practice"
+      : "ended";
+  if (c.startAt == null) return "waiting";
   if (now < c.startAt) return "scheduled";
   const p = privateStart(c),
-    end = contestEnd(c);
+    end = competitionEnd(c);
+  if (end != null && now >= end) return "ended";
   if (p === null || now < p) return "public";
   return end === null || now < end ? "private" : "ended";
 }
@@ -41,8 +56,103 @@ export function canRead(
   if (admin) return true;
   const phase = phaseOf(c, now);
   return resource === "private"
-    ? ["private", "ended"].includes(phase)
-    : ["public", "private", "ended"].includes(phase);
+    ? ["private", "practice", "ended"].includes(phase)
+    : ["public", "private", "practice", "ended"].includes(phase);
+}
+
+export function privatePolicy(c: Contest) {
+  return c.privatePolicy ?? { lockPublic: true, revokeChatbot: true };
+}
+export function submissionPolicy(c: Contest, split: "public" | "private") {
+  return c.submissionAccess?.[split] ?? { visible: true, enabled: true };
+}
+/** Projection also covers the interval before the next agent/API reconciliation. */
+export function applyPrivateTransition(c: Contest, now: number): Contest {
+  const p = privateStart(c),
+    end = competitionEnd(c);
+  if (
+    c.privateStartedAt != null ||
+    p == null ||
+    now < p ||
+    c.startAt == null ||
+    now < c.startAt ||
+    (end != null && p >= end)
+  )
+    return c;
+  const policy = privatePolicy(c);
+  return {
+    ...c,
+    privateStartedAt: p,
+    revision: (c.revision ?? 0) + 1,
+    submissionAccess: {
+      public: {
+        ...submissionPolicy(c, "public"),
+        ...(policy.lockPublic ? { enabled: false } : {}),
+      },
+      private: { ...submissionPolicy(c, "private") },
+    },
+    ...(policy.revokeChatbot
+      ? { chatbotAllowed: false, chatEpoch: (c.chatEpoch ?? 0) + 1 }
+      : {}),
+  };
+}
+export function submissionAccess(
+  c: Contest,
+  now: number,
+  split: "public" | "private",
+) {
+  const current = applyPrivateTransition(c, now),
+    phase = phaseOf(current, now);
+  const policy = submissionPolicy(current, split);
+  const available =
+    ["public", "private", "practice"].includes(phase) &&
+    (split === "public" || phase === "private" || phase === "practice");
+  return {
+    ...policy,
+    available,
+    accepting:
+      !c.hidden &&
+      !c.deletedAt &&
+      available &&
+      policy.visible &&
+      policy.enabled,
+  };
+}
+export function chatbotAllowed(c: Contest, now: number) {
+  const current = applyPrivateTransition(c, now);
+  return (
+    !current.hidden &&
+    !current.deletedAt &&
+    ["public", "private", "practice"].includes(phaseOf(current, now)) &&
+    current.chatbotAllowed !== false &&
+    (current.chatbotUntil == null || now < current.chatbotUntil)
+  );
+}
+export function notebookAllowed(c: Contest, now: number) {
+  return (
+    !c.hidden &&
+    !c.deletedAt &&
+    c.notebookAllowed !== false &&
+    ["public", "private", "practice"].includes(phaseOf(c, now))
+  );
+}
+export function chatbotDeadline(c: Contest, now: number) {
+  const p = privateStart(c);
+  return (
+    [
+      contestEnd(c),
+      c.chatbotUntil,
+      !c.practice &&
+      c.privateStartedAt == null &&
+      privatePolicy(c).revokeChatbot &&
+      p != null &&
+      p > now
+        ? p
+        : null,
+    ]
+      .filter((t): t is number => t != null)
+      .sort((a, b) => a - b)[0] ?? null
+  );
 }
 export function visibleSubmission(s: Submission, _reveal = true) {
   const { path: _path, fileStorage: _fileStorage, ...rest } = s;

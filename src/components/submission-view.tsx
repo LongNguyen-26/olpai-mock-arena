@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { endpoint, fmt, when, type ViewProps } from "./arena-client";
 import type { Phase, Split, TaskId } from "@/lib/types";
+import { canRead, submissionAccess } from "@/lib/domain";
 type Result = {
   id?: string;
   status?: string;
@@ -20,20 +21,40 @@ type Result = {
 };
 type Props = ViewProps & {
   phase: Phase;
+  now: number;
   go: (section: string) => void;
   refresh: () => Promise<void>;
 };
-export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
+export default function SubmitView({
+  data,
+  phase,
+  now,
+  busy,
+  go,
+  refresh,
+}: Props) {
   const [task, setTask] = useState<TaskId>("1");
-  const [adminSplit, setAdminSplit] = useState<Split>("public");
+  const [selectedSplit, setSelectedSplit] = useState<Split | null>(null);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const nonce = useRef(crypto.randomUUID());
   const c = data.contest;
   if (!c) return null;
   const admin = data.user.admin;
-  const split = admin ? adminSplit : phase === "private" ? "private" : "public";
-  const open = admin || ["public", "private"].includes(phase);
+  const choices = (["public", "private"] as const).filter(
+    (s) => admin || (submissionAccess(c, now, s).visible && canRead(c, now, s)),
+  );
+  const preferred = phase === "private" ? "private" : "public";
+  const split =
+    selectedSplit && choices.includes(selectedSplit)
+      ? selectedSplit
+      : (choices.find(
+          (s) => s === preferred && submissionAccess(c, now, s).accepting,
+        ) ??
+        choices.find((s) => submissionAccess(c, now, s).accepting) ??
+        choices[0] ??
+        "public");
+  const open = admin || submissionAccess(c, now, split).accepting;
   const count = data.submissions.filter(
     (s) =>
       s.teamId === data.user.teamId &&
@@ -82,10 +103,35 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
               <UploadCloud size={22} />
               {admin ? "Nộp thử · Admin" : "Nộp bài"}
             </h2>
-            <span className="pill neutral submission-phase">
-              {split.toUpperCase()}
-            </span>
+            {(admin || choices.length > 0) && (
+              <span className="pill neutral submission-phase">
+                {split.toUpperCase()}
+              </span>
+            )}
           </div>
+          {choices.length > 0 && (
+            <label className="submission-split-picker">
+              Bộ kiểm thử
+              <select
+                value={split}
+                disabled={sending}
+                onChange={(e) => {
+                  setSelectedSplit(e.target.value as Split);
+                  setResult(null);
+                  nonce.current = crypto.randomUUID();
+                }}
+              >
+                {choices.map((s) => (
+                  <option key={s} value={s}>
+                    {s.toUpperCase()}
+                    {!admin && !submissionAccess(c, now, s).accepting
+                      ? " · Đang khóa"
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {sending ? (
             <div className="submission-result" role="status">
               <LoaderCircle className="spinning" size={46} />
@@ -142,7 +188,11 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
           ) : !open ? (
             <div className="locked">
               <h3>Chưa mở hoặc đã khóa nhận bài</h3>
-              <p>Xem thời gian trên trang tổng quan.</p>
+              <p>
+                {choices.length
+                  ? "Bộ kiểm thử đang chọn chưa nhận bài. Bạn có thể chọn bộ kiểm thử khác đang mở."
+                  : "Quản trị viên chưa mở khu vực nộp bài. Lịch sử bên dưới vẫn được giữ."}
+              </p>
             </div>
           ) : !admin && !data.team ? (
             <div className="locked">
@@ -153,21 +203,6 @@ export default function SubmitView({ data, phase, busy, go, refresh }: Props) {
             </div>
           ) : (
             <form onSubmit={send}>
-              {admin && (
-                <label>
-                  Bộ kiểm thử
-                  <select
-                    value={adminSplit}
-                    onChange={(e) => {
-                      setAdminSplit(e.target.value as Split);
-                      nonce.current = crypto.randomUUID();
-                    }}
-                  >
-                    <option value="public">PUBLIC</option>
-                    <option value="private">PRIVATE</option>
-                  </select>
-                </label>
-              )}
               <label>
                 Tác vụ
                 <select

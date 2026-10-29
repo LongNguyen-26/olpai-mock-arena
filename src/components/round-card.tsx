@@ -17,6 +17,7 @@ const names = {
   scheduled: "Sắp diễn ra",
   public: "Đang mở · Public",
   private: "Đang mở · Private",
+  practice: "Đang mở · Luyện tập tiếp",
   ended: "Đã kết thúc",
 };
 const startDateFormat = new Intl.DateTimeFormat("vi-VN", {
@@ -46,7 +47,7 @@ export default function RoundCard({
   onVisibility?: (hidden: boolean) => void;
 }) {
   const timing = roundTiming(r, now);
-  const live = timing.phase === "public" || timing.phase === "private";
+  const live = ["public", "private", "practice"].includes(timing.phase);
   return (
     <article className={`panel round-card ${live ? "round-is-live" : ""}`}>
       <a
@@ -89,9 +90,13 @@ export default function RoundCard({
         <div className="round-meta">
           <span>
             <Clock3 size={18} />
-            {r.unlimited
-              ? "Không giới hạn"
-              : `${(r.publicSeconds + r.privateSeconds) / 3600} giờ`}
+            {r.practice
+              ? r.practice.endAt == null
+                ? "Luyện tập không giới hạn"
+                : "Luyện tập có thời hạn"
+              : r.unlimited
+                ? "Không giới hạn"
+                : `${(r.publicSeconds + r.privateSeconds) / 3600} giờ`}
           </span>
           <span>
             <BookOpen size={18} />

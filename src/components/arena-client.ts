@@ -5,7 +5,7 @@ export type Action = (
   value: unknown,
   message?: string,
   target?: string,
-) => Promise<void>;
+) => Promise<boolean | void>;
 export type ViewProps = { data: ArenaData; busy: boolean; action: Action };
 export const fmt = (n: number | null | undefined) =>
   n == null ? "—" : n.toFixed(2);

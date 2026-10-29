@@ -67,7 +67,7 @@ Pod gắn với vòng luyện ổn định: reset vòng tự gắn sang run ID m
 
 llama.cpp pin b5046, commit đối chiếu `74d4f5b041ad837153b0e90fc864b8290e01d8d5`. Một slot inference, context theo template, model tải vào volume lần khởi động đầu. Jupyter và agent khởi động trước model; không tự chạy notebook/training.
 
-GGUF pin revision `1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec`. Khi private/kết thúc/đặt lại vòng, agent dừng llama.cpp để trả VRAM cho notebook ở lần kiểm tra chính sách tiếp theo (khoảng 20 giây cộng độ trễ mạng). Web chặn inference ngay theo thời gian server.
+GGUF pin revision `1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec`. Khi quyền chatbot bị thu hồi hoặc hết thời gian mở, agent dừng llama.cpp để trả VRAM cho notebook ở lần kiểm tra chính sách tiếp theo (khoảng 20 giây cộng độ trễ mạng); deadline đã nhận được kiểm tra mỗi giây. Mặc định private thu hồi chatbot một lần, nhưng admin có thể giữ quyền khi chuyển hoặc cấp lại trong private/luyện sau thi. Web chặn inference ngay theo thời gian server. Manifest giữ `publicEndsAt` làm alias deadline chatbot thực tế cho agent hiện có, đồng thời trả `chatbotEndsAt`; không cần đổi image/restart Pod để dùng các quyền này.
 
 ## Cấu hình server
 

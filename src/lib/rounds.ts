@@ -1,7 +1,20 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
-import { canRead, phaseOf, rankTeams, visibleSubmission } from "./domain";
+import {
+  applyPrivateTransition,
+  canRead,
+  phaseOf,
+  rankTeams,
+  visibleSubmission,
+} from "./domain";
+import { MATERIALIZE_PRIVATE_SCRIPT } from "./round-policy-lua";
+import {
+  CONTROL_ROUND_SCRIPT,
+  guardedRoundActions,
+  reduceRoundControl,
+  roundControlSchema,
+} from "./round-control";
 import { taskStatements } from "./statements";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
@@ -24,6 +37,19 @@ export async function getContest(id?: string) {
   const c = await db().get<Contest>(id ? key(`round:${id}`) : key("contest"));
   if (!c || !roundVisible(c, true))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
+  if (c.privateStartedAt == null && c.startAt != null) {
+    const now = await serverNow();
+    if (applyPrivateTransition(c, now) !== c) {
+      const current = await db().eval<unknown[], Contest | null>(
+        MATERIALIZE_PRIVATE_SCRIPT,
+        [roundKey(c)],
+        [],
+      );
+      if (!current || !roundVisible(current, true))
+        throw new ApiError("Không tìm thấy vòng luyện.", 404);
+      return current;
+    }
+  }
   return c;
 }
 export async function getPackage(c?: Contest) {
@@ -77,6 +103,11 @@ export async function snapshot(user: SafeUser, id?: string) {
             phase: phaseOf(c, now),
             startAt: c.startAt,
             privateAt: c.privateAt ?? null,
+            timingVersion: c.timingVersion,
+            endAt: c.endAt,
+            privateStartedAt: c.privateStartedAt,
+            practice: c.practice,
+            revision: c.revision ?? 0,
             forcedEndAt: c.forcedEndAt,
             publicSeconds: c.publicSeconds,
             privateSeconds: c.privateSeconds,
@@ -130,7 +161,7 @@ export async function snapshot(user: SafeUser, id?: string) {
   const privateVisible =
     !!contest &&
     entered &&
-    (user.admin || ["private", "ended"].includes(phase));
+    (user.admin || ["private", "practice", "ended"].includes(phase));
   const roster = contest
     ? Object.values(
         (await db().hgetall<Record<string, Registration>>(
@@ -298,13 +329,50 @@ export async function control(
     split?: "public" | "private";
     amount?: number;
     requestId?: string;
+    lockPublic?: boolean;
+    revokeChatbot?: boolean;
+    visible?: boolean;
+    enabled?: boolean;
+    until?: number | null;
+    publicVisible?: boolean;
+    privateVisible?: boolean;
+    chatbotEnabled?: boolean;
+    notebookEnabled?: boolean;
   },
   id: string,
 ) {
+  const guarded = guardedRoundActions.includes(action);
+  const v = guarded ? roundControlSchema.parse({ ...values, action }) : null;
+  const fingerprint = v
+    ? createHash("sha256").update(JSON.stringify(v)).digest("hex")
+    : "";
+  const requestKey = v ? key(`round-control:${id}:${v.requestId}`) : "";
+  if (v) {
+    const cached = await db().get<string>(requestKey);
+    if (cached === fingerprint) return;
+    if (cached)
+      throw new ApiError("Mã yêu cầu đã được dùng cho thao tác khác.", 409);
+  }
   const c = await getContest(id),
     now = await serverNow(),
     phase = phaseOf(c, now);
   let next = { ...c };
+  if (v) {
+    if (c.id !== v.runId || (c.revision ?? 0) !== v.revision)
+      throw new ApiError("Vòng luyện vừa được cập nhật. Hãy tải lại.", 409);
+    next = reduceRoundControl(c, v, now);
+    const result = await db().eval<unknown[], string>(
+      CONTROL_ROUND_SCRIPT,
+      [roundKey(c), requestKey],
+      [fingerprint, c.id, v.revision, phase, JSON.stringify(next), action],
+    );
+    if (result !== "ok")
+      throw new ApiError(
+        "Vòng luyện vừa thay đổi hoặc yêu cầu không còn hợp lệ. Hãy tải lại.",
+        409,
+      );
+    return;
+  }
   if (action === "grant-quota") {
     if (
       values.runId !== c.id ||
@@ -373,14 +441,11 @@ export async function control(
   } else if (action === "cancel") {
     if (phase !== "scheduled") throw new ApiError("Không có lịch hẹn.");
     next.startAt = null;
-  } else if (action === "open-private") {
-    if (phase !== "public")
-      throw new ApiError("Chỉ mở private khi vòng luyện đang diễn ra.");
-    next.privateAt = now;
   } else if (action === "finish") {
     if (!["public", "private"].includes(phase))
       throw new ApiError("Vòng luyện chưa bắt đầu.");
     next.forcedEndAt = now;
+    next.chatEpoch = (c.chatEpoch ?? 0) + 1;
   } else if (action === "reset" || action === "new") {
     next = {
       ...c,
@@ -388,9 +453,19 @@ export async function control(
       startAt: null,
       privateAt: null,
       forcedEndAt: null,
+      timingVersion: undefined,
+      endAt: undefined,
+      privateStartedAt: undefined,
+      practice: undefined,
+      submissionAccess: undefined,
+      chatbotAllowed: true,
+      chatbotUntil: null,
+      notebookAllowed: true,
+      chatEpoch: 0,
       createdAt: now,
     };
   } else throw new ApiError("Thao tác không hợp lệ.");
+  next.revision = (c.revision ?? 0) + 1;
   const ok = await db().eval<unknown[], number>(
     `local raw=redis.call('GET',KEYS[1]);if raw~=ARGV[1] then return 0 end;redis.call('SET',KEYS[2],raw);redis.call('SET',KEYS[1],ARGV[2]);return 1`,
     [roundKey(c), key(`runs:${c.id}`)],

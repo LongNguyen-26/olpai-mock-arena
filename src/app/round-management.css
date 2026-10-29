@@ -52,6 +52,84 @@
 .round-control-panel {
   grid-area: control;
 }
+.round-access-controls {
+  border-top: 1px solid #dfe6eb;
+  margin-top: 22px;
+  padding-top: 22px;
+}
+.round-access-controls > h3 {
+  margin: 22px 0 12px;
+}
+.private-policy-form {
+  margin-top: 18px;
+}
+.private-policy-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+}
+.private-policy-form legend {
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+.round-access-table {
+  min-width: 630px;
+}
+.round-access-table th {
+  text-align: left;
+}
+.round-access-table .check-label {
+  margin: 0;
+  white-space: nowrap;
+}
+.round-access-table small {
+  display: block;
+}
+.round-policy-dialog {
+  width: min(620px, calc(100vw - 28px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border: 1px solid #dfe6eb;
+  border-radius: 16px;
+  padding: 24px;
+  color: #294554;
+  background: #fff;
+  box-shadow: 0 20px 80px #163c4833;
+}
+.round-policy-dialog::backdrop {
+  background: #102d3b88;
+}
+.round-policy-dialog fieldset {
+  display: grid;
+  gap: 16px;
+}
+.round-policy-dialog .section-title {
+  gap: 12px;
+  align-items: start;
+}
+.round-policy-dialog h2 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+.round-policy-dialog input[type="datetime-local"] {
+  min-width: 0;
+  width: 100%;
+}
+.round-policy-dialog small {
+  display: block;
+  color: #637985;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.round-policy-dialog p,
+.round-access-controls > p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.submission-split-picker {
+  margin-bottom: 18px;
+}
 .round-config-panel {
   grid-area: config;
 }

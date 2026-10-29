@@ -8,7 +8,7 @@ import {
   roundKey,
   registrationKey,
 } from "./rounds";
-import { canRead, phaseOf, privateStart } from "./domain";
+import { canRead, phaseOf, chatbotDeadline, notebookAllowed } from "./domain";
 import { roundVisible } from "./round-visibility";
 import {
   decryptSecret,
@@ -949,10 +949,9 @@ export async function agentManifest(id: string, authorization: string | null) {
     active: true,
     queueProtocol: 1,
     policyExpiresAt: now + 45000,
-    publicEndsAt:
-      [privateStart(c), c.forcedEndAt]
-        .filter((v): v is number => v !== null)
-        .sort((a, b) => a - b)[0] ?? null,
+    // Legacy agents use this name as their LLM cutoff, independently of the phase.
+    publicEndsAt: chatbotDeadline(c, now),
+    chatbotEndsAt: chatbotDeadline(c, now),
     services: w.services ?? "both",
     runId: c.id,
     phase: phaseOf(c, now),
@@ -967,11 +966,8 @@ export async function launchNotebook(user: SafeUser, id: string) {
     now = await serverNow();
   if (!hasService(w, "jupyter"))
     throw new ApiError("Pod này không cung cấp JupyterLab.", 409);
-  if (
-    !user.admin &&
-    (w.runId !== c.id || !["public", "private"].includes(phaseOf(c, now)))
-  )
-    throw new ApiError("Notebook chỉ mở trong lượt thi được cấp GPU.", 403);
+  if (!user.admin && (w.runId !== c.id || !notebookAllowed(c, now)))
+    throw new ApiError("Quyền mở JupyterLab của vòng này đang khóa.", 403);
   if (w.status !== "running" || !w.podId || !w.health?.jupyter)
     throw new ApiError("JupyterLab chưa sẵn sàng.", 409);
   const health = await runtime<RuntimeHealth>(w, "/health");
@@ -980,6 +976,14 @@ export async function launchNotebook(user: SafeUser, id: string) {
       "JupyterLab đang khởi động. Vui lòng chờ và đối soát lại.",
       409,
     );
+  if (!user.admin) {
+    const latest = await accessWorkspace(user, id);
+    if (
+      latest.c.id !== w.runId ||
+      !notebookAllowed(latest.c, await serverNow())
+    )
+      throw new ApiError("Quyền mở JupyterLab vừa thay đổi. Hãy tải lại.", 403);
+  }
   return `${podOrigin(w.podId, 8888)}/lab?token=${encodeURIComponent(decryptSecret(w.jupyterSecret))}`;
 }
 export async function readChat(
