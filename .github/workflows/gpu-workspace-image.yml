@@ -98,7 +98,14 @@ jobs:
             dockerfile=gpu-workspace/Dockerfile
           elif [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
             before='${{ github.event.before }}'
-            git fetch origin "$before" --depth=1
+            if [[ "$before" == '0000000000000000000000000000000000000000' ]]; then
+              # A newly pushed branch has no previous commit. Compare its
+              # dependency files with production rather than fetching zero.
+              git fetch origin main --depth=1
+              before=FETCH_HEAD
+            else
+              git fetch origin "$before" --depth=1
+            fi
             if ! git diff --quiet "$before" "$GITHUB_SHA" -- gpu-workspace/Dockerfile gpu-workspace/requirements.txt; then
               dockerfile=gpu-workspace/Dockerfile
             fi
