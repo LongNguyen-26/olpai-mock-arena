@@ -231,8 +231,8 @@ export async function registerRound(user: SafeUser, id: string) {
   if (!roundVisible(c)) throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (user.admin) throw new ApiError("Tài khoản quản trị không cần đăng ký.");
   const registered = await db().eval<unknown[], number>(
-    `local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local c=cjson.decode(raw);if c.hidden==true or (c.deletedAt and c.deletedAt~=cjson.null) then return 0 end;local old=redis.call('HGET',KEYS[2],ARGV[1]);if old then local r=cjson.decode(old);if r.status=='approved' or r.status=='pending' then return 1 end end;local r=cjson.decode(ARGV[2]);if c.autoApprove==false then r.status='pending' else r.status='approved' end;redis.call('HSET',KEYS[2],ARGV[1],cjson.encode(r));return 1`,
-    [roundKey(c), registrationKey(c)],
+    `if redis.call('EXISTS',KEYS[3])==0 then return -1 end;local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local c=cjson.decode(raw);if c.hidden==true or (c.deletedAt and c.deletedAt~=cjson.null) then return 0 end;local old=redis.call('HGET',KEYS[2],ARGV[1]);if old then local r=cjson.decode(old);if r.status=='approved' or r.status=='pending' then return 1 end end;local r=cjson.decode(ARGV[2]);if c.autoApprove==false then r.status='pending' else r.status='approved' end;redis.call('HSET',KEYS[2],ARGV[1],cjson.encode(r));return 1`,
+    [roundKey(c), registrationKey(c), key(`user:${user.id}`)],
     [
       user.id,
       JSON.stringify({
@@ -242,6 +242,8 @@ export async function registerRound(user: SafeUser, id: string) {
       }),
     ],
   );
+  if (registered === -1)
+    throw new ApiError("Tài khoản không còn khả dụng.", 401);
   if (!registered) throw new ApiError("Không tìm thấy vòng luyện.", 404);
 }
 export async function reviewRegistration(

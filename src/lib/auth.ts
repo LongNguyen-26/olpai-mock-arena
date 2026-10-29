@@ -34,7 +34,7 @@ export async function getUser(): Promise<SafeUser | null> {
   ]);
   if (!user) return null;
   const { password: _password, ...safe } = user;
-  return { ...safe, admin: adminIds.includes(id) };
+  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id) };
 }
 export async function createSession(id: string) {
   const token = randomBytes(32).toString("base64url");

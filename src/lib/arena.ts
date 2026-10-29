@@ -38,7 +38,8 @@ local cached=redis.call('GET',KEYS[4]);if cached then return cached end
 local raw=redis.call('GET',KEYS[1]);if not raw then return 'run' end
 local c=cjson.decode(raw);if c.id~=ARGV[1] then return 'run' end
 if c.deletedAt and c.deletedAt~=cjson.null then return 'run' end
-local user=cjson.decode(redis.call('GET',KEYS[5]));local admin=redis.call('GET',KEYS[7])==user.id or redis.call('SISMEMBER',KEYS[8],user.id)==1
+local rawUser=redis.call('GET',KEYS[5]);if not rawUser then return 'role' end
+local user=cjson.decode(rawUser);local admin=redis.call('GET',KEYS[7])==user.id or redis.call('SISMEMBER',KEYS[8],user.id)==1
 local tm=redis.call('TIME');local now=tonumber(tm[1])*1000+math.floor(tonumber(tm[2])/1000)
 local s=cjson.decode(ARGV[3]);if s.adminTest and not admin then return 'role' end
 if not admin then

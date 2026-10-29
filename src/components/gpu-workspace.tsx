@@ -20,6 +20,8 @@ import { api, when, type ViewProps } from "./arena-client";
 import type { workspaceState } from "@/lib/workspaces";
 import type { GpuPrice } from "@/lib/runpod";
 import type { WorkspaceTemplate, WorkspaceView } from "@/lib/workspace-domain";
+import { capacityRejected } from "@/lib/workspace-domain";
+import type { workspaceTeams } from "@/lib/workspace-teams";
 import {
   hasService,
   serviceOptions,
@@ -74,6 +76,13 @@ export default function GpuWorkspace({ data }: ViewProps) {
     Partial<Record<WorkspaceServices, WorkspaceTemplate>>
   >({});
   const resourceSequence = useRef(0);
+  const retryRequests = useRef<Record<string, string>>({});
+  const [teamOptions, setTeamOptions] = useState<
+    Awaited<ReturnType<typeof workspaceTeams>> & {
+      loading?: boolean;
+      error?: string;
+    }
+  >({ roundId: "", teams: [] });
   const allocationRequest = useRef("");
   const groupRequest = useRef({ signature: "", id: "" });
   const templateBaseline = useRef<WorkspaceTemplate[]>([]);
@@ -117,6 +126,31 @@ export default function GpuWorkspace({ data }: ViewProps) {
     );
     return () => clearInterval(timer);
   }, [load, data.user.admin]);
+  useEffect(() => {
+    if (!data.user.admin || !roundId) return;
+    let active = true;
+    setTeamOptions((previous) => ({
+      roundId,
+      teams: previous.roundId === roundId ? previous.teams : [],
+      loading: previous.roundId !== roundId || !previous.teams.length,
+    }));
+    void api("workspace/teams", undefined, roundId)
+      .then((result: Awaited<ReturnType<typeof workspaceTeams>>) => {
+        if (!active) return;
+        setTeamOptions(result);
+        setTeamId((selected) =>
+          result.teams.some((t) => t.id === selected) ? selected : "",
+        );
+      })
+      .catch((e: Error) => {
+        if (active) setTeamOptions({ roundId, teams: [], error: e.message });
+      });
+    return () => {
+      active = false;
+    };
+  }, [data.user.admin, roundId, state?.serverNow]);
+  const eligibleTeams =
+    teamOptions.roundId === roundId ? teamOptions.teams : [];
   useEffect(() => {
     if (!data.user.admin || !state?.hasCredential) return;
     let active = true;
@@ -318,6 +352,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       w.roundId === roundId &&
       servicesOverlap(w.services, services) &&
       w.status !== "terminated" &&
+      !capacityRejected(w) &&
       services !== "llm",
   );
   const templateSaved =
@@ -411,6 +446,22 @@ export default function GpuWorkspace({ data }: ViewProps) {
         observedNow={state!.serverNow}
         admin={data.user.admin}
         canManage={canManage}
+        retry={() =>
+          void run(async () => {
+            retryRequests.current[w.id] ||= crypto.randomUUID();
+            const result: WorkspaceView = await api("workspace/retry", {
+              id: w.id,
+              requestId: retryRequests.current[w.id],
+            });
+            if (capacityRejected(result)) {
+              await load();
+              throw new Error(
+                result.error ??
+                  "Runpod vẫn hết capacity. Có thể thử lại từ yêu cầu mới.",
+              );
+            }
+          }, "Đã thử cấp GPU lại; xem allocation mới trong danh sách.")
+        }
         busy={busy}
         confirm={confirmId === w.id}
         onConfirm={() => setConfirmId(w.id)}
@@ -762,21 +813,30 @@ export default function GpuWorkspace({ data }: ViewProps) {
                       Đội thi
                       <select
                         required
+                        disabled={!roundId || teamOptions.loading}
                         value={teamId}
-                        onChange={(e) => setTeamId(e.target.value)}
+                        onChange={(e) => {
+                          setTeamId(e.target.value);
+                          setGroupId("");
+                          allocationRequest.current = "";
+                        }}
                       >
-                        <option value="">Chọn đội đã được tạo</option>
-                        {state.teams.map((t) => (
+                        <option value="">
+                          Chọn đội đã được duyệt vào vòng
+                        </option>
+                        {eligibleTeams.map((t) => (
                           <option key={t.id} value={t.id}>
-                            {t.name} · {t.members} thành viên
+                            {t.name} · {t.approvedMembers}/{t.members} đã duyệt
                           </option>
                         ))}
                       </select>
                     </label>
-                    {!state.teams.length && (
+                    {(!eligibleTeams.length || teamOptions.error) && (
                       <p>
-                        Chưa có đội. Thí sinh cần tạo đội trước khi admin cấp
-                        GPU.
+                        {teamOptions.error ??
+                          (teamOptions.loading
+                            ? "Đang tải đội đã được duyệt…"
+                            : "Chưa có đội có thành viên được duyệt trong vòng đã chọn.")}
                       </p>
                     )}
                   </>
@@ -788,7 +848,12 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   <select
                     value={roundId}
                     required
-                    onChange={(e) => setRoundId(e.target.value)}
+                    onChange={(e) => {
+                      setRoundId(e.target.value);
+                      setTeamId("");
+                      setGroupId("");
+                      allocationRequest.current = "";
+                    }}
                   >
                     <option value="">Chọn vòng luyện</option>
                     {data.rounds.map((r) => (
@@ -879,6 +944,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   disabled={
                     busy ||
                     !state.hasCredential ||
+                    (scope === "team" &&
+                      (teamOptions.loading ||
+                        !eligibleTeams.some((t) => t.id === teamId))) ||
                     (scope === "team" && !teamId) ||
                     !roundId ||
                     !template ||
@@ -960,6 +1028,7 @@ function WorkspaceCard({
   observedNow,
   admin,
   canManage,
+  retry,
   busy,
   confirm,
   onConfirm,
@@ -972,6 +1041,7 @@ function WorkspaceCard({
   observedNow: number;
   admin: boolean;
   canManage: boolean;
+  retry: () => void;
   busy: boolean;
   confirm: boolean;
   onConfirm: () => void;
@@ -1147,6 +1217,12 @@ function WorkspaceCard({
       </div>
       {admin && canManage && active && (
         <div className="gpu-actions">
+          {capacityRejected(w) && (
+            <button className="btn" disabled={busy} onClick={retry}>
+              <RefreshCw size={15} />
+              Thử cấp lại GPU
+            </button>
+          )}
           {running && (
             <button className="btn" disabled={busy} onClick={toggleMetrics}>
               {w.metricsVisible === false

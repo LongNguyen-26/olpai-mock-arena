@@ -6,6 +6,7 @@ import {
   getPackage,
   requireRegistration,
   roundKey,
+  registrationKey,
 } from "./rounds";
 import { canRead, phaseOf, privateStart } from "./domain";
 import { roundVisible } from "./round-visibility";
@@ -25,6 +26,7 @@ import {
   chatPolicyFields,
   workspaceView,
   workspaceAccess,
+  capacityRejected,
   type RuntimeHealth,
   type Workspace,
   type WorkspaceTemplate,
@@ -50,6 +52,10 @@ import {
   type WorkspaceScope,
   type WorkspaceServices,
 } from "./workspace-options";
+import {
+  requireWorkspaceTeam,
+  WORKSPACE_TEAM_ELIGIBILITY_LUA,
+} from "./workspace-teams";
 
 const recordKey = (id: string) => key(`gpu:workspace:${id}`);
 const activeKey = (team: string) => key(`gpu:active:${team}`);
@@ -367,6 +373,7 @@ export async function deployWorkspace(
     loadDataset?: boolean;
     groupId?: string;
     requestId?: string;
+    retryTemplate?: WorkspaceTemplate;
   } = {},
 ) {
   const scope = options.scope ?? "team",
@@ -414,7 +421,9 @@ export async function deployWorkspace(
     getContest(roundId),
     readTemplates(user.id).then((templates) => templates[templateId]),
   ]);
-  const t = group ? await groupTemplate(group) : savedTemplate;
+  const t = group
+    ? await groupTemplate(group)
+    : (options.retryTemplate ?? savedTemplate);
   if (
     t &&
     services !== "jupyter" &&
@@ -428,6 +437,7 @@ export async function deployWorkspace(
     );
   if (scope === "team" && (!team || !team.members.length))
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
+  if (scope === "team") await requireWorkspaceTeam(team!, c);
   if (!t) throw new ApiError("Chọn template đã lưu.");
   if (t.services && t.services !== services)
     throw new ApiError(
@@ -483,6 +493,7 @@ export async function deployWorkspace(
     services,
     ...(group ? { chatGroupId: group.id } : {}),
     allocationRequestId: allocationId,
+    maxHourlyUsd,
     reservationVersion: 2,
     roundId,
     loadDataset: services !== "llm" && options.loadDataset !== false,
@@ -517,7 +528,9 @@ export async function deployWorkspace(
       checks.push(activeKey(team!.id));
   }
   const reserved = await db().eval<unknown[], number>(
-    `if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
+    `${WORKSPACE_TEAM_ELIGIBILITY_LUA}
+     if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
+     if ARGV[6]~='' and not eligible(ARGV[6],ARGV[7],ARGV[8]) then return 3 end
      if ARGV[5]~='' then local raw=redis.call('GET',KEYS[#KEYS]);if not raw then return 0 end;local g=cjson.decode(raw);if g.retired then return 0 end;table.insert(g.workspaceIds,ARGV[3]);redis.call('SET',KEYS[#KEYS],cjson.encode(g)) end
      for i=1,tonumber(ARGV[1]) do if redis.call('EXISTS',KEYS[i])==1 then return 0 end end;for i=1,tonumber(ARGV[2]) do redis.call('SET',KEYS[i],ARGV[3]) end;redis.call('SET',KEYS[#KEYS-2],ARGV[4]);redis.call('SADD',KEYS[#KEYS-1],ARGV[3]);return 1`,
     [
@@ -526,10 +539,24 @@ export async function deployWorkspace(
       key("gpu:workspaces"),
       group ? groupKey(group.id) : key("gpu:unused-group"),
     ],
-    [checks.length, slots.length, id, JSON.stringify(w), group?.id ?? ""],
+    [
+      checks.length,
+      slots.length,
+      id,
+      JSON.stringify(w),
+      group?.id ?? "",
+      scope === "team" ? teamId! : "",
+      key("teams"),
+      registrationKey(c),
+    ],
   );
   if (reserved === 2)
     return workspaceView(await getWorkspace(id), await serverNow());
+  if (reserved === 3)
+    throw new ApiError(
+      "Đội không còn thành viên được duyệt trong vòng luyện đã chọn.",
+      409,
+    );
   if (!reserved)
     throw new ApiError(
       "Phạm vi này đã có Pod hoặc yêu cầu chờ cung cấp dịch vụ đã chọn trong vòng luyện. Đối soát/thu hồi trước khi cấp lại.",
@@ -556,6 +583,8 @@ export async function deployWorkspace(
     w.meterAt = await serverNow();
     w.status = "provisioning";
   } catch (e) {
+    if (e instanceof RunpodError && e.reason === "capacity")
+      w.provisionFailure = "capacity";
     w.status =
       e instanceof RunpodError && !e.uncertain ? "failed" : "reconciling";
     w.meterRate = 0;
@@ -568,7 +597,60 @@ export async function deployWorkspace(
   }
   w.updatedAt = await serverNow();
   await save(w);
+  if (capacityRejected(w)) await releaseReservation(w);
   return workspaceView(w, w.updatedAt);
+}
+export async function retryWorkspace(
+  user: SafeUser,
+  id: string,
+  requestId: string,
+) {
+  if (id === requestId)
+    throw new ApiError("Lần thử lại cần request ID mới.", 409);
+  return lock(`pod:${id}`, async () => {
+    let w = await getWorkspace(id);
+    if (!user.admin || w.ownerId !== user.id)
+      throw new ApiError("Pod thuộc quản trị viên khác.", 403);
+    if (w.retryRequestId && w.retryRequestId !== requestId)
+      throw new ApiError(
+        "Yêu cầu này đã được thử lại. Kiểm tra allocation mới trong danh sách GPU.",
+        409,
+      );
+    if (!w.retryRequestId) {
+      if (await db().exists(recordKey(requestId)))
+        throw new ApiError("Mã lần thử lại đã được sử dụng.", 409);
+      if (!capacityRejected(w))
+        throw new ApiError(
+          "Chỉ thử cấp lại yêu cầu bị từ chối do hết capacity. Các trường hợp mất xác nhận phải đối soát.",
+          409,
+        );
+      w = await syncUnlocked(w);
+      if (!capacityRejected(w))
+        throw new ApiError(
+          "Đã tìm thấy Pod hoặc trạng thái cấp phát thay đổi; không tạo thêm Pod.",
+          409,
+        );
+      w = meter(w, await serverNow(), "terminated", 0);
+      w.retryRequestId = requestId;
+      await save(w);
+      await releaseReservation(w);
+    }
+    return deployWorkspace(
+      user,
+      w.teamId,
+      w.roundId,
+      w.template.id,
+      w.maxHourlyUsd ?? w.quotedGpuRate,
+      {
+        requestId,
+        retryTemplate: w.template,
+        scope: w.scope ?? "team",
+        services: w.services ?? "both",
+        loadDataset: w.loadDataset,
+        ...(w.chatGroupId ? { groupId: w.chatGroupId } : {}),
+      },
+    );
+  });
 }
 async function runtime<T>(
   w: Workspace,
@@ -703,7 +785,8 @@ async function syncUnlocked(w: Workspace) {
   }
   w.syncedAt = now;
   await save(w);
-  if (w.status === "terminated") await releaseReservation(w);
+  if (w.status === "terminated" || capacityRejected(w))
+    await releaseReservation(w);
   return w;
 }
 export async function syncWorkspace(user: SafeUser, id: string) {

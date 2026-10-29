@@ -12,6 +12,7 @@ import {
 } from "./workspace-domain";
 import { roundVisible } from "./round-visibility";
 import { getWorkspace } from "./workspaces";
+import { requireWorkspaceTeam } from "./workspace-teams";
 import {
   chatWorkers,
   chatQueueSummary,
@@ -101,6 +102,7 @@ export async function createChatGroup(
   const team = v.teamId ? await db().hget<Team>(key("teams"), v.teamId) : null;
   if (v.scope === "team" && !team?.members.length)
     throw new ApiError("Chọn đội có thành viên.");
+  if (v.scope === "team") await requireWorkspaceTeam(team!, c);
   const g: ChatGroup = {
     id: v.id,
     name: v.name,

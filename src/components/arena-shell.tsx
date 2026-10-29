@@ -27,6 +27,7 @@ import {
 import { phaseOf } from "@/lib/domain";
 import RoundAdmin, { PublishRound } from "./round-admin";
 import GpuWorkspace from "./gpu-workspace";
+import AdminRoster from "./admin-roster";
 import RoundCard from "./round-card";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
@@ -46,6 +47,7 @@ type Section =
   | "team"
   | "settings"
   | "workspace"
+  | "people"
   | "admin";
 const labels: Record<Section, string> = {
   rounds: "Vòng luyện",
@@ -58,6 +60,7 @@ const labels: Record<Section, string> = {
   settings: "Tài khoản",
   workspace: "GPU Workspace",
   admin: "Quản trị vòng luyện",
+  people: "Đội & thí sinh",
 };
 const nav = [
   { id: "overview", icon: LayoutDashboard },
@@ -287,6 +290,15 @@ export default function Arena() {
               Đội của tôi
             </button>
           )}
+          {isAdmin && (
+            <button
+              className={`nav-link ${section === "people" ? "active" : ""}`}
+              onClick={() => go("people")}
+            >
+              <Users size={19} />
+              Đội & thí sinh
+            </button>
+          )}
           {inside && isAdmin && (
             <button
               className={`nav-link admin-nav-link ${section === "admin" ? "active" : ""}`}
@@ -499,6 +511,7 @@ export default function Arena() {
           {section === "team" && !isAdmin && <TeamView {...props} />}{" "}
           {section === "settings" && <ProfileView {...props} />}{" "}
           {section === "workspace" && <GpuWorkspace {...props} />}
+          {section === "people" && isAdmin && <AdminRoster />}
           {inside && isAdmin && section === "admin" && (
             <RoundAdmin {...props} />
           )}

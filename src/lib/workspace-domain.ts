@@ -85,6 +85,9 @@ export interface Workspace {
   loadDataset?: boolean;
   chatGroupId?: string;
   allocationRequestId?: string;
+  provisionFailure?: "capacity";
+  maxHourlyUsd?: number;
+  retryRequestId?: string;
   reservationVersion?: 2;
   teamName: string;
   roundId: string;
@@ -112,6 +115,17 @@ export interface Workspace {
   startupFailure?: PodStartupFailure | null;
   startupCheckedAt?: number | null;
   error: string | null;
+}
+export function capacityRejected(
+  w: Pick<Workspace, "status" | "podId" | "error" | "provisionFailure">,
+) {
+  return (
+    w.status === "failed" &&
+    !w.podId &&
+    (w.provisionFailure === "capacity" ||
+      w.error ===
+        "Runpod hiện không có GPU trống đáp ứng cấu hình/cloud đã chọn. Hãy đổi cloud hoặc tài nguyên rồi cấp lại.")
+  );
 }
 export type WorkspaceView = Omit<
   Workspace,

@@ -58,7 +58,7 @@ export class RunpodError extends Error {
     public status: number,
     public uncertain = false,
     invalidFields: string[] = [],
-    reason?: "capacity" | "balance",
+    public reason?: "capacity" | "balance",
   ) {
     super(
       reason === "capacity"

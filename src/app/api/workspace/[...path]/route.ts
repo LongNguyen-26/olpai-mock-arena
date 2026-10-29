@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth";
 import { RunpodError } from "@/lib/runpod";
 import { templateSchema } from "@/lib/workspace-domain";
+import { workspaceTeams } from "@/lib/workspace-teams";
 import { workerAction, settleUncertain } from "@/lib/chat-queue";
 import {
   createChatGroup,
@@ -30,6 +31,7 @@ import {
   sendChat,
   syncWorkspace,
   workspaceState,
+  retryWorkspace,
 } from "@/lib/workspaces";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +99,15 @@ async function handle(
     if (path === "manifest" && req.method === "GET")
       return json(await agentManifest(id(), req.headers.get("authorization")));
     const user = await requireUser();
+    if (path === "teams" && req.method === "GET") {
+      await requireAdmin();
+      return json(
+        await workspaceTeams(
+          user,
+          z.string().uuid().parse(url.searchParams.get("round")),
+        ),
+      );
+    }
     if (path === "state" && req.method === "GET")
       return json(await workspaceState(user));
     if (path === "launch" && req.method === "GET")
@@ -156,6 +167,7 @@ async function handle(
         "group/control",
         "group/deploy",
         "worker-drain",
+        "retry",
         "job-settle",
       ].includes(path)
     ) {
@@ -166,6 +178,12 @@ async function handle(
         throw new ApiError("Không tìm thấy chức năng.", 404);
       await rateLimit(`gpu:admin:${user.id}`, 20, 60);
       const v = await payload(req);
+      if (path === "retry") {
+        const p = z
+          .object({ id: z.string().uuid(), requestId: z.string().uuid() })
+          .parse(v);
+        return json(await retryWorkspace(user, p.id, p.requestId));
+      }
       if (path === "group/create") {
         const p = z
           .object({

@@ -34,6 +34,7 @@ import { canRead } from "@/lib/domain";
 import { SubmissionError } from "@/lib/judge";
 import type { Submission, User } from "@/lib/types";
 import { readSubmissionFile } from "@/lib/submission-storage";
+import { adminRoster, deleteRosterEntry } from "@/lib/admin-roster";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -141,6 +142,15 @@ async function handle(
     if (route === "me" && req.method === "GET")
       return json({ user: await getUser() });
     const user = await requireUser();
+    if (route === "admin/roster") {
+      await requireAdmin();
+      if (req.method === "GET") return json(await adminRoster(user));
+      const value = z
+        .object({ kind: z.enum(["team", "contestant"]), id: z.string().uuid() })
+        .parse(await payload(req));
+      await rateLimit(`admin:delete:${user.id}`, 20, 60);
+      return json(await deleteRosterEntry(user, value.kind, value.id));
+    }
     if (route === "arena" && req.method === "GET")
       return json(
         await snapshot(

@@ -3,7 +3,8 @@ import { db, key } from "./db";
 import { ApiError } from "./auth";
 import type { SafeUser, Team } from "./types";
 export const TEAM_SCRIPT = `
-local user=cjson.decode(redis.call('GET',KEYS[1])); local action=ARGV[1]; local teamId=ARGV[2];
+local rawUser=redis.call('GET',KEYS[1]);if not rawUser then return 'missing' end
+local user=cjson.decode(rawUser); local action=ARGV[1]; local teamId=ARGV[2];
 if action=='create' then
  if user.teamId~=cjson.null and user.teamId then return 'already' end
  local team=cjson.decode(ARGV[3]); redis.call('HSET',KEYS[2],teamId,ARGV[3]); redis.call('SET',KEYS[3],teamId); user.teamId=teamId;
@@ -14,7 +15,8 @@ elseif action=='join' then
  table.insert(team.members,user.id); redis.call('HSET',KEYS[2],teamId,cjson.encode(team)); user.teamId=teamId;
 elseif action=='leave' then
  if user.teamId==cjson.null or not user.teamId then return 'missing' end
- local team=cjson.decode(redis.call('HGET',KEYS[2],user.teamId)); local members={}; for _,id in ipairs(team.members) do if id~=user.id then table.insert(members,id) end end
+ local raw=redis.call('HGET',KEYS[2],user.teamId);if not raw then user.teamId=cjson.null;redis.call('SET',KEYS[1],cjson.encode(user));return 'ok' end
+ local team=cjson.decode(raw); local members={}; for _,id in ipairs(team.members) do if id~=user.id then table.insert(members,id) end end
  team.members=members; if team.captainId==user.id then team.captainId=members[1] or '' end; redis.call('HSET',KEYS[2],user.teamId,cjson.encode(team)); user.teamId=cjson.null;
 end
 redis.call('SET',KEYS[1],cjson.encode(user)); return 'ok';`;
