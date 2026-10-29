@@ -82,4 +82,26 @@ Các script Redis tự dùng namespace QA mới và dọn đúng namespace đó;
 
 Job CI `hub-linux` chạy trên Linux dùng UID thật, home riêng, shared data chỉ đọc, thêm team động, SSO giả lập cục bộ và Chromium thật để kiểm tra cộng tác/kernel. Job này không kiểm tra CUDA hoặc proxy Runpod. Phần đó nghiệm thu trên Pod do người dùng cấp: trước với hai team, thử chạy hai phép CUDA nhỏ đồng thời, rồi thêm team và mở dần tới bảy team.
 
+### Nghiệm thu Pod đầu tiên
+
+1. Cấp một Pod bằng template Hub mới với hai team. Đợi Hub sẵn sàng và mở Lab từ Arena trên hai máy của team A, một máy của team B.
+2. Team A mở notebook từ file browser, sửa một cell ở mỗi máy rồi chạy; cả hai máy phải thấy nội dung và kết quả. Refresh để kiểm tra lưu tệp. Team B có home và notebook riêng.
+3. Từ mỗi team, chạy cell nhỏ sau; giữ nguyên auth/Origin nếu gặp lỗi WebSocket và gửi trạng thái/log đã bỏ token cho quản trị viên.
+
+```python
+import os, sys, torch
+print("uid", os.geteuid(), "python", sys.executable)
+assert os.geteuid() != 0 and ".venvs/pytorch" in sys.prefix
+assert torch.cuda.is_available()
+x = torch.randn(1024, 1024, device="cuda")
+y = x @ x
+torch.cuda.synchronize()
+print(torch.cuda.get_device_name(), "allocated MiB", torch.cuda.memory_allocated() / 2**20)
+```
+
+4. Chạy hai team gần nhau, kiểm tra metrics GPU chung và bảng lượt tự khai báo. Xóa biến/đóng kernel khi xong; nút Trả lượt không tự trả VRAM.
+5. Thêm team thứ ba khi hai team đang dùng. Dừng/chạy lại riêng một workspace và kiểm tra tệp/venv còn nguyên. Chỉ thử stop/start toàn Pod sau khi các team đã lưu bài; thao tác này ảnh hưởng tất cả team.
+
+Cell trên chỉ kiểm tra CUDA nhỏ, không phải benchmark throughput hoặc bằng chứng bảy team có thể training đồng thời.
+
 Pod/image cũ mặc định `single`; không tự chuyển sang Hub hoặc thay dữ liệu đang dùng.

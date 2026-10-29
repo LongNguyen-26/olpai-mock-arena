@@ -282,23 +282,6 @@ def hub_loop():
         STOP.wait(5)
 
 
-def hub_loop():
-    while not STOP.is_set():
-        try:
-            policy = manifest()
-            if policy.get("active") and policy.get("hubProtocol") == 1 and "hub" in policy:
-                report = HUB_MANAGER.reconcile(policy)
-                report["id"] = os.environ["ARENA_WORKSPACE_ID"]
-                control = os.environ["ARENA_CONTROL_URL"].rsplit("/manifest", 1)[0]
-                with httpx.Client(timeout=15, follow_redirects=False) as client:
-                    response = client.post(control + "/hub/report", json=report,
-                                           headers={"Authorization": "Bearer " + os.environ["ARENA_AGENT_TOKEN"]})
-                    response.raise_for_status()
-        except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError):
-            pass
-        STOP.wait(5)
-
-
 @asynccontextmanager
 async def lifespan(_app):
     global HUB_MANAGER

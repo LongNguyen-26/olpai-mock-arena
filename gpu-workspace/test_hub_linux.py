@@ -69,6 +69,7 @@ class LinuxHubTests(unittest.TestCase):
                "ARENA_CONTROL_URL": "http://127.0.0.1:19090/api/workspace/manifest", "ARENA_AGENT_TOKEN": cls.token,
                "ARENA_TEST_HTTP": "1", "PYTHONPATH": "/opt/arena", "ARENA_MAX_TEAM_SERVERS": "7"}
         env.pop("RUNPOD_POD_ID", None)
+        cls.hub_env = env
         cls.log = open(Path(cls.temp.name) / "hub.log", "wb")
         cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"], env=env, stdout=cls.log, stderr=cls.log, start_new_session=True)
         try:
@@ -132,6 +133,11 @@ class LinuxHubTests(unittest.TestCase):
         self.assertNotEqual(self.run_team(b, f"open({str(Path(a_user['home']) / 'private.txt')!r}).read()").returncode, 0)
         again = HubManager(self.root).ensure_user(a)
         self.assertEqual(again["uid"], a_user["uid"])
+        # Existing volumes must restore root ownership, not just directory mode.
+        os.chown(self.manager.control, a_user["uid"], a_user["uid"])
+        HubManager(self.root)
+        self.assertEqual(self.manager.control.stat().st_uid, 0)
+        self.assertNotEqual(self.run_team(a, f"open({str(secret)!r}).read()").returncode, 0)
 
     def test_02_readonly_dataset_private_gate_and_symlink(self):
         digest = "a" * 64
@@ -225,6 +231,7 @@ class LinuxHubTests(unittest.TestCase):
             page1.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('second-client')")
             editor.press("Shift+Enter")
             page1.get_by_text("rtc-shared\nsecond-client", exact=False).first.wait_for(timeout=60000)
+            page2.get_by_text("rtc-shared\nsecond-client", exact=False).first.wait_for(timeout=30000)
             self.assertIn(page3.request.get(base + "/user/" + a + "/api/contents").status, (401, 403, 404))
             # Execute through the actual browser kernel; root credentials must be absent.
             editor = page1.locator(".jp-Notebook .jp-CodeCell .cm-content").first
@@ -235,7 +242,10 @@ class LinuxHubTests(unittest.TestCase):
             print("Kernel specs:", {k: v["spec"]["argv"] for k, v in page1.request.get(base + "/user/" + a + "/api/kernelspecs").json()["kernelspecs"].items()})
             print("Kernel output:", page1.locator(".jp-Notebook .jp-OutputArea").first.inner_text())
             page1.get_by_text("venv-check True", exact=False).first.wait_for(timeout=30000)
+            page1.keyboard.press("ControlOrMeta+s")
+            self.wait(lambda: "uid-check" in str(page1.request.get(base + "/user/" + a + "/api/contents/shared.ipynb").json().get("content", {})), 30)
             page1.reload(); page1.locator(".jp-DirListing").wait_for(timeout=60000)
+            page1.wait_for_function("document.querySelector('.jp-Notebook .cm-content')?.textContent.includes('uid-check')", timeout=30000)
             browser.close()
 
     def test_05_single_lab_keeps_legacy_file_browser_and_kernel(self):
@@ -282,6 +292,55 @@ class LinuxHubTests(unittest.TestCase):
                 process.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL); process.wait()
+
+    def test_06_admission_and_spawn_failure_preserve_running_teams(self):
+        new_team = {"teamId": str(uuid.uuid4()), "teamName": "Waiting team", "enabled": True,
+                    "desiredState": "running", "revision": str(uuid.uuid4())}
+        policy = {**self.policy, "hub": {**self.policy["hub"], "teams": self.teams + [new_team]}}
+        for measured in ({"availableRAMGiB": 3, "freeDiskGiB": 20},
+                         {"availableRAMGiB": None, "freeDiskGiB": 20},
+                         {"availableRAMGiB": 20, "freeDiskGiB": 1}):
+            with patch("hub_runtime.resources", return_value=measured):
+                report = self.manager.reconcile(policy)
+            self.assertTrue(self.all_ready(report, 4))
+            self.assertEqual(report["notebooks"][-1]["state"], "waiting-resource")
+        full = {**policy, "hub": {**policy["hub"], "maxTeamServers": 4}}
+        self.assertEqual(self.manager.reconcile(full)["notebooks"][-1]["state"], "waiting-resource")
+        original = self.manager.ensure_user
+        def fail_new(team_id):
+            if team_id == new_team["teamId"]:
+                raise RuntimeError("QA injected isolated preparation error")
+            return original(team_id)
+        with patch.object(self.manager, "ensure_user", side_effect=fail_new):
+            report = self.manager.reconcile(policy)
+        self.assertTrue(self.all_ready(report, 4))
+        self.assertEqual(report["notebooks"][-1]["state"], "error")
+        self.manager.reconcile(self.policy)
+
+    def test_07_volume_restores_accounts_hub_files_and_venvs(self):
+        cls = type(self)
+        team = self.team_ids[0]
+        user = self.manager.ensure_user(team)
+        self.assertEqual(self.run_team(team, "open('restart-check.txt','w').write('saved')").returncode, 0)
+        cls.process.terminate()
+        cls.process.wait(timeout=40)
+        before = {k: dict(v) for k, v in self.manager.users.items()}
+        # Recreate the ephemeral container account database, retaining the volume.
+        for account in before.values():
+            subprocess.run(["pkill", "-KILL", "-u", str(account["uid"])], check=False)
+            subprocess.run(["userdel", account["name"]], check=True)
+            subprocess.run(["groupdel", account["name"]], check=False, capture_output=True)
+        cls.manager = HubManager(cls.root)
+        for team_id, old in before.items():
+            restored = cls.manager.ensure_user(team_id)
+            self.assertEqual(restored["uid"], old["uid"])
+        cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"],
+                                       env=cls.hub_env, stdout=cls.log, stderr=cls.log, start_new_session=True)
+        self.wait(lambda: cls.manager.hub_request("GET", "/info"), 60)
+        self.wait(lambda: self.all_ready(cls.manager.reconcile(cls.policy), 4), 150)
+        self.assertEqual(self.run_team(team, "from pathlib import Path; assert Path('restart-check.txt').read_text()=='saved'; assert Path('.venvs/pytorch/bin/python').exists()").returncode, 0)
+        self.assertIn("uid-check", (Path(user["home"]) / "shared.ipynb").read_text())
+        self.assertEqual(cls.manager.ensure_user(team)["uid"], user["uid"])
 
 
 if __name__ == "__main__":

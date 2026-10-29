@@ -52,6 +52,7 @@ def private_directory(path):
     path.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise ValueError("Unsafe control directory")
+    os.chown(path, 0, 0)
     path.chmod(0o700)
 
 
@@ -110,7 +111,12 @@ class TeamFiles:
 
 class HubManager:
     def __init__(self, root):
+        if not hasattr(os, "geteuid") or os.geteuid() != 0:
+            raise RuntimeError("JupyterHub needs Linux root to switch to team UIDs")
         self.root = Path(root)
+        if self.root.is_symlink():
+            raise ValueError("Unsafe workspace root")
+        os.chown(self.root, 0, 0)
         self.root.chmod(0o755)
         self.control = self.root / ".arena" / "hub"
         private_directory(self.root / ".arena")
@@ -121,6 +127,7 @@ class HubManager:
             if path.is_symlink():
                 raise ValueError("Unsafe root")
             path.mkdir(exist_ok=True)
+            os.chown(path, 0, 0)
             path.chmod(0o755)
         self.guard = threading.RLock()
         self.users = self._read("users.json", {})
