@@ -5,6 +5,7 @@ import { getContest, roundKey, registrationKey } from "./rounds";
 import {
   chatbotOpen,
   chatContextWindow,
+  chatParallel,
   emptySession,
   outputBudget,
   ChatLimitError,
@@ -17,7 +18,9 @@ import { decryptSecret, matchesSecret } from "./workspace-crypto";
 import { hasService } from "./workspace-options";
 import type { Contest, SafeUser, User } from "./types";
 
-export const QUEUE_PROTOCOL = 1;
+export const QUEUE_PROTOCOL = 2;
+export const supportedQueueProtocol = (protocol: number) =>
+  protocol === 1 || protocol === QUEUE_PROTOCOL;
 export const LEASE_MS = 45000;
 const TTL = 30 * 86400;
 export const jobKey = (id: string) => key(`gpu:job:${id}`);
@@ -57,6 +60,7 @@ export interface ChatJob {
   createdAt: number;
   updatedAt: number;
   workerId?: string;
+  slot?: number;
   attempt?: string;
   leaseUntil?: number;
   promptTokens?: number;
@@ -71,7 +75,18 @@ export interface ChatWorker {
   fingerprint: string;
   heartbeatAt: number;
   jobId?: string;
+  slotJobs?: Record<string, string>;
+  capacity?: number;
   draining?: boolean;
+}
+export function workerJobIds(worker: ChatWorker | null | undefined) {
+  return [
+    ...new Set(
+      [worker?.jobId, ...Object.values(worker?.slotJobs ?? {})].filter(
+        (id): id is string => !!id,
+      ),
+    ),
+  ];
 }
 interface Target {
   id: string;
@@ -216,22 +231,21 @@ export async function reconcileChat(target: string, run: string) {
     await db().set(unavailableKey, now, { nx: true, ex: TTL });
     outage = now - Number(await db().get<number>(unavailableKey)) >= 180000;
   }
-  await Promise.all(
-    ids.map((id) =>
-      script(
-        `
- local j=read(KEYS[1]);if not j then redis.call('ZREM',KEYS[2],ARGV[4]);return 0 end
- if not valid(j) then finish(j,'cancelled','Chatbot đã khóa hoặc quyền truy cập đã thay đổi.');return 1 end
- if j.status=='queued' and ARGV[5]=='1' then finish(j,'failed','Chatbot chưa thể hoàn tất phản hồi. Vui lòng gửi lại sau hoặc liên hệ admin.');return 1 end
- if (j.status=='running' or j.status=='claimed') and now>(j.leaseUntil or 0) then
-  if j.status=='claimed' then j.status='queued';j.workerId=nil;j.attempt=nil;enqueue(j)
+  // One bounded script rather than a round-trip (and server clock read) per job.
+  await script(
+    `for _,id in ipairs(cjson.decode(ARGV[4])) do
+ local k=p..':gpu:job:'..id;local j=read(k)
+ if not j then redis.call('ZREM',KEYS[1],id)
+ elseif not valid(j) then finish(j,'cancelled','Chatbot đã khóa hoặc quyền truy cập đã thay đổi.')
+ elseif j.status=='queued' and ARGV[5]=='1' then finish(j,'failed','Chatbot chưa thể hoàn tất phản hồi. Vui lòng gửi lại sau hoặc liên hệ admin.')
+ elseif (j.status=='running' or j.status=='claimed') and now>(j.leaseUntil or 0) then
+  if j.status=='claimed' then j.status='queued';j.workerId=nil;j.slot=nil;j.attempt=nil;enqueue(j)
   else j.status='uncertain';j.error='Chưa xác nhận được kết quả. Vui lòng liên hệ admin.';local s=read(j.sessionKey);if s and s.pending and s.pending.requestId==j.id then s.error=j.error;write(j.sessionKey,s) end end
-  j.updatedAt=now;write(KEYS[1],j)
+  j.updatedAt=now;write(k,j)
+ end
  end;return 1`,
-        [jobKey(id), activeJobsKey(target, run)],
-        [id, outage ? "1" : "0"],
-      ),
-    ),
+    [activeJobsKey(target, run)],
+    [JSON.stringify(ids), outage ? "1" : "0"],
   );
 }
 export async function readQueuedChat(
@@ -268,7 +282,7 @@ export async function readQueuedChat(
       workers.some(
         (w) =>
           w.ready &&
-          w.protocol === QUEUE_PROTOCOL &&
+          supportedQueueProtocol(w.protocol) &&
           w.runId === t.c.id &&
           now - w.heartbeatAt < LEASE_MS &&
           !w.draining,
@@ -409,6 +423,8 @@ export interface WorkerRequest {
   protocol: number;
   ready: boolean;
   fingerprint: string;
+  slot?: number;
+  capacity?: number;
   requestId?: string;
   attempt?: string;
   promptTokens?: number;
@@ -427,8 +443,18 @@ export async function workerAction(
   );
   const now = await serverNow(),
     open = chatbotOpen({ runId: c.id, services: "llm" }, c, now);
-  if (v.protocol !== QUEUE_PROTOCOL)
+  if (!supportedQueueProtocol(v.protocol))
     throw new ApiError("Giao thức worker không tương thích.", 409);
+  const capacity = v.protocol === 1 ? 1 : chatParallel(w.template);
+  const slot = v.protocol === 1 ? 0 : v.slot;
+  if (
+    !Number.isInteger(slot) ||
+    slot! < 0 ||
+    slot! >= capacity ||
+    (v.protocol === 1 && v.slot != null && v.slot !== 0) ||
+    (v.protocol === QUEUE_PROTOCOL && v.capacity !== capacity)
+  )
+    throw new ApiError("Số slot worker không khớp cấu hình Pod.", 409);
   if (g && v.fingerprint) {
     const matches = await db().eval(
       "local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local g=cjson.decode(raw);if g.modelFingerprint and g.modelFingerprint~=ARGV[1] then return 0 end;g.modelFingerprint=ARGV[1];redis.call('SET',KEYS[1],cjson.encode(g));return 1",
@@ -442,7 +468,7 @@ export async function workerAction(
   // Updating liveness never clears a reserved slot; only a terminal job or a fenced claim does.
   const worker = await script<ChatWorker>(
     `
- local old=read(KEYS[1]) or {};local next=cjson.decode(ARGV[4]);next.jobId=old.jobId;write(KEYS[1],next);return cjson.encode(next)`,
+ local old=read(KEYS[1]) or {};local next=cjson.decode(ARGV[4]);next.jobId=old.jobId;next.slotJobs=old.slotJobs or {};write(KEYS[1],next);return cjson.encode(next)`,
     [workerKey(w.id)],
     [
       JSON.stringify({
@@ -450,6 +476,7 @@ export async function workerAction(
         runId: c.id,
         ready: v.ready && open,
         protocol: v.protocol,
+        capacity,
         fingerprint: v.fingerprint,
         heartbeatAt: now,
         draining,
@@ -461,7 +488,8 @@ export async function workerAction(
       return { job: null, open, runId: c.id };
     const job = await script<ChatJob | null>(
       `
- local worker=read(KEYS[1]);if worker.jobId then local busy=read(p..':gpu:job:'..worker.jobId);if busy and (busy.status=='claimed' or busy.status=='running' or busy.status=='uncertain') and busy.workerId==ARGV[4] then return nil end end
+ local worker=read(KEYS[1]);local slot=ARGV[6];local slots=worker.slotJobs or {};local occupied=slots[slot];if slot=='0' and not occupied then occupied=worker.jobId end
+ if occupied then local busy=read(p..':gpu:job:'..occupied);if busy and (busy.status=='claimed' or busy.status=='running' or busy.status=='uncertain') and busy.workerId==ARGV[4] and tostring(busy.slot or 0)==slot then return nil end end
  if redis.call('GET',p..':gpu:drain:'..ARGV[4])=='true' then return nil end
  local q=read(KEYS[2]);if not q then return nil end
  while #q.order>0 do
@@ -469,12 +497,12 @@ export async function workerAction(
   if #lane>0 then table.insert(q.order,team) else q.lanes[team]=nil end
   local j=read(p..':gpu:job:'..id)
   if j and j.status=='queued' then
-   if valid(j) then j.status='claimed';j.workerId=ARGV[4];j.attempt=ARGV[5];j.leaseUntil=now+45000;j.updatedAt=now;write(p..':gpu:job:'..id,j);worker.jobId=id;write(KEYS[1],worker);write(KEYS[2],q);return cjson.encode(j)
+   if valid(j) then j.status='claimed';j.workerId=ARGV[4];j.slot=tonumber(slot);j.attempt=ARGV[5];j.leaseUntil=now+45000;j.updatedAt=now;write(p..':gpu:job:'..id,j);slots[slot]=id;worker.slotJobs=slots;if slot=='0' then worker.jobId=id end;write(KEYS[1],worker);write(KEYS[2],q);return cjson.encode(j)
    else finish(j,'cancelled','Chatbot đã khóa hoặc quyền truy cập đã thay đổi.') end
   end
  end;write(KEYS[2],q);return nil`,
       [workerKey(w.id), key(`gpu:queue:${target}:${c.id}`)],
-      [w.id, randomUUID()],
+      [w.id, randomUUID(), String(slot)],
     );
     if (!job) return { job: null, open, runId: c.id };
     const s = (await db().get<ChatSession>(job.sessionKey))!;
@@ -482,6 +510,7 @@ export async function workerAction(
       job: {
         requestId: job.id,
         attempt: job.attempt,
+        slot: job.slot ?? 0,
         runId: job.runId,
         messages: s.messages.filter((m) => !m.rejected),
         template,
@@ -500,6 +529,7 @@ export async function workerAction(
     !j ||
     j.target !== target ||
     j.workerId !== w.id ||
+    (j.slot ?? 0) !== slot ||
     j.attempt !== v.attempt
   )
     throw new ApiError("Request không thuộc worker này.", 409);

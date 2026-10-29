@@ -37,7 +37,54 @@ POLICY_EXPIRES_AT = 0
 PUBLIC_ENDS_AT = None
 LLAMA_URL = "http://127.0.0.1:8080"
 STOP = threading.Event()
-GENERATING = asyncio.Lock()
+LLM_PARALLEL = int(os.getenv("ARENA_LLM_PARALLEL", "1"))
+CONTEXT_SIZE = int(os.getenv("ARENA_CONTEXT_SIZE", "4096"))
+if LLM_PARALLEL not in (1, 2, 4, 8) or not 128 <= CONTEXT_SIZE <= 32768:
+    raise ValueError("Invalid LLM capacity/context")
+INFERENCE_SLOTS = set()
+UNCONFIRMED_SLOTS = set()
+ENGINE_READY = False
+INFERENCE_TIMEOUT = 600
+
+
+def model_command(model):
+    # b5046 divides the total context across parallel sequences.
+    return ["/opt/arena/llama-server", "--model", model, "--host", "127.0.0.1",
+            "--port", "8080", "--n-gpu-layers", "99", "--ctx-size",
+            str(CONTEXT_SIZE * LLM_PARALLEL), "--parallel", str(LLM_PARALLEL),
+            "--cont-batching", "--slots", "--metrics", "--threads", "8"]
+
+
+async def engine_slots():
+    async with httpx.AsyncClient(timeout=2) as client:
+        response = await client.get(LLAMA_URL + "/slots")
+        response.raise_for_status()
+        slots = response.json()
+        if not isinstance(slots, list):
+            raise ValueError("Invalid engine slots")
+        return slots
+
+
+async def engine_ready():
+    global ENGINE_READY
+    try:
+        slots = await engine_slots()
+        ENGINE_READY = all(any(s.get("id") == slot and s.get("n_ctx", 0) >= CONTEXT_SIZE
+                                     for s in slots) for slot in range(LLM_PARALLEL))
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        ENGINE_READY = False
+    return ENGINE_READY
+
+
+async def engine_slot_idle(slot):
+    if MODEL_PROCESS is not None and MODEL_PROCESS.poll() is not None:
+        return True
+    try:
+        slots = await engine_slots()
+        return any(s.get("id") == slot and s.get("is_processing") is False for s in slots)
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        # A failed probe does not prove that an earlier completion stopped.
+        return False
 
 def stop_model():
     """Release the LLM's VRAM for private inference and after an invalidated run."""
@@ -194,7 +241,7 @@ def model_worker():
                     continue
                 MODEL_STAGE = "Đang nạp DeepSeek lên GPU"
                 with (ROOT / ".arena/llama.log").open("a") as log:
-                    MODEL_PROCESS = subprocess.Popen(["/opt/arena/llama-server", "--model", model, "--host", "127.0.0.1", "--port", "8080", "--n-gpu-layers", "99", "--ctx-size", os.getenv("ARENA_CONTEXT_SIZE", "4096"), "--parallel", "1", "--threads", "8"], stdout=log, stderr=log)
+                    MODEL_PROCESS = subprocess.Popen(model_command(model), stdout=log, stderr=log)
             STOP.wait(5)
             if MODEL_PROCESS is not None and MODEL_PROCESS.poll() is not None and MODEL_ENABLED.is_set():
                 raise RuntimeError("llama-server exited")
@@ -218,15 +265,12 @@ async def lifespan(_app):
     STOP.clear()
     for fn in (dataset_loop, *([model_worker, policy_watchdog] if HAS_LLM else [])):
         threading.Thread(target=fn, daemon=True).start()
-    queue_task = asyncio.create_task(queue_loop()) if HAS_LLM else None
+    queue_tasks = [asyncio.create_task(queue_loop(slot)) for slot in range(LLM_PARALLEL)] if HAS_LLM else []
     yield
     STOP.set()
-    if queue_task:
-        queue_task.cancel()
-        try:
-            await queue_task
-        except asyncio.CancelledError:
-            pass
+    for task in queue_tasks:
+        task.cancel()
+    await asyncio.gather(*queue_tasks, return_exceptions=True)
     MODEL_ENABLED.clear()
     if MODEL_PROCESS is not None:
         MODEL_PROCESS.terminate()
@@ -241,6 +285,7 @@ class GenerateRequest(CountRequest):
     maxTokens: int = Field(ge=1, le=4096)
     expectedInputTokens: int = Field(ge=1, le=8192)
     runId: str | None = None
+    slot: int | None = Field(default=None, ge=0, le=7)
 
 async def tokenize(messages):
     async with httpx.AsyncClient(timeout=15) as client:
@@ -259,13 +304,13 @@ async def health():
                 return response.status_code == 200 and (not lab or "jupyter-config-data" in response.text)
             except httpx.HTTPError:
                 return False
-        llm, jupyter = await asyncio.gather(probe(LLAMA_URL + "/health") if HAS_LLM else asyncio.sleep(0,result=False), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True) if HAS_JUPYTER else asyncio.sleep(0,result=False))
+        llm, jupyter = await asyncio.gather(engine_ready() if HAS_LLM else asyncio.sleep(0,result=False), probe("http://127.0.0.1:8888/lab", {"Authorization": "token " + os.environ["JUPYTER_TOKEN"]}, lab=True) if HAS_JUPYTER else asyncio.sleep(0,result=False))
     gpu = ""
     try:
         gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"], timeout=3, text=True).strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    return {**STATE, "chatQueueProtocol": 1, "modelFingerprint": MODEL_FINGERPRINT, "services": SERVICES, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}
+    return {**STATE, "chatQueueProtocol": 2, "llmParallel": LLM_PARALLEL if HAS_LLM else 0, "llmActiveSlots": len(INFERENCE_SLOTS | UNCONFIRMED_SLOTS), "modelFingerprint": MODEL_FINGERPRINT, "services": SERVICES, "llm": llm, "jupyter": jupyter, "gpu": gpu, "modelStage": "DeepSeek sẵn sàng" if llm else MODEL_STAGE, "error": (MODEL_ERROR if MODEL_ENABLED.is_set() else None) or STATE["error"]}
 
 @app.post("/token-count")
 async def token_count(request: CountRequest):
@@ -280,9 +325,16 @@ async def token_count(request: CountRequest):
 async def generate(request: GenerateRequest):
     if not HAS_LLM:
         raise HTTPException(404, "LLM not enabled")
-    if GENERATING.locked():
+    for pending_slot in list(UNCONFIRMED_SLOTS):
+        if await engine_slot_idle(pending_slot):
+            UNCONFIRMED_SLOTS.discard(pending_slot)
+    slot = request.slot if request.slot is not None else next((s for s in range(LLM_PARALLEL) if s not in INFERENCE_SLOTS and s not in UNCONFIRMED_SLOTS), None)
+    if slot is None or slot >= LLM_PARALLEL or slot in INFERENCE_SLOTS or slot in UNCONFIRMED_SLOTS:
         raise HTTPException(409, "GPU busy")
-    async with GENERATING:
+    # No await between selecting and reserving a slot on this event loop.
+    INFERENCE_SLOTS.add(slot)
+    submitted = False
+    try:
         try:
             policy = await asyncio.to_thread(manifest)
             if not policy.get("active") or not policy.get("llmEnabled"):
@@ -292,17 +344,34 @@ async def generate(request: GenerateRequest):
             tokens = await tokenize(request.messages)
             if len(tokens) != request.expectedInputTokens:
                 raise HTTPException(422, "Token count mismatch")
-            async with httpx.AsyncClient(timeout=230) as client:
-                response = await client.post(LLAMA_URL + "/completion", json={"prompt": tokens, "n_predict": request.maxTokens, "temperature": 0.6, "top_p": 0.95, "cache_prompt": False, "stream": False})
+            async with httpx.AsyncClient(timeout=httpx.Timeout(INFERENCE_TIMEOUT, connect=10)) as client:
+                submitted = True
+                response = await client.post(LLAMA_URL + "/completion", json={"prompt": tokens, "id_slot": slot, "n_predict": request.maxTokens, "temperature": 0.6, "top_p": 0.95, "cache_prompt": False, "stream": False})
                 response.raise_for_status()
                 result = response.json()
+                if not isinstance(result.get("content"), str) or not isinstance(result.get("tokens_predicted"), int) or not 0 <= result["tokens_predicted"] <= request.maxTokens:
+                    raise ValueError("Invalid engine completion")
             return {"content": result["content"], "inputTokens": len(tokens), "outputTokens": result["tokens_predicted"]}
-        except httpx.HTTPError:
+        except asyncio.CancelledError:
+            if submitted:
+                UNCONFIRMED_SLOTS.add(slot)
+            raise
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            if submitted:
+                UNCONFIRMED_SLOTS.add(slot)
             raise HTTPException(503, "Model unavailable")
+    finally:
+        INFERENCE_SLOTS.discard(slot)
 
 
-def journal_write(value):
-    path = ROOT / ".arena" / "chat-job.json"
+def journal_path(slot):
+    path = ROOT / ".arena" / "chat-jobs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path / ("slot-" + str(slot) + ".json")
+
+
+def journal_write(value, slot=0):
+    path = journal_path(slot)
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(value), encoding="utf-8")
     temp.chmod(0o600)
@@ -310,8 +379,10 @@ def journal_write(value):
 
 
 async def worker_call(action, job=None, **extra):
-    body = {"workspaceId": os.environ["ARENA_WORKSPACE_ID"], "protocol": 1,
-            "ready": MODEL_ENABLED.is_set() and bool(MODEL_FINGERPRINT),
+    slot = extra.pop("slot", (job or {}).get("slot", 0))
+    body = {"workspaceId": os.environ["ARENA_WORKSPACE_ID"], "protocol": 2,
+            "slot": slot, "capacity": LLM_PARALLEL,
+            "ready": MODEL_ENABLED.is_set() and ENGINE_READY,
             "fingerprint": MODEL_FINGERPRINT}
     if job:
         body.update(requestId=job["requestId"], attempt=job["attempt"])
@@ -347,7 +418,8 @@ async def queue_heartbeat(job):
         try:
             result = await worker_call("heartbeat", job)
             if not result.get("open") or result.get("runId") != job["runId"]:
-                await asyncio.to_thread(stop_model)
+                if MODEL_RUN_ID == job["runId"]:
+                    await asyncio.to_thread(stop_model)
                 return
         except httpx.HTTPError:
             if time.time() >= POLICY_EXPIRES_AT or (PUBLIC_ENDS_AT and time.time() * 1000 >= PUBLIC_ENDS_AT):
@@ -355,13 +427,22 @@ async def queue_heartbeat(job):
                 return
 
 
-async def queue_loop():
-    path = ROOT / ".arena" / "chat-job.json"
+async def queue_loop(slot=0):
+    path = journal_path(slot)
+    legacy = ROOT / ".arena" / "chat-job.json"
     while not STOP.is_set():
         try:
+            if slot == 0 and legacy.exists() and not path.exists():
+                legacy.replace(path)
             if path.exists():
                 saved = json.loads(path.read_text(encoding="utf-8"))
+                saved["job"]["slot"] = slot
                 # On restart, only resend a saved result. Never restart uncertain inference.
+                if not saved.get("result") and not await engine_slot_idle(slot):
+                    await worker_call("heartbeat", saved["job"])
+                    await asyncio.sleep(2)
+                    continue
+                UNCONFIRMED_SLOTS.discard(slot)
                 result = await worker_call("complete" if saved.get("result") else "fail", saved["job"], **saved.get("result", {}))
                 if result.get("terminal"):
                     path.unlink(missing_ok=True)
@@ -370,14 +451,14 @@ async def queue_loop():
                 continue
             ready = False
             if MODEL_ENABLED.is_set() and MODEL_FINGERPRINT:
-                async with httpx.AsyncClient(timeout=2) as client:
-                    ready = (await client.get(LLAMA_URL + "/health")).status_code == 200
-            result = await worker_call("claim", ready=ready)
+                ready = await engine_ready()
+            result = await worker_call("claim", ready=ready, slot=slot)
             job = result.get("job")
             if not job:
                 await asyncio.sleep(2 if ready else 10)
                 continue
-            journal_write({"job": {k: job[k] for k in ("requestId", "attempt", "runId")}})
+            job["slot"] = slot
+            journal_write({"job": {k: job[k] for k in ("requestId", "attempt", "runId", "slot")}}, slot)
             heartbeat = asyncio.create_task(queue_heartbeat(job))
             try:
                 messages, count = await trim_job(job)
@@ -386,8 +467,8 @@ async def queue_loop():
                     path.unlink(missing_ok=True)
                     continue
                 try:
-                    out = await generate(GenerateRequest(messages=messages, maxTokens=prepared["maxTokens"], expectedInputTokens=count, runId=job["runId"]))
-                    journal_write({"job": {k: job[k] for k in ("requestId", "attempt", "runId")}, "result": out})
+                    out = await generate(GenerateRequest(messages=messages, maxTokens=prepared["maxTokens"], expectedInputTokens=count, runId=job["runId"], slot=slot))
+                    journal_write({"job": {k: job[k] for k in ("requestId", "attempt", "runId", "slot")}, "result": out}, slot)
                 except (httpx.HTTPError, HTTPException, ValueError, KeyError):
                     # The next iteration reports failure without running inference again.
                     pass

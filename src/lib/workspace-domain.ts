@@ -37,6 +37,9 @@ export const templateSchema = z
     sessionTokenLimit: z.number().int().min(256).max(16384),
     inputTokenLimit: z.number().int().min(64).max(8192),
     outputTokenLimit: z.number().int().min(64).max(4096),
+    llmParallel: z
+      .union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)])
+      .optional(),
   })
   .refine(
     (t) => !!t.tokenLimitMode || t.inputTokenLimit < t.sessionTokenLimit,
@@ -56,6 +59,7 @@ export const defaultTemplate: WorkspaceTemplate = {
   sessionTokenLimit: 2000,
   inputTokenLimit: 1800,
   outputTokenLimit: 1024,
+  llmParallel: 1,
 };
 export type WorkspaceStatus =
   | "provisioning"
@@ -76,6 +80,8 @@ export interface RuntimeHealth {
   modelStage?: string;
   chatQueueProtocol?: number;
   modelFingerprint?: string;
+  llmParallel?: number;
+  llmActiveSlots?: number;
 }
 export interface Workspace {
   id: string;
@@ -303,6 +309,10 @@ export function chatContextWindow(t: WorkspaceTemplate) {
   return (
     Math.min(t.sessionTokenLimit, t.inputTokenLimit + t.outputTokenLimit) + 128
   );
+}
+// Allocation snapshots without this field predate concurrent inference.
+export function chatParallel(t: WorkspaceTemplate) {
+  return t.llmParallel ?? 1;
 }
 export function estimatedCost(
   w: Pick<Workspace, "meterAt" | "meterRate" | "accruedUsd">,

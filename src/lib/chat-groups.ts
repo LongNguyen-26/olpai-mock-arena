@@ -17,7 +17,7 @@ import {
   chatWorkers,
   chatQueueSummary,
   LEASE_MS,
-  QUEUE_PROTOCOL,
+  supportedQueueProtocol,
 } from "./chat-queue";
 import type { SafeUser, Team } from "./types";
 
@@ -211,7 +211,7 @@ export async function chatGroupViews(user: SafeUser) {
           (w) =>
             w.ready &&
             !w.draining &&
-            w.protocol === QUEUE_PROTOCOL &&
+            supportedQueueProtocol(w.protocol) &&
             w.runId === c.id &&
             now - w.heartbeatAt < LEASE_MS,
         ).length;
@@ -232,6 +232,16 @@ export async function chatGroupViews(user: SafeUser) {
                 workspaceIds: g.workspaceIds,
                 templateId: g.template.id,
                 ready,
+                readySlots: workers
+                  .filter(
+                    (w) =>
+                      w.ready &&
+                      !w.draining &&
+                      supportedQueueProtocol(w.protocol) &&
+                      w.runId === c.id &&
+                      now - w.heartbeatAt < LEASE_MS,
+                  )
+                  .reduce((sum, w) => sum + (w.capacity ?? 1), 0),
                 total: members.filter(
                   (w) => w.podId && w.status !== "terminated",
                 ).length,

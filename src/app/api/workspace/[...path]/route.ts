@@ -81,6 +81,8 @@ async function handle(
           protocol: z.number().int(),
           ready: z.boolean(),
           fingerprint: z.string().max(160),
+          slot: z.number().int().min(0).max(7).optional(),
+          capacity: z.number().int().min(1).max(8).optional(),
           requestId: z.string().uuid().optional(),
           attempt: z.string().uuid().optional(),
           promptTokens: z.number().int().min(1).max(8192).optional(),

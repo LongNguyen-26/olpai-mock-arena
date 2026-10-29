@@ -23,6 +23,7 @@ import {
   driveFileId,
   meter,
   chatContextWindow,
+  chatParallel,
   chatPolicyFields,
   workspaceView,
   workspaceAccess,
@@ -43,6 +44,8 @@ import {
   readQueuedChat,
   enqueueChat,
   workerKey,
+  workerJobIds,
+  supportedQueueProtocol,
   type ChatWorker,
 } from "./chat-queue";
 import { readTemplates, saveSharedTemplate } from "./workspace-templates";
@@ -252,7 +255,7 @@ export async function workspaceState(user: SafeUser) {
               chatbotEnabled:
                 access.chatbotEnabled &&
                 !!worker?.ready &&
-                worker.protocol === 1 &&
+                supportedQueueProtocol(worker.protocol) &&
                 worker.runId === c.id &&
                 now - worker.heartbeatAt < 45000 &&
                 !worker.draining,
@@ -575,6 +578,7 @@ export async function deployWorkspace(
         : {}),
       ARENA_WORKSPACE_SERVICES: services,
       ARENA_CONTEXT_SIZE: String(w.contextWindowTokens),
+      ARENA_LLM_PARALLEL: String(chatParallel(w.template)),
     });
     if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
       throw new RunpodError(502, true);
@@ -828,15 +832,24 @@ export async function controlWorkspace(
     let w = await getWorkspace(id);
     if (w.ownerId !== user.id)
       throw new ApiError("Pod thuộc tài khoản quản trị khác.", 403);
-    if (["stop", "terminate"].includes(action)) {
+    if (["stop", "terminate"].includes(action) && hasService(w, "llm")) {
+      // Fence every future claim before inspecting all existing slots.
+      await db().set(key(`gpu:drain:${id}`), true);
       const worker = await db().get<ChatWorker>(workerKey(id));
-      const job = worker?.jobId
-        ? await db().get<{ status: string }>(key(`gpu:job:${worker.jobId}`))
-        : null;
-      if (job && ["claimed", "running", "uncertain"].includes(job.status)) {
-        await db().set(key(`gpu:drain:${id}`), true);
+      const ids = workerJobIds(worker);
+      const jobs = ids.length
+        ? await db().mget<({ status: string } | null)[]>(
+            ...ids.map((id) => key(`gpu:job:${id}`)),
+          )
+        : [];
+      if (
+        jobs.some(
+          (job) =>
+            job && ["claimed", "running", "uncertain"].includes(job.status),
+        )
+      ) {
         throw new ApiError(
-          "Đã ngừng giao việc mới. Chờ lượt hiện tại hoàn tất hoặc đối soát trước khi dừng Pod.",
+          "Đã ngừng giao việc mới. Chờ tất cả lượt đang chạy hoàn tất hoặc đối soát trước khi dừng Pod.",
           409,
         );
       }

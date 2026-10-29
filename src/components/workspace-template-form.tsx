@@ -246,6 +246,29 @@ export default function WorkspaceTemplateForm({
                   ? "Mỗi prompt có hạn mức input và output riêng. Lịch sử được rút gọn khi cần để vừa cửa sổ model; lịch sử trên giao diện vẫn giữ đầy đủ."
                   : "Input và output có hai ngân sách riêng, được cộng dồn qua các lượt trong phiên."}
               </p>
+              <label>
+                Lượt xử lý đồng thời / GPU
+                <select
+                  value={t.llmParallel ?? 1}
+                  onChange={(e) =>
+                    onEdit(
+                      "llmParallel",
+                      Number(e.target.value) as 1 | 2 | 4 | 8,
+                    )
+                  }
+                >
+                  {[1, 2, 4, 8].map((slots) => (
+                    <option key={slots} value={slots}>
+                      {slots} lượt
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="gpu-hint">
+                Áp dụng khi cấp Pod mới bằng image hỗ trợ xử lý đồng thời. Mỗi
+                lượt giữ nguyên cửa sổ context; tăng số lượt cần thêm VRAM và
+                kiểm tra tốc độ. Pod đang chạy giữ cấu hình đã cấp.
+              </p>
               {!t.tokenLimitMode && (
                 <p className="gpu-hint">
                   Tổng input + output của phiên luôn bị giới hạn, kể cả khi chọn

@@ -155,7 +155,11 @@ export default function ChatGroups({
                 <ArrowUpRight size={23} />
               </a>
               {admin && (
-                <div className="chat-group-stats" role="group" aria-label="Tổng quan nhóm">
+                <div
+                  className="chat-group-stats"
+                  role="group"
+                  aria-label="Tổng quan nhóm"
+                >
                   <div className="chat-stat">
                     <span>GPU sẵn sàng</span>
                     <strong>
@@ -167,7 +171,10 @@ export default function ChatGroups({
                   <div className="chat-stat is-running">
                     <span>Lượt đang chạy</span>
                     <strong>{g.queue?.running ?? 0}</strong>
-                    <small>Đang xử lý trên GPU</small>
+                    <small>
+                      {g.readySlots ?? g.ready ?? 0} lượt xử lý đồng thời sẵn
+                      sàng
+                    </small>
                   </div>
                   <div className="chat-stat is-queued">
                     <span>Lượt đang chờ</span>
@@ -271,7 +278,11 @@ export default function ChatGroups({
                   <h4>{admin ? "GPU workers" : "Tài nguyên GPU"}</h4>
                   <span>{members.length} GPU · chọn để xem chi tiết</span>
                 </div>
-                <div className="chat-worker-selectors" role="group" aria-label="Chọn GPU">
+                <div
+                  className="chat-worker-selectors"
+                  role="group"
+                  aria-label="Chọn GPU"
+                >
                   {members.map((w, index) => {
                     const telemetry = gpuTelemetry(w.health?.gpu),
                       metrics = admin || w.metricsVisible !== false;
@@ -406,7 +417,8 @@ export function ChatWorkerOperations({
           const fresh =
             !!op.worker && state.serverNow - op.worker.heartbeatAt < 45000;
           const compatible =
-            op.worker?.protocol === 1 && (!w || op.worker.runId === w.runId);
+            (op.worker?.protocol === 1 || op.worker?.protocol === 2) &&
+            (!w || op.worker.runId === w.runId);
           const available =
             fresh && compatible && op.worker?.ready && !op.draining;
           const label = op.draining
@@ -446,7 +458,8 @@ export function ChatWorkerOperations({
                 </small>
                 {op.queue && (
                   <small>
-                    {op.queue.running} lượt chạy · {op.queue.queued} lượt chờ
+                    {op.queue.running} lượt chạy · {op.queue.queued} lượt chờ ·{" "}
+                    {op.worker?.capacity ?? 1} lượt đồng thời / GPU
                   </small>
                 )}
               </div>

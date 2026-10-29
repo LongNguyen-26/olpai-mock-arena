@@ -6,6 +6,7 @@ import {
   emptySession,
   outputBudget,
   chatContextWindow,
+  chatParallel,
   workspaceView,
   templateSchema,
   type Workspace,
@@ -17,6 +18,30 @@ import {
 } from "../src/lib/chat-limits";
 import { validateTemplateSave } from "../src/lib/workspace-templates";
 import { Runpod } from "../src/lib/runpod";
+
+test("concurrent inference preserves legacy allocations and validates bounded capacity", () => {
+  const { llmParallel: _newDefault, ...legacy } = defaultTemplate;
+  assert.equal(chatParallel(legacy), 1);
+  assert.equal(chatParallel({ ...defaultTemplate, llmParallel: 4 }), 4);
+  for (const capacity of [1, 2, 4, 8] as const) {
+    const t = {
+      ...defaultTemplate,
+      imageName: "example/image",
+      llmParallel: capacity,
+    };
+    assert.ok(templateSchema.safeParse(t).success);
+    assert.equal(chatContextWindow(t), chatContextWindow(legacy));
+  }
+  for (const capacity of [0, 3, 9, 1.5])
+    assert.equal(
+      templateSchema.safeParse({
+        ...defaultTemplate,
+        imageName: "example/image",
+        llmParallel: capacity,
+      }).success,
+      false,
+    );
+});
 
 test("total session ceiling applies to both session and per-turn input/output modes", () => {
   const t = {

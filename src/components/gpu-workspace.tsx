@@ -243,6 +243,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
               ...state.defaultTemplate,
               id: crypto.randomUUID(),
               services,
+              llmParallel: services === "llm" ? 4 : 1,
               name: "",
               tokenLimitMode: "turn",
               revision: undefined,
@@ -338,6 +339,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
           : {}),
         id: crypto.randomUUID(),
         services: next,
+        llmParallel: next === "llm" ? 4 : 1,
         name: `${label} · ${basis.gpuTypeId}`.slice(0, 80),
       };
     setServices(next);

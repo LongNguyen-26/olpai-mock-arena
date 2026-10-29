@@ -502,6 +502,103 @@ export async function runQueueQa() {
         }),
       );
     }
+    // Two protocol-2 Pods each expose four slots; duplicate concurrent claims
+    // and callbacks cannot overbook the engine or charge the session twice.
+    const callSlot = (
+      wid: string,
+      slot: number,
+      action: string,
+      v: object = {},
+    ) => call(wid, action, { protocol: 2, capacity: 4, slot, ...v });
+    const slots = workerIds.flatMap((wid) =>
+      Array.from({ length: 4 }, (_, slot) => ({ wid, slot })),
+    );
+    await Promise.all(users.flatMap((u) => [send(u), send(u)]));
+    const eight = await Promise.all(
+      slots.map(({ wid, slot }) => callSlot(wid, slot, "claim")),
+    );
+    assert.equal(new Set(eight.map((r) => r.job.requestId)).size, 8);
+    assert.ok(
+      (
+        await Promise.all(
+          slots.map(({ wid, slot }) => callSlot(wid, slot, "claim")),
+        )
+      ).every((r) => r.job === null),
+    );
+    await assert.rejects(() => callSlot(workerIds[0], 4, "claim"), /slot/);
+    await assert.rejects(
+      () => callSlot(workerIds[0], 0, "claim", { capacity: 8 }),
+      /slot/,
+    );
+    await assert.rejects(
+      () =>
+        callSlot(workerIds[0], 1, "prepare", {
+          requestId: eight[0].job.requestId,
+          attempt: eight[0].job.attempt,
+          promptTokens: 20,
+        }),
+      /không thuộc worker/,
+    );
+    const prepSlot = (index: number, job: any) =>
+      callSlot(slots[index].wid, slots[index].slot, "prepare", {
+        requestId: job.requestId,
+        attempt: job.attempt,
+        promptTokens: 20,
+      });
+    const finishSlot = (index: number, job: any) =>
+      callSlot(slots[index].wid, slots[index].slot, "complete", {
+        requestId: job.requestId,
+        attempt: job.attempt,
+        inputTokens: 20,
+        outputTokens: 5,
+        content: "Concurrent QA answer",
+      });
+    await Promise.all(eight.map((r, i) => prepSlot(i, r.job)));
+    const held = (await db().get<ChatJob>(jobKey(eight[3].job.requestId)))!;
+    await db().set(jobKey(held.id), { ...held, leaseUntil: now - 1 });
+    await reconcileChat(`group:${group.id}`, c.id);
+    assert.equal(
+      (await db().get<ChatJob>(jobKey(held.id)))!.status,
+      "uncertain",
+    );
+    for (let i = 0; i < eight.length; i++)
+      if (i !== 3) {
+        await finishSlot(i, eight[i].job);
+        await finishSlot(i, eight[i].job);
+      }
+    // Slot 0 has completed; the active uncertain job on slot 3 must still fence stop.
+    await assert.rejects(
+      () => controlWorkspace(admin, workerIds[0], "stop"),
+      /ngừng giao việc/,
+    );
+    assert.equal((await callSlot(workerIds[0], 0, "claim")).job, null);
+    await drainChatWorker(admin, workerIds[0], false);
+    assert.equal((await callSlot(workerIds[0], 3, "claim")).job, null);
+    await finishSlot(3, eight[3].job);
+    for (let wave = 0; wave < 3; wave++) {
+      const batch = await Promise.all(
+        slots.map(({ wid, slot }) => callSlot(wid, slot, "claim")),
+      );
+      await Promise.all(
+        batch.map(async (r, i) => {
+          if (!r.job) return;
+          await prepSlot(i, r.job);
+          await finishSlot(i, r.job);
+        }),
+      );
+    }
+    const multiView = (await chatGroupViews(admin)).find(
+      (g) => g.id === group.id,
+    )!;
+    assert.equal(multiView.readySlots, 8);
+    assert.equal(multiView.queue!.running, 0);
+    assert.equal(multiView.queue!.queued, 0);
+    // Legacy protocol-1 workers remain single-slot even on a new allocation.
+    for (const wid of workerIds) await claim(wid);
+    assert.equal(
+      (await chatGroupViews(admin)).find((g) => g.id === group.id)!.readySlots,
+      2,
+    );
     // Membership revocation is rechecked after inference, not only at enqueue.
     const outageJob = await send(users[6]);
     for (const wid of workerIds) {

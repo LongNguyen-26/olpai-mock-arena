@@ -18,6 +18,7 @@ export function freshSharedTemplates(image: string) {
     id: randomUUID(),
     revision: randomUUID(),
     services,
+    llmParallel: services === "llm" ? 4 : 1,
     name:
       services === "both"
         ? "A40 · Chatbot + JupyterLab"

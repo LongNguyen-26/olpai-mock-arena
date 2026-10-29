@@ -121,10 +121,56 @@ class ArchiveTests(unittest.TestCase):
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         import httpx
+        agent.INFERENCE_SLOTS.clear()
+        agent.UNCONFIRMED_SLOTS.clear()
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=agent.app), base_url="http://pod.test", headers={"Authorization": "Bearer qa-agent-token"})
 
     async def asyncTearDown(self):
         await self.client.aclose()
+        agent.INFERENCE_SLOTS.clear()
+        agent.UNCONFIRMED_SLOTS.clear()
+
+    async def test_parallel_generations_overlap_without_exceeding_capacity(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        active = set()
+        async def completion(_url, json):
+            active.add(json["id_slot"])
+            if len(active) == 2:
+                entered.set()
+            await release.wait()
+            return Mock(raise_for_status=Mock(), json=lambda: {"content": "answer", "tokens_predicted": 2})
+        engine = AsyncMock()
+        engine.__aenter__.return_value.post.side_effect = completion
+        body = {"messages": [{"role": "user", "content": "hello"}], "maxTokens": 8, "expectedInputTokens": 3}
+        with patch.object(agent, "LLM_PARALLEL", 2), patch.object(agent, "manifest", return_value={"active": True, "llmEnabled": True}), patch.object(agent, "tokenize", new=AsyncMock(return_value=[1,2,3])), patch.object(agent.httpx, "AsyncClient", return_value=engine):
+            pending = [asyncio.create_task(self.client.post("/generate", json={**body, "slot": slot})) for slot in range(2)]
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                self.assertEqual((await self.client.post("/generate", json=body)).status_code, 409)
+                self.assertEqual((await self.client.post("/generate", json={**body, "slot": 0})).status_code, 409)
+                self.assertEqual(active, {0, 1})
+            finally:
+                release.set()
+                responses = await asyncio.gather(*pending)
+            self.assertEqual([r.status_code for r in responses], [200, 200])
+            self.assertFalse(agent.INFERENCE_SLOTS)
+
+    async def test_engine_timeout_quarantines_slot_until_idle_is_confirmed(self):
+        import httpx
+        engine = AsyncMock()
+        post = engine.__aenter__.return_value.post
+        post.side_effect = httpx.ReadTimeout("unconfirmed")
+        body = {"messages": [{"role": "user", "content": "hello"}], "maxTokens": 8, "expectedInputTokens": 3, "slot": 0}
+        with patch.object(agent, "manifest", return_value={"active": True, "llmEnabled": True}), patch.object(agent, "tokenize", new=AsyncMock(return_value=[1,2,3])), patch.object(agent.httpx, "AsyncClient", return_value=engine), patch.object(agent, "engine_slot_idle", new=AsyncMock(return_value=False)) as idle:
+            self.assertEqual((await self.client.post("/generate", json=body)).status_code, 503)
+            self.assertEqual(agent.UNCONFIRMED_SLOTS, {0})
+            self.assertEqual((await self.client.post("/generate", json=body)).status_code, 409)
+            self.assertEqual(post.await_count, 1)
+            idle.return_value = True
+            post.side_effect = None
+            post.return_value = Mock(raise_for_status=Mock(), json=lambda: {"content": "ok", "tokens_predicted": 1})
+            self.assertEqual((await self.client.post("/generate", json=body)).status_code, 200)
+            self.assertFalse(agent.UNCONFIRMED_SLOTS)
 
     async def test_authentication_and_request_validation(self):
         self.assertEqual((await self.client.get("/health", headers={"Authorization": "wrong"})).status_code, 401)
@@ -161,6 +207,70 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         tokenizer.assert_not_called()
 
 class QueueTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        idle = patch.object(agent, "engine_slot_idle", new=AsyncMock(return_value=True))
+        idle.start()
+        self.addCleanup(idle.stop)
+
+    async def test_model_command_preserves_context_for_each_parallel_slot(self):
+        with patch.object(agent, "LLM_PARALLEL", 4), patch.object(agent, "CONTEXT_SIZE", 4096):
+            cmd = agent.model_command("model.gguf")
+        self.assertEqual(cmd[cmd.index("--ctx-size") + 1], "16384")
+        self.assertEqual(cmd[cmd.index("--parallel") + 1], "4")
+        self.assertIn("--cont-batching", cmd)
+        self.assertEqual(cmd[cmd.index("--host") + 1], "127.0.0.1")
+
+    async def test_engine_readiness_checks_each_slots_context(self):
+        slots = [{"id": 0, "n_ctx": 4096}, {"id": 1, "n_ctx": 1024}]
+        with patch.object(agent, "LLM_PARALLEL", 2), patch.object(agent, "CONTEXT_SIZE", 4096), patch.object(agent, "engine_slots", new=AsyncMock(return_value=slots)):
+            self.assertFalse(await agent.engine_ready())
+            slots[1]["n_ctx"] = 4096
+            self.assertTrue(await agent.engine_ready())
+
+    async def test_busy_engine_journal_keeps_lease_without_restarting_inference(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stop = threading.Event()
+            async def callback(action, job=None, **extra):
+                self.assertEqual(action, "heartbeat")
+                stop.set()
+                return {"open": True, "runId": "run"}
+            with patch.object(agent, "ROOT", Path(temp)), patch.object(agent, "STOP", stop), patch.object(agent, "engine_slot_idle", new=AsyncMock(return_value=False)), patch.object(agent, "worker_call", side_effect=callback), patch.object(agent, "generate", new=AsyncMock()) as generate, patch.object(agent.asyncio, "sleep", new=AsyncMock()):
+                agent.journal_write({"job": {"requestId": "r", "attempt": "a", "runId": "run", "slot": 1}}, 1)
+                await agent.queue_loop(1)
+                self.assertTrue(agent.journal_path(1).exists())
+                generate.assert_not_called()
+
+    async def test_journals_and_replayed_results_are_independent_per_slot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stop = threading.Event()
+            seen = []
+            async def callback(action, job, **extra):
+                seen.append((action, job["slot"], extra["content"]))
+                stop.set()
+                return {"terminal": True}
+            with patch.object(agent, "ROOT", Path(temp)), patch.object(agent, "STOP", stop), patch.object(agent, "worker_call", side_effect=callback):
+                for slot in range(2):
+                    agent.journal_write({"job": {"requestId": str(slot), "attempt": "a", "runId": "run"}, "result": {"content": str(slot)}}, slot)
+                await agent.queue_loop(1)
+                self.assertTrue(agent.journal_path(0).exists())
+                self.assertFalse(agent.journal_path(1).exists())
+                stop.clear()
+                await agent.queue_loop(0)
+                self.assertEqual(seen, [("complete", 1, "1"), ("complete", 0, "0")])
+
+    async def test_legacy_journal_is_migrated_and_replayed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / ".arena").mkdir(); stop = threading.Event()
+            legacy = root / ".arena/chat-job.json"
+            legacy.write_text(json.dumps({"job": {"requestId": "r", "attempt": "a", "runId": "run"}, "result": {"content": "old result"}}))
+            async def callback(action, job, **extra):
+                self.assertEqual((action, job["slot"], extra["content"]), ("complete", 0, "old result"))
+                stop.set(); return {"terminal": True}
+            with patch.object(agent, "ROOT", root), patch.object(agent, "STOP", stop), patch.object(agent, "worker_call", side_effect=callback), patch.object(agent, "generate", new=AsyncMock()) as generate:
+                await agent.queue_loop()
+                generate.assert_not_called()
+                self.assertFalse(legacy.exists())
+
     async def test_known_private_deadline_stops_model_even_without_control_connection(self):
         stop = Mock(); stop.is_set.side_effect = [False, True]
         enabled = threading.Event(); enabled.set()
