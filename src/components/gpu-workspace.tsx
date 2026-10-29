@@ -880,7 +880,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   </>
                 )}
                 <label>
-                  {services === "llm" ? "Vòng luyện áp dụng giờ Chatbot" : "Vòng luyện áp dụng quyền truy cập"}
+                  {services === "llm"
+                    ? "Vòng luyện áp dụng giờ Chatbot"
+                    : "Vòng luyện áp dụng quyền truy cập"}
                   <select
                     value={roundId}
                     required
@@ -1039,15 +1041,17 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   }
                 >
                   <Cpu size={17} />
-                  {teamHub && manualDeploy ? "Chuẩn bị deploy manual" : services === "llm"
-                    ? selectedGroup
-                      ? "Thêm một Pod vào nhóm"
-                      : "Tạo nhóm và cấp Pod đầu tiên"
-                    : hasActive
-                      ? "Dịch vụ đã có Pod / yêu cầu chờ"
-                      : scope === "all"
-                        ? "Cấp 1 GPU dùng chung"
-                        : "Cấp 1 GPU riêng cho đội"}
+                  {teamHub && manualDeploy
+                    ? "Chuẩn bị deploy manual"
+                    : services === "llm"
+                      ? selectedGroup
+                        ? "Thêm một Pod vào nhóm"
+                        : "Tạo nhóm và cấp Pod đầu tiên"
+                      : hasActive
+                        ? "Dịch vụ đã có Pod / yêu cầu chờ"
+                        : scope === "all"
+                          ? "Cấp 1 GPU dùng chung"
+                          : "Cấp 1 GPU riêng cho đội"}
                 </button>
                 {(!prices || !templateSaved) && (
                   <small>Cập nhật giá và lưu template trước khi cấp GPU.</small>
@@ -1161,7 +1165,7 @@ function WorkspaceCard({
                 : statusNames[w.status]}
           </span>
           <h3>{w.template.gpuTypeId}</h3>
-          <p>{w.teamName}</p>
+          <p>{isTeamHub(w) ? "Các team được cấp quyền" : w.teamName}</p>
           <small>{w.roundTitle}</small>
           <div className="gpu-badges">
             <span className="pill neutral">

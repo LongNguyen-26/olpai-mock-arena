@@ -29,6 +29,19 @@ async function main() {
       ),
     );
     assert.ok(Array.isArray(state.templates) && Array.isArray(state.teams));
+    const hubImage = process.argv
+      .find((v) => v.startsWith("--hub-image="))
+      ?.slice(12);
+    if (hubImage) {
+      assert.equal(state.defaultTemplate.imageName, hubImage);
+      const hub = state.templates.find(
+        (t: { jupyterMode?: string }) => t.jupyterMode === "team-hub",
+      );
+      assert.ok(hub, "Shared Hub template is missing");
+      assert.equal(hub.services, "jupyter");
+      assert.equal(hub.maxTeamServers, 7);
+      assert.equal(hub.imageName, hubImage);
+    }
     for (const workspace of state.workspaces) {
       assert.equal("secret" in workspace, false);
       assert.equal("jupyterSecret" in workspace, false);

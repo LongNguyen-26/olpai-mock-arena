@@ -558,7 +558,11 @@ export async function deployWorkspace(
     ...(options.manual ? { manual: { state: "prepared" as const } } : {}),
     id,
     teamId: scope === "all" ? null : team!.id,
-    teamName: scope === "all" ? "Tất cả các đội" : team!.name,
+    teamName: teamHub
+      ? "Các team được cấp quyền"
+      : scope === "all"
+        ? "Tất cả các đội"
+        : team!.name,
     scope,
     services,
     ...(group ? { chatGroupId: group.id } : {}),

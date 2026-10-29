@@ -1,3 +1,11 @@
+# JupyterHub: nhiều team trên một Pod — 30/10/2026
+
+- Thêm chế độ Jupyter-only `team-hub`, workspace theo team, cấp quyền động, SSO ticket dùng một lần và bảng lượt GPU tự quản. Pod vật lý giữ một ledger; Chatbot và chế độ `single` cũ tiếp tục độc lập. Có luồng chuẩn bị/kiểm tra/gắn/gỡ Pod thủ công, xác minh tài khoản Runpod, image digest và runtime identity trước khi cấp manifest.
+- Runtime dùng UID/GID thật, home `0700`, venv/kernel riêng và môi trường notebook không có credential điều khiển. Dataset checksum tải một lần, bản chung chỉ đọc, private theo manifest; ghi vào home không đi theo symlink. Dừng team giữ bài làm, thêm team không restart các server đang chạy. Kiểm tra RAM/đĩa trước spawn, không áp quota cứng hoặc cưỡng chế lượt GPU.
+- Typecheck, 79 test TypeScript, build web và 28 test Python 3.10 đạt. [CI Linux](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40963869458) đạt 5 test: quyền UID/home/secret, dataset chỉ đọc/private/symlink, thêm team thứ tư giữ ba server cũ, Chromium hai phiên cộng tác/chạy kernel trong venv team và hồi quy file browser/kernel chế độ `single`.
+- `qa-hub-flow.ts` dùng Redis thật trong namespace QA riêng với Runpod giả lập: allocation/start đồng thời, grant/revoke, SSO nonce/replay, nhiều team đánh dấu dùng GPU, manual identity/bind/detach và reset cả giữ/đổi run. `qa-workspace-flow.ts` tiếp tục kiểm tra các luồng cũ; không cấp Pod thật.
+- Playwright `qa-hub-ui.js` đã kiểm tra API/Redis QA thật, thêm team, bảng lượt, giao diện thí sinh/admin và desktop/mobile; ảnh ở `output/playwright/hub-*.png`. Đã đăng xuất/đóng trình duyệt và dọn fixture/namespace QA. Test Linux dùng SSO cục bộ giả lập và CPU; chưa chứng minh CUDA hay kernel/WebSocket qua proxy Runpod. Hai phần này nghiệm thu trên Pod do người dùng tự cấp.
+
 # Sửa lỗi cấp GPU HTTP 400 — 27/10/2026
 
 - Nguyên nhân: payload gửi CUDA 13.1/13.2 ngoài enum REST v1 Runpod. Giới hạn lại 12.8/12.9/13.0 theo [schema chính thức](https://docs.runpod.io/api-reference/pods/POST/pods), thêm hồi quy cho payload và thông báo validation chỉ dùng tên trường an toàn.

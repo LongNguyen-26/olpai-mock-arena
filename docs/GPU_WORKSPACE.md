@@ -1,5 +1,7 @@
 # GPU Workspace — cấu hình luyện tập
 
+Cập nhật 30/10/2026: [JUPYTERHUB.md](JUPYTERHUB.md) hướng dẫn nhiều workspace team riêng trên một Pod Jupyter-only, cấp tự động hoặc gắn Pod thủ công và bảng đăng ký GPU. Chế độ mới cấp quyền theo danh sách team; mô tả Pod chung dùng chung tệp/kernel bên dưới là chế độ `single` cũ.
+
 Cập nhật 29/10/2026: xem [CHAT_QUEUE.md](CHAT_QUEUE.md) cho nhóm nhiều Pod, giao thức worker, quota tổng, template chung và trình tự reset/phát hành. Image mặc định cho Pod mới lấy từ env/template đã ghim digest; digest trong ghi chép triển khai cũ bên dưới không phải image hàng đợi mới.
 
 Admin cấp một GPU mỗi Pod, chọn riêng một đội hoặc dùng chung cho tất cả đội. Mỗi Pod chạy cả hai dịch vụ, chỉ Chatbot DeepSeek 32B Q4, hoặc chỉ JupyterLab. Mặc định A40 48 GB; không yêu cầu chặn Internet/cấm pip ở tầng hệ thống.
