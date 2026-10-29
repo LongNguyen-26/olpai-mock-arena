@@ -78,7 +78,9 @@ c.JupyterHub.log_level = "ERROR"
 c.JupyterHub.tornado_settings = {"log_function": lambda handler: None}
 c.Spawner.cmd = ["/opt/arena/venv/bin/jupyterhub-singleuser"]
 c.Spawner.default_url = "/lab"
-c.Spawner.disable_user_config = True
+# Team-local kernels/config are allowed for this trusted internal deployment.
+# Hub configuration/secrets remain root-only; the process still drops to its UID.
+c.Spawner.disable_user_config = False
 c.Spawner.start_timeout = 120
 c.Spawner.args = ["--ServerApp.allow_remote_access=True", "--ServerApp.trust_xheaders=True", "--MappingKernelManager.default_kernel_name=pytorch", "--KernelSpecManager.ensure_native_kernel=False"]
 pod = os.getenv("RUNPOD_POD_ID")

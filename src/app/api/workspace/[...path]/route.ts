@@ -314,6 +314,7 @@ async function handle(
             .uuid()
             .optional()
             .parse(url.searchParams.get("teamId") ?? undefined),
+          url.origin,
         ),
         {
           headers,

@@ -1,9 +1,10 @@
 """Arena SSO: browser nonce and a one-use server-verified ticket."""
 import hmac
+import json
 import os
 import re
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from jupyterhub.auth import Authenticator
@@ -27,7 +28,13 @@ class ArenaLoginHandler(BaseHandler):
             if team_id:
                 query["teamId"] = team_id
             control = os.environ["ARENA_CONTROL_URL"].rsplit("/manifest", 1)[0]
-            self.redirect(control + "/hub/authorize?" + urlencode(query))
+            parsed = urlparse(control)
+            canonical = parsed.scheme + "://" + parsed.netloc
+            allowed = json.loads(os.getenv("ARENA_LOGIN_ORIGINS", json.dumps([canonical])))
+            origin = self.get_argument("arenaOrigin", canonical)
+            if origin not in allowed:
+                raise HTTPError(403, "Use the configured Arena address")
+            self.redirect(origin + "/api/workspace/hub/authorize?" + urlencode(query))
             return
         state = self.get_argument("state", "")
         saved = self.get_secure_cookie("arena-state-" + state, max_age_days=10/1440)

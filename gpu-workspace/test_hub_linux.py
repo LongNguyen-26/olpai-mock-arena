@@ -40,7 +40,10 @@ class LinuxHubTests(unittest.TestCase):
 
             def do_GET(self):
                 query = parse_qs(urlparse(self.path).query)
-                if urlparse(self.path).path.endswith("/hub/authorize"):
+                if urlparse(self.path).path == "/api/status":
+                    self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+                    self.wfile.write(b'{"status":"ok"}')
+                elif urlparse(self.path).path.endswith("/hub/authorize"):
                     ticket = secrets.token_urlsafe(32)
                     cls.tickets[ticket] = {"state": query["state"][0], "teamId": query["teamId"][0]}
                     self.send_response(302)
@@ -59,6 +62,8 @@ class LinuxHubTests(unittest.TestCase):
 
         cls.arena = ThreadingHTTPServer(("127.0.0.1", 19090), Arena)
         threading.Thread(target=cls.arena.serve_forever, daemon=True).start()
+        cls.probe = ThreadingHTTPServer(("127.0.0.1", 8000), Arena)
+        threading.Thread(target=cls.probe.serve_forever, daemon=True).start()
         env = {**os.environ, "ARENA_WORKSPACE_ROOT": str(cls.root), "ARENA_WORKSPACE_ID": str(uuid.uuid4()),
                "ARENA_CONTROL_URL": "http://127.0.0.1:19090/api/workspace/manifest", "ARENA_AGENT_TOKEN": cls.token,
                "ARENA_TEST_HTTP": "1", "PYTHONPATH": "/opt/arena", "ARENA_MAX_TEAM_SERVERS": "7"}
@@ -99,7 +104,7 @@ class LinuxHubTests(unittest.TestCase):
             cls.process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             os.killpg(cls.process.pid, signal.SIGKILL); cls.process.wait()
-        cls.arena.shutdown(); cls.arena.server_close(); cls.log.close()
+        cls.arena.shutdown(); cls.arena.server_close(); cls.probe.shutdown(); cls.probe.server_close(); cls.log.close()
         for item in cls.manager.users.values():
             subprocess.run(["pkill", "-KILL", "-u", str(item["uid"])], check=False)
             subprocess.run(["userdel", item["name"]], check=False)
@@ -113,7 +118,11 @@ class LinuxHubTests(unittest.TestCase):
                               user=user["uid"], group=user["uid"], extra_groups=[], capture_output=True, text=True, timeout=20)
 
     def test_01_files_uid_and_secret_isolation(self):
+        probe = httpx.get("http://127.0.0.1:8888/api/status", timeout=5)
+        self.assertEqual(probe.status_code, 200)
+        self.assertEqual(probe.json(), {"status": "ok"})
         a, b = self.team_ids[:2]
+        self.assertNotEqual(httpx.get("http://127.0.0.1:8888/user/" + username(a) + "/api/contents", timeout=5).status_code, 200)
         a_user = self.manager.ensure_user(a)
         self.assertEqual(self.run_team(a, "import os; assert os.geteuid()!=0").returncode, 0)
         secret = self.manager.control / "service-token"
@@ -222,6 +231,8 @@ class LinuxHubTests(unittest.TestCase):
             editor.press_sequentially("import os, sys\nprint('uid-check', os.geteuid() != 0, 'ARENA_AGENT_TOKEN' not in os.environ, 'CONFIGPROXY_AUTH_TOKEN' not in os.environ)\nprint('venv-check', '.venvs/pytorch' in sys.prefix)")
             editor.press("Shift+Enter")
             page1.get_by_text("uid-check True True True", exact=False).first.wait_for(timeout=30000)
+            print("Kernel specs:", {k: v["spec"]["argv"] for k, v in page1.request.get(base + "/user/" + a + "/api/kernelspecs").json()["kernelspecs"].items()})
+            print("Kernel output:", page1.locator(".jp-Notebook .jp-OutputArea").first.inner_text())
             page1.get_by_text("venv-check True", exact=False).first.wait_for(timeout=30000)
             page1.reload(); page1.locator(".jp-DirListing").wait_for(timeout=60000)
             browser.close()

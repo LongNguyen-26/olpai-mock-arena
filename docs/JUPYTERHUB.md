@@ -4,6 +4,8 @@ Arena hỗ trợ chế độ `team-hub` cho Pod **Jupyter-only**. Mỗi team có
 
 Image Hub phải qua job `hub-linux`, build/push và được ghim digest trong `RUNPOD_HUB_IMAGE` trước khi cấp Pod. Web từ chối image Hub chưa nằm trong allowlist này. Trạng thái phát hành/digest cụ thể được ghi sau khi pipeline hoàn tất; không dùng digest cũ để deploy Hub.
 
+Nếu Arena dùng nhiều tên miền, cấu hình `GPU_WORKSPACE_LOGIN_ORIGINS` bằng danh sách HTTPS origin chính xác, cách nhau bằng dấu phẩy. Địa chỉ của `GPU_WORKSPACE_PUBLIC_URL` được cho phép sẵn. Hub đăng nhập qua đúng tên miền người dùng đang mở để giữ phiên Arena; callback đổi ticket vẫn dùng control URL cố định.
+
 ## Cấp Pod tự động
 
 1. Kết nối Runpod bằng API key của admin trong GPU Workspace.

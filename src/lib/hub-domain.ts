@@ -49,6 +49,21 @@ export const isTeamHub = (w: { jupyterMode?: string }) =>
   w.jupyterMode === "team-hub";
 export const hubUsername = (teamId: string) =>
   `t${teamId.replaceAll("-", "").slice(0, 24)}`;
+export function hubLoginOrigins(controlUrl: string, extra = "") {
+  const origins = [
+    new URL(controlUrl).origin,
+    ...extra
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  ];
+  for (const value of origins) {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.origin !== value)
+      throw new Error("Hub login origins must be exact HTTPS origins");
+  }
+  return [...new Set(origins)];
+}
 export function hubImage(image: string) {
   return /^nguyenlong26\/olpai-workspace@sha256:[a-f0-9]{64}$/.test(image);
 }

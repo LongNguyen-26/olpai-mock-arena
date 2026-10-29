@@ -21,6 +21,7 @@ import { podStartupMessage } from "./runpod-startup";
 import {
   isTeamHub,
   hubImage,
+  hubLoginOrigins,
   HUB_PROTOCOL,
   type TeamNotebook,
 } from "./hub-domain";
@@ -1082,6 +1083,16 @@ export function workspaceEnvironment(w: Workspace) {
     ARENA_WORKSPACE_SERVICES: w.services ?? "both",
     ARENA_JUPYTER_MODE: w.jupyterMode ?? "single",
     ARENA_MAX_TEAM_SERVERS: String(w.template.maxTeamServers ?? 7),
+    ...(isTeamHub(w)
+      ? {
+          ARENA_LOGIN_ORIGINS: JSON.stringify(
+            hubLoginOrigins(
+              controlUrl,
+              process.env.GPU_WORKSPACE_LOGIN_ORIGINS,
+            ),
+          ),
+        }
+      : {}),
     ARENA_CONTEXT_SIZE: String(
       w.contextWindowTokens ?? chatContextWindow(w.template),
     ),
@@ -1098,6 +1109,7 @@ export async function launchNotebook(
   user: SafeUser,
   id: string,
   targetTeamId?: string,
+  arenaOrigin?: string,
 ) {
   const { w, c } = await accessWorkspace(user, id),
     now = await serverNow();
@@ -1111,7 +1123,17 @@ export async function launchNotebook(
       throw new ApiError("Pod chưa chạy.", 409);
     if (!user.admin && !notebookAllowed(c, now))
       throw new ApiError("Quyền mở JupyterLab đang khóa.", 403);
-    return `${podOrigin(w.podId, 8888)}/hub/arena-login?teamId=${encodeURIComponent(teamId)}`;
+    const allowed = hubLoginOrigins(
+      process.env.GPU_WORKSPACE_PUBLIC_URL!,
+      process.env.GPU_WORKSPACE_LOGIN_ORIGINS,
+    );
+    const origin = arenaOrigin ?? allowed[0];
+    if (!allowed.includes(origin))
+      throw new ApiError(
+        "Địa chỉ web này chưa được cấu hình đăng nhập Hub. Mở Arena qua địa chỉ chính.",
+        403,
+      );
+    return `${podOrigin(w.podId, 8888)}/hub/arena-login?teamId=${encodeURIComponent(teamId)}&arenaOrigin=${encodeURIComponent(origin)}`;
   }
   if (!user.admin && (w.runId !== c.id || !notebookAllowed(c, now)))
     throw new ApiError("Quyền mở JupyterLab của vòng này đang khóa.", 403);

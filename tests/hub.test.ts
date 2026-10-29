@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   hubUsername,
   hubImage,
+  hubLoginOrigins,
   isTeamHub,
   notebookReport,
   type HubReport,
@@ -46,6 +47,21 @@ test("Hub usernames fit Unix limits and only immutable Arena images are accepted
   assert.match(hubUsername(randomUUID()), /^t[a-f0-9]{24}$/);
   assert.ok(hubImage("nguyenlong26/olpai-workspace@sha256:" + "a".repeat(64)));
   assert.equal(hubImage("nguyenlong26/olpai-workspace:latest"), false);
+});
+test("Hub login origins accept only explicit HTTPS aliases of the Arena app", () => {
+  assert.deepEqual(
+    hubLoginOrigins(
+      "https://arena.example/api/",
+      "https://other.example,https://arena.example",
+    ),
+    ["https://arena.example", "https://other.example"],
+  );
+  for (const value of [
+    "http://other.example",
+    "https://other.example/path",
+    "https://other.example/",
+  ])
+    assert.throws(() => hubLoginOrigins("https://arena.example", value));
 });
 test("Hub reports are fenced by run, desired revision and heartbeat freshness", () => {
   const teamId = randomUUID(),
