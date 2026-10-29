@@ -1,5 +1,6 @@
 # Runtime fixes reuse the verified dependency image. Rebuild Dockerfile when its
 # dependencies change, then update this immutable base to that release's digest.
-FROM nguyenlong26/olpai-workspace@sha256:22f21a6b87f728d87f9dedd68028985b7a10be0b451a843f52be751682bea817
+# HUB_DEPENDENCIES_READY=true
+FROM nguyenlong26/olpai-workspace@sha256:ddbc15474bd5fdb8d63e5d876db0910a638b11ca70bb6ce5c6bf3088b63b40d0
 COPY --link agent.py start.py hub_runtime.py hub_auth.py hub_config.py /opt/arena/
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "python", "/opt/arena/start.py"]
