@@ -12,6 +12,16 @@ def launch_plan(root: Path, services: str):
     commands = [["uvicorn", "agent:app", "--host=0.0.0.0", "--port=8000", "--app-dir=/opt/arena", "--no-access-log"]]
     if services == "llm":
         return commands
+    if os.getenv("ARENA_JUPYTER_MODE", "single") == "team-hub":
+        if services != "jupyter":
+            raise ValueError("Team Hub requires Jupyter-only")
+        from hub_runtime import HubManager
+        manager = HubManager(root)
+        manager.check_privileges()
+        for team_id in list(manager.users):
+            manager.ensure_user(team_id)
+        commands.insert(0, ["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"])
+        return commands
     if not os.environ.get("JUPYTER_TOKEN"):
         raise ValueError("Jupyter token required")
     config_dir = root / ".arena" / "jupyter"
@@ -35,6 +45,7 @@ c.ServerApp.extra_services = ["arena_readiness"]
 c.IdentityProvider.token = os.environ["JUPYTER_TOKEN"]
 c.ServerApp.allow_remote_access = True
 c.ServerApp.trust_xheaders = True
+c.ServerApp.jpserver_extensions = {"jupyter_server_ydoc": False}
 pod_id = os.environ.get("RUNPOD_POD_ID")
 if pod_id:
     c.ServerApp.allow_origin = "https://" + pod_id + "-8888.proxy.runpod.net"

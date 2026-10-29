@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
+import JupyterHubPanel from "./jupyter-hub";
+import { isTeamHub } from "@/lib/hub-domain";
 import ChatGroups, { ChatWorkerOperations, GpuBoard } from "./chat-groups";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
 import { gpuCloudPrice } from "@/lib/gpu-pricing";
@@ -59,6 +61,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
     [groupName, setGroupName] = useState("Chatbot chung — Thi thử"),
     [services, setServices] = useState<WorkspaceServices>("both"),
     [loadDataset, setLoadDataset] = useState(true),
+    [hubTeamIds, setHubTeamIds] = useState<string[]>([]),
+    [manualDeploy, setManualDeploy] = useState(false),
     [roundId, setRoundId] = useState(
       data.contest?.roundId ?? data.rounds[0]?.id ?? "",
     );
@@ -150,6 +154,10 @@ export default function GpuWorkspace({ data }: ViewProps) {
   }, [data.user.admin, roundId, state?.serverNow]);
   const eligibleTeams =
     teamOptions.roundId === roundId ? teamOptions.teams : [];
+  useEffect(() => {
+    if (services === "jupyter" && template?.jupyterMode === "team-hub")
+      setScope("all");
+  }, [services, template?.jupyterMode]);
   useEffect(() => {
     if (!data.user.admin || !state?.hasCredential) return;
     let active = true;
@@ -338,6 +346,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
           : {}),
         id: crypto.randomUUID(),
         services: next,
+        jupyterMode: next === "jupyter" ? basis.jupyterMode : undefined,
         llmParallel: next === "llm" ? 4 : 1,
         name: `${label} · ${basis.gpuTypeId}`.slice(0, 80),
       };
@@ -346,6 +355,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
   }
   const chosen = prices?.gpus.find((g) => g.id === template?.gpuTypeId),
     hourly = template ? gpuCloudPrice(chosen?.price, template.cloudType) : null;
+  const teamHub =
+    services === "jupyter" && template?.jupyterMode === "team-hub";
   const hasActive = state?.workspaces.some(
     (w) =>
       w.scope === scope &&
@@ -353,6 +364,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       w.roundId === roundId &&
       servicesOverlap(w.services, services) &&
       w.status !== "terminated" &&
+      w.manual?.state !== "detached" &&
       !capacityRejected(w) &&
       services !== "llm",
   );
@@ -426,72 +438,95 @@ export default function GpuWorkspace({ data }: ViewProps) {
         maxHourlyUsd,
       });
     } else {
-      await api("workspace/deploy", {
-        teamId: scope === "team" ? teamId : null,
-        scope,
-        services,
-        loadDataset,
-        roundId,
-        templateId: template.id,
-        maxHourlyUsd,
-        requestId: allocationRequest.current,
-      });
+      await api(
+        teamHub && manualDeploy
+          ? "workspace/manual/prepare"
+          : "workspace/deploy",
+        {
+          teamId: scope === "team" ? teamId : null,
+          scope,
+          services,
+          loadDataset,
+          roundId,
+          templateId: template.id,
+          maxHourlyUsd,
+          requestId: allocationRequest.current,
+          ...(teamHub
+            ? {
+                teamIds: hubTeamIds.filter((id) =>
+                  eligibleTeams.some((t) => t.id === id),
+                ),
+              }
+            : {}),
+        },
+      );
     }
     allocationRequest.current = "";
   }
   function renderWorkspace(w: WorkspaceView, canManage = data.user.admin) {
     return (
-      <WorkspaceCard
-        key={w.id}
-        w={w}
-        observedNow={state!.serverNow}
-        admin={data.user.admin}
-        canManage={canManage}
-        retry={() =>
-          void run(async () => {
-            retryRequests.current[w.id] ||= crypto.randomUUID();
-            const result: WorkspaceView = await api("workspace/retry", {
-              id: w.id,
-              requestId: retryRequests.current[w.id],
-            });
-            if (capacityRejected(result)) {
-              await load();
-              throw new Error(
-                result.error ??
-                  "Runpod vẫn hết capacity. Có thể thử lại từ yêu cầu mới.",
-              );
-            }
-          }, "Đã thử cấp GPU lại; xem allocation mới trong danh sách.")
-        }
-        busy={busy}
-        confirm={confirmId === w.id}
-        onConfirm={() => setConfirmId(w.id)}
-        onCancel={() => setConfirmId("")}
-        sync={() =>
-          void run(
-            () => api("workspace/sync", { id: w.id }),
-            "Đã đối soát trạng thái.",
-          )
-        }
-        control={(action) =>
-          void run(async () => {
-            await api("workspace/control", { id: w.id, action });
-            setConfirmId("");
-          }, "Đã xử lý yêu cầu điều khiển Pod.")
-        }
-        toggleMetrics={() =>
-          void run(
-            () =>
-              api("workspace/metrics", {
+      <div key={w.id} className={isTeamHub(w) ? "hub-host" : undefined}>
+        <WorkspaceCard
+          w={w}
+          observedNow={state!.serverNow}
+          admin={data.user.admin}
+          canManage={canManage && (!isTeamHub(w) || !!w.hub?.canManage)}
+          retry={() =>
+            void run(async () => {
+              retryRequests.current[w.id] ||= crypto.randomUUID();
+              const result: WorkspaceView = await api("workspace/retry", {
                 id: w.id,
-                visible: w.metricsVisible === false,
-              }),
-            w.metricsVisible === false
-              ? "Đã hiện metrics GPU cho đội thi."
-              : "Đã ẩn metrics GPU với đội thi.",
-          )
-        }
-      />
+                requestId: retryRequests.current[w.id],
+              });
+              if (capacityRejected(result)) {
+                await load();
+                throw new Error(
+                  result.error ??
+                    "Runpod vẫn hết capacity. Có thể thử lại từ yêu cầu mới.",
+                );
+              }
+            }, "Đã thử cấp GPU lại; xem allocation mới trong danh sách.")
+          }
+          busy={busy}
+          confirm={confirmId === w.id}
+          onConfirm={() => setConfirmId(w.id)}
+          onCancel={() => setConfirmId("")}
+          sync={() =>
+            void run(
+              () => api("workspace/sync", { id: w.id }),
+              "Đã đối soát trạng thái.",
+            )
+          }
+          control={(action) =>
+            void run(async () => {
+              await api("workspace/control", { id: w.id, action });
+              setConfirmId("");
+            }, "Đã xử lý yêu cầu điều khiển Pod.")
+          }
+          toggleMetrics={() =>
+            void run(
+              () =>
+                api("workspace/metrics", {
+                  id: w.id,
+                  visible: w.metricsVisible === false,
+                }),
+              w.metricsVisible === false
+                ? "Đã hiện metrics GPU cho đội thi."
+                : "Đã ẩn metrics GPU với đội thi.",
+            )
+          }
+        />
+        {isTeamHub(w) && (
+          <JupyterHubPanel
+            w={w}
+            admin={data.user.admin}
+            teamId={data.user.teamId}
+            busy={busy}
+            run={run}
+            refresh={load}
+          />
+        )}
+      </div>
     );
   }
   return (
@@ -774,29 +809,31 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   void run(deploySelected, "Đã gửi yêu cầu cấp Pod.");
                 }}
               >
-                <fieldset className="gpu-choices">
-                  <legend>Phạm vi sử dụng</legend>
-                  <div className="gpu-choice-grid">
-                    <button
-                      type="button"
-                      aria-pressed={scope === "team"}
-                      onClick={() => setScope("team")}
-                    >
-                      <strong>Riêng một đội</strong>
-                      <span>Chỉ thành viên đội được truy cập</span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={scope === "all"}
-                      onClick={() => setScope("all")}
-                    >
-                      <strong>Chung tất cả đội</strong>
-                      <span>Một Pod, mọi đội cùng sử dụng</span>
-                    </button>
-                  </div>
-                </fieldset>
+                {!teamHub && (
+                  <fieldset className="gpu-choices">
+                    <legend>Phạm vi sử dụng</legend>
+                    <div className="gpu-choice-grid">
+                      <button
+                        type="button"
+                        aria-pressed={scope === "team"}
+                        onClick={() => setScope("team")}
+                      >
+                        <strong>Riêng một đội</strong>
+                        <span>Chỉ thành viên đội được truy cập</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={scope === "all"}
+                        onClick={() => setScope("all")}
+                      >
+                        <strong>Chung tất cả đội</strong>
+                        <span>Một Pod, mọi đội cùng sử dụng</span>
+                      </button>
+                    </div>
+                  </fieldset>
+                )}
 
-                {scope === "all" && (
+                {scope === "all" && !teamHub && (
                   <p className="gpu-share-note">
                     Áp dụng cho mọi đội hiện có và đội được tạo sau này.{" "}
                     {services !== "llm"
@@ -808,7 +845,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                       " Chatbot xử lý một yêu cầu tại một thời điểm."}
                   </p>
                 )}
-                {scope === "team" && (
+                {scope === "team" && !teamHub && (
                   <>
                     <label>
                       Đội thi
@@ -843,9 +880,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   </>
                 )}
                 <label>
-                  {services === "llm"
-                    ? "Vòng luyện áp dụng giờ Chatbot"
-                    : "Vòng luyện áp dụng quyền truy cập"}
+                  {services === "llm" ? "Vòng luyện áp dụng giờ Chatbot" : "Vòng luyện áp dụng quyền truy cập"}
                   <select
                     value={roundId}
                     required
@@ -867,6 +902,53 @@ export default function GpuWorkspace({ data }: ViewProps) {
                     ))}
                   </select>
                 </label>
+                {teamHub && (
+                  <>
+                    <fieldset className="hub-team-picker">
+                      <legend>
+                        Team được cấp quyền ban đầu (có thể để trống)
+                      </legend>
+                      {eligibleTeams.map((t) => (
+                        <label key={t.id}>
+                          <input
+                            type="checkbox"
+                            checked={hubTeamIds.includes(t.id)}
+                            onChange={(e) => {
+                              setHubTeamIds((ids) =>
+                                e.target.checked
+                                  ? [...ids, t.id]
+                                  : ids.filter((id) => id !== t.id),
+                              );
+                              allocationRequest.current = "";
+                            }}
+                          />{" "}
+                          {t.name}
+                        </label>
+                      ))}
+                      <p className="gpu-hint">
+                        Có thể thêm team sau khi deploy, không khởi động lại
+                        Pod.
+                      </p>
+                    </fieldset>
+                    <label>
+                      Cách cấp Pod
+                      <select
+                        value={manualDeploy ? "manual" : "automatic"}
+                        onChange={(e) => {
+                          setManualDeploy(e.target.value === "manual");
+                          allocationRequest.current = "";
+                        }}
+                      >
+                        <option value="automatic">
+                          Arena cấp Pod qua Runpod API
+                        </option>
+                        <option value="manual">
+                          Chuẩn bị cấu hình để deploy Runpod thủ công
+                        </option>
+                      </select>
+                    </label>
+                  </>
+                )}
                 {services === "llm" && (
                   <>
                     <label>
@@ -957,7 +1039,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
                   }
                 >
                   <Cpu size={17} />
-                  {services === "llm"
+                  {teamHub && manualDeploy ? "Chuẩn bị deploy manual" : services === "llm"
                     ? selectedGroup
                       ? "Thêm một Pod vào nhóm"
                       : "Tạo nhóm và cấp Pod đầu tiên"
@@ -1083,7 +1165,11 @@ function WorkspaceCard({
           <small>{w.roundTitle}</small>
           <div className="gpu-badges">
             <span className="pill neutral">
-              {w.scope === "all" ? "Dùng chung · Tất cả đội" : "Riêng cho đội"}
+              {isTeamHub(w)
+                ? "JupyterHub · Team được cấp quyền"
+                : w.scope === "all"
+                  ? "Dùng chung · Tất cả đội"
+                  : "Riêng cho đội"}
             </span>
           </div>
         </div>
@@ -1164,7 +1250,7 @@ function WorkspaceCard({
                 href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
               />
             )}
-            {hasService(w, "jupyter") && (
+            {hasService(w, "jupyter") && !isTeamHub(w) && (
               <ServiceCard
                 kind="jupyter"
                 provided={hasService(w, "jupyter")}
@@ -1188,7 +1274,7 @@ function WorkspaceCard({
           {hasService(w, "jupyter") && w.loadDataset === false && (
             <span>Dataset: không nạp</span>
           )}
-          {w.scope === "all" && hasService(w, "jupyter") && (
+          {w.scope === "all" && hasService(w, "jupyter") && !isTeamHub(w) && (
             <span>Các đội dùng chung tệp, kernel và GPU.</span>
           )}
           <small>
@@ -1216,56 +1302,59 @@ function WorkspaceCard({
           </button>
         )}
       </div>
-      {admin && canManage && active && (
-        <div className="gpu-actions">
-          {capacityRejected(w) && (
-            <button className="btn" disabled={busy} onClick={retry}>
-              <RefreshCw size={15} />
-              Thử cấp lại GPU
-            </button>
-          )}
-          {running && (
-            <button className="btn" disabled={busy} onClick={toggleMetrics}>
-              {w.metricsVisible === false
-                ? "Hiện metrics cho đội thi"
-                : "Ẩn metrics với đội thi"}
-            </button>
-          )}
-          {w.podId &&
-            ["running", "provisioning", "failed"].includes(w.status) && (
+      {admin &&
+        canManage &&
+        active &&
+        (!w.manual || w.manual.state === "bound") && (
+          <div className="gpu-actions">
+            {capacityRejected(w) && (
+              <button className="btn" disabled={busy} onClick={retry}>
+                <RefreshCw size={15} />
+                Thử cấp lại GPU
+              </button>
+            )}
+            {running && (
+              <button className="btn" disabled={busy} onClick={toggleMetrics}>
+                {w.metricsVisible === false
+                  ? "Hiện metrics cho đội thi"
+                  : "Ẩn metrics với đội thi"}
+              </button>
+            )}
+            {w.podId &&
+              ["running", "provisioning", "failed"].includes(w.status) && (
+                <button
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => control("stop")}
+                >
+                  {w.scope === "all" ? "Dừng Pod chung" : "Dừng Pod"}
+                </button>
+              )}
+            {w.status === "stopped" && (
               <button
                 className="btn"
                 disabled={busy}
-                onClick={() => control("stop")}
+                onClick={() => control("start")}
               >
-                {w.scope === "all" ? "Dừng Pod chung" : "Dừng Pod"}
+                Chạy lại
               </button>
             )}
-          {w.status === "stopped" && (
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => control("start")}
-            >
-              Chạy lại
-            </button>
-          )}
-          {w.podId && (
-            <button className="btn" disabled={busy} onClick={onConfirm}>
-              Thu hồi Pod
-            </button>
-          )}
-          {w.status === "failed" && !w.podId && (
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => control("cancel-failed")}
-            >
-              Hủy yêu cầu lỗi
-            </button>
-          )}
-        </div>
-      )}
+            {w.podId && (
+              <button className="btn" disabled={busy} onClick={onConfirm}>
+                Thu hồi Pod
+              </button>
+            )}
+            {w.status === "failed" && !w.podId && (
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => control("cancel-failed")}
+              >
+                Hủy yêu cầu lỗi
+              </button>
+            )}
+          </div>
+        )}
       {confirm && (
         <div className="gpu-confirm">
           <p>

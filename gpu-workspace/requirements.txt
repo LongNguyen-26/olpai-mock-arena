@@ -1,4 +1,6 @@
 jupyterlab==4.3.6
+jupyterhub==6.1.1
+jupyter-collaboration==3.1.2
 ipykernel==6.29.5
 fastapi==0.115.11
 uvicorn==0.34.0

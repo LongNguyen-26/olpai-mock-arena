@@ -3,6 +3,7 @@ import { chatbotAllowed, notebookAllowed } from "./domain";
 import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
 import type { PodStartupFailure } from "./runpod-startup";
+import type { TeamNotebook, ManualBinding } from "./hub-domain";
 import {
   hasService,
   type WorkspaceScope,
@@ -14,6 +15,8 @@ export const templateSchema = z
   .object({
     id: z.string().uuid(),
     services: z.enum(["both", "llm", "jupyter"]).optional(),
+    jupyterMode: z.enum(["single", "team-hub"]).optional(),
+    maxTeamServers: z.number().int().min(1).max(32).optional(),
     name: z.string().trim().min(2).max(80),
     gpuTypeId: z.string().trim().min(1).max(100),
     cloudType: workspaceCloudSchema,
@@ -43,6 +46,10 @@ export const templateSchema = z
       .optional(),
   })
   .refine(
+    (t) => t.jupyterMode !== "team-hub" || t.services === "jupyter",
+    "JupyterHub chỉ hỗ trợ dịch vụ Jupyter-only.",
+  )
+  .refine(
     (t) => !!t.tokenLimitMode || t.inputTokenLimit < t.sessionTokenLimit,
     "Input limit phải nhỏ hơn tổng token mỗi phiên.",
   );
@@ -70,6 +77,8 @@ export type WorkspaceStatus =
   | "terminated"
   | "failed";
 export interface RuntimeHealth {
+  hubProtocol?: number;
+  hubReady?: boolean;
   chatLocked?: boolean;
   jupyter: boolean;
   llm: boolean;
@@ -85,6 +94,10 @@ export interface RuntimeHealth {
   llmActiveSlots?: number;
 }
 export interface Workspace {
+  jupyterMode?: "single" | "team-hub";
+  hubTeams?: Record<string, TeamNotebook>;
+  hubInitialTeamIds?: string[];
+  manual?: ManualBinding;
   id: string;
   teamId: string | null;
   scope?: WorkspaceScope;
@@ -142,7 +155,9 @@ export type WorkspaceView = Omit<
   | "reservationVersion"
   | "scope"
   | "services"
+  | "hubTeams"
 > & {
+  hub?: Awaited<ReturnType<typeof import("./hub-store").hubView>>;
   scope: WorkspaceScope;
   services: WorkspaceServices;
   estimatedUsd: number;
@@ -345,6 +360,8 @@ export function workspaceView(
     jupyterSecret: _j,
     ownerId: _o,
     reservationVersion: _r,
+    hubTeams: _ht,
+    hubInitialTeamIds: _hi,
     ...safe
   } = w;
   if (!admin && w.metricsVisible === false) {

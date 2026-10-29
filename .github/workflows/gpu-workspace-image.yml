@@ -51,8 +51,34 @@ jobs:
       - run: python -m pip install fastapi==0.115.11 httpx==0.28.1
       - run: python gpu-workspace/test_agent.py -v
 
+  hub-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+      - name: Install CPU-only Hub browser test environment
+        run: |
+          sudo mkdir -p /opt/arena
+          sudo "$(which python)" -m venv /opt/arena/venv
+          sudo /opt/arena/venv/bin/pip install -r gpu-workspace/requirements-hub.txt jupyterlab==4.3.6 jupyter-collaboration==3.1.2 ipykernel==6.29.5 playwright==1.56.0
+          sudo ln -s /opt/arena/venv /opt/arena/hub-venv
+          sudo cp gpu-workspace/hub_*.py /opt/arena/
+          sudo /opt/arena/venv/bin/python -m playwright install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/hub-proxy" configurable-http-proxy@5.1.0
+      - name: Verify real UIDs, files, Hub, kernel and two-client collaboration
+        run: |
+          sudo env "PATH=$PATH:$RUNNER_TEMP/hub-proxy/node_modules/.bin" ARENA_SYSTEM_PYTHON=/opt/arena/venv/bin/python /opt/arena/venv/bin/python gpu-workspace/test_hub_linux.py -v
+
   image:
-    needs: verify
+    needs: [verify, hub-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -106,7 +132,7 @@ jobs:
             else
               git fetch origin "$before" --depth=1
             fi
-            if ! git diff --quiet "$before" "$GITHUB_SHA" -- gpu-workspace/Dockerfile gpu-workspace/requirements.txt; then
+            if ! git diff --quiet "$before" "$GITHUB_SHA" -- gpu-workspace/Dockerfile gpu-workspace/requirements.txt gpu-workspace/requirements-hub.txt; then
               dockerfile=gpu-workspace/Dockerfile
             fi
           fi

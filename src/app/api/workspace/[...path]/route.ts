@@ -10,6 +10,18 @@ import {
 import { RunpodError } from "@/lib/runpod";
 import { templateSchema, workspaceCloudSchema } from "@/lib/workspace-domain";
 import { workspaceTeams } from "@/lib/workspace-teams";
+import {
+  authorizeHub,
+  redeemHub,
+  receiveHubReport,
+  changeHubTeam,
+  changeHubServer,
+  manualConfiguration,
+  controlManual,
+  hubContext,
+} from "@/lib/hub-service";
+import { gpuTurn } from "@/lib/hub-store";
+import { notebookStateSchema } from "@/lib/hub-domain";
 import { workerAction, settleUncertain } from "@/lib/chat-queue";
 import {
   createChatGroup,
@@ -71,6 +83,51 @@ async function handle(
     const path = (await context.params).path.join("/"),
       url = new URL(req.url);
     const id = () => z.string().uuid().parse(url.searchParams.get("id"));
+    if (path === "hub/redeem" && req.method === "POST") {
+      const p = z
+        .object({
+          id: z.string().uuid(),
+          ticket: z.string().regex(/^[\w-]{43}$/),
+          state: z.string().regex(/^[\w-]{40,100}$/),
+        })
+        .parse(await payload(req));
+      return json(
+        await redeemHub(
+          p.id,
+          req.headers.get("authorization"),
+          p.ticket,
+          p.state,
+        ),
+      );
+    }
+    if (path === "hub/report" && req.method === "POST") {
+      const p = z
+        .object({
+          id: z.string().uuid(),
+          runId: z.string().uuid(),
+          hubReady: z.boolean(),
+          resources: z.object({
+            availableRAMGiB: z.number().nonnegative().nullable(),
+            freeDiskGiB: z.number().nonnegative().nullable(),
+          }),
+          notebooks: z
+            .array(
+              z.object({
+                teamId: z.string().uuid(),
+                revision: z.string().uuid(),
+                state: notebookStateSchema,
+                publicReady: z.boolean(),
+                privateReady: z.boolean(),
+                error: z.string().max(160).optional(),
+              }),
+            )
+            .max(64),
+        })
+        .parse(await payload(req));
+      return json(
+        await receiveHubReport(p.id, req.headers.get("authorization"), p),
+      );
+    }
     if (path.startsWith("worker/") && req.method === "POST") {
       const action = z
         .enum(["claim", "prepare", "heartbeat", "complete", "fail"])
@@ -101,6 +158,141 @@ async function handle(
     if (path === "manifest" && req.method === "GET")
       return json(await agentManifest(id(), req.headers.get("authorization")));
     const user = await requireUser();
+    if (path === "hub/authorize" && req.method === "GET") {
+      const result = await authorizeHub(
+        user,
+        id(),
+        z
+          .string()
+          .regex(/^[\w-]{40,100}$/)
+          .parse(url.searchParams.get("state")),
+        z
+          .string()
+          .uuid()
+          .optional()
+          .parse(url.searchParams.get("teamId") ?? undefined),
+      );
+      if (result.url) return NextResponse.redirect(result.url, { headers });
+      return new Response(
+        '<!doctype html><html lang="vi"><meta charset="utf-8"><meta http-equiv="refresh" content="3"><meta name="viewport" content="width=device-width"><title>Đang mở JupyterLab</title><body><p>Đang chuẩn bị workspace của đội. Trang sẽ tự cập nhật.</p><a href="/">Về Arena</a></body></html>',
+        {
+          headers: {
+            ...headers,
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy":
+              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          },
+        },
+      );
+    }
+    if (path === "manual/config" && req.method === "GET")
+      return json(await manualConfiguration(user, id()));
+    if (
+      ["hub/teams", "hub/server", "gpu-turn"].includes(path) &&
+      req.method === "POST"
+    ) {
+      const p = z
+        .object({
+          id: z.string().uuid(),
+          teamId: z.string().uuid().optional(),
+          requestId: z.string().uuid(),
+          revision: z.string().uuid().optional(),
+          action: z.string(),
+        })
+        .parse(await payload(req));
+      await rateLimit(`gpu:hub:${user.id}`, 60, 60);
+      if (path === "hub/teams") {
+        await requireAdmin();
+        return json(
+          await changeHubTeam(
+            user,
+            p.id,
+            z.string().uuid().parse(p.teamId),
+            z.enum(["grant", "revoke"]).parse(p.action),
+            p.requestId,
+            p.revision,
+          ),
+        );
+      }
+      if (path === "hub/server")
+        return json(
+          await changeHubServer(
+            user,
+            p.id,
+            z.enum(["start", "stop"]).parse(p.action),
+            p.requestId,
+            p.teamId,
+            p.revision,
+          ),
+        );
+      if (p.teamId && p.teamId !== user.teamId)
+        throw new ApiError("Không được đăng ký thay team khác.", 403);
+      const { w, c } = await hubContext(user, p.id, p.teamId);
+      return json(
+        await gpuTurn(
+          w,
+          c,
+          user,
+          z.enum(["request", "start", "release", "cancel"]).parse(p.action),
+          p.requestId,
+        ),
+      );
+    }
+    if (
+      /^manual\/(prepare|inspect|attach|cancel|detach)$/.test(path) &&
+      req.method === "POST"
+    ) {
+      await requireAdmin();
+      const raw = await payload(req);
+      if (path === "manual/prepare") {
+        const p = z
+          .object({
+            roundId: z.string().uuid(),
+            templateId: z.string().uuid(),
+            requestId: z.string().uuid(),
+            maxHourlyUsd: z.number().positive().max(100),
+            teamIds: z.array(z.string().uuid()).max(64).default([]),
+            loadDataset: z.boolean().default(true),
+          })
+          .parse(raw);
+        return json(
+          await deployWorkspace(
+            user,
+            null,
+            p.roundId,
+            p.templateId,
+            p.maxHourlyUsd,
+            {
+              scope: "all",
+              services: "jupyter",
+              loadDataset: p.loadDataset,
+              requestId: p.requestId,
+              teamIds: p.teamIds,
+              manual: true,
+            },
+          ),
+        );
+      }
+      const p = z
+        .object({
+          id: z.string().uuid(),
+          podId: z
+            .string()
+            .regex(/^[a-zA-Z0-9]{5,64}$/)
+            .optional(),
+        })
+        .parse(raw);
+      return json(
+        await controlManual(
+          user,
+          p.id,
+          z
+            .enum(["inspect", "attach", "cancel", "detach"])
+            .parse(path.slice(7)),
+          p.podId,
+        ),
+      );
+    }
     if (path === "teams" && req.method === "GET") {
       await requireAdmin();
       return json(
@@ -113,9 +305,20 @@ async function handle(
     if (path === "state" && req.method === "GET")
       return json(await workspaceState(user));
     if (path === "launch" && req.method === "GET")
-      return NextResponse.redirect(await launchNotebook(user, id()), {
-        headers,
-      });
+      return NextResponse.redirect(
+        await launchNotebook(
+          user,
+          id(),
+          z
+            .string()
+            .uuid()
+            .optional()
+            .parse(url.searchParams.get("teamId") ?? undefined),
+        ),
+        {
+          headers,
+        },
+      );
     if (path === "chat" && req.method === "GET") {
       const workspaceId = url.searchParams.has("id") ? id() : undefined,
         groupId = url.searchParams.has("groupId")
@@ -289,6 +492,7 @@ async function handle(
             templateId: z.string().uuid(),
             maxHourlyUsd: z.number().positive().max(100),
             requestId: z.string().uuid().optional(),
+            teamIds: z.array(z.string().uuid()).max(64).optional(),
           })
           .refine((p) => p.scope === "all" || !!p.teamId, {
             message: "Chọn đội được cấp GPU.",
@@ -307,6 +511,7 @@ async function handle(
               services: p.services,
               loadDataset: p.loadDataset,
               requestId: p.requestId,
+              teamIds: p.teamIds,
             },
           ),
         );

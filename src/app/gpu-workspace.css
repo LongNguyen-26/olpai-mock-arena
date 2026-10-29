@@ -947,3 +947,77 @@
     white-space: nowrap;
   }
 }
+.hub-host {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.hub-panel {
+  border: 1px solid var(--border, #dce3ed);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 12px 0 24px;
+  background: var(--panel, #fff);
+}
+.hub-team-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.hub-team {
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+.hub-team > div:first-child {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.hub-actions,
+.hub-add-team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin: 12px 0;
+}
+.hub-add-team label {
+  flex: 1;
+  min-width: 180px;
+}
+.hub-manual {
+  display: grid;
+  gap: 12px;
+}
+.hub-manual textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  font: 12px/1.5 monospace;
+}
+.hub-team-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.hub-team-picker input[type="checkbox"] {
+  width: auto;
+}
+.hub-gpu-turns {
+  border-top: 1px solid #dce3ed;
+  margin-top: 20px;
+  padding-top: 16px;
+}
+@media (max-width: 640px) {
+  .hub-panel {
+    padding: 16px;
+  }
+  .hub-actions .btn {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+}

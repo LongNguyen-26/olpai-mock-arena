@@ -25,6 +25,8 @@ if SERVICES not in ("both", "llm", "jupyter"):
     raise ValueError("Invalid workspace services")
 HAS_LLM = SERVICES in ("both", "llm")
 HAS_JUPYTER = SERVICES in ("both", "jupyter")
+HUB_MODE = os.getenv("ARENA_JUPYTER_MODE", "single") == "team-hub"
+HUB_MANAGER = None
 STATE = {"stage": "Khởi động", "publicReady": False, "privateReady": False, "error": None}
 MODEL_PROCESS = None
 MODEL_ERROR = None
@@ -142,14 +144,15 @@ def safe_extract(archive: Path, destination: Path, task_root=False):
                 raise ValueError("Unsafe ZIP target")
         bundle.extractall(destination)
 
-def load_asset(asset: dict):
+def load_asset(asset: dict, root=None):
+    root = ROOT if root is None else Path(root)
     name = asset["name"]
     if Path(name).name != name or "\\" in name or name in (".", ".."):
         raise ValueError("Invalid asset name")
     task_root = asset.get("workspaceLayout") == "task-root"
-    destination = ROOT if task_root else ROOT / "data" / asset["phase"]
+    destination = root if task_root else root / "data" / asset["phase"]
     destination.mkdir(parents=True, exist_ok=True)
-    cache = ROOT / ".arena" / "downloads"
+    cache = root / ".arena" / "downloads"
     cache.mkdir(parents=True, exist_ok=True)
     marker = cache / (hashlib.sha256((asset["phase"] + name).encode()).hexdigest() + ".json")
     if marker.exists() and json.loads(marker.read_text()).get("sha256") == asset["sha256"]:
@@ -204,7 +207,10 @@ def dataset_loop():
                 continue
             for asset in policy["assets"]:
                 STATE["stage"] = "Đang nạp " + asset["name"]
-                load_asset(asset)
+                if HUB_MODE:
+                    HUB_MANAGER.cache_asset(asset, load_asset, manifest)
+                else:
+                    load_asset(asset)
             STATE["publicReady"] = True
             STATE["privateReady"] = not policy["privateLocked"]
             if STATE["privateReady"]:
@@ -259,11 +265,52 @@ def policy_watchdog():
             stop_model()
         STOP.wait(1)
 
+def hub_loop():
+    while not STOP.is_set():
+        try:
+            policy = manifest()
+            if policy.get("active") and policy.get("hubProtocol") == 1 and "hub" in policy:
+                report = HUB_MANAGER.reconcile(policy)
+                report["id"] = os.environ["ARENA_WORKSPACE_ID"]
+                control = os.environ["ARENA_CONTROL_URL"].rsplit("/manifest", 1)[0]
+                with httpx.Client(timeout=15, follow_redirects=False) as client:
+                    response = client.post(control + "/hub/report", json=report,
+                                           headers={"Authorization": "Bearer " + os.environ["ARENA_AGENT_TOKEN"]})
+                    response.raise_for_status()
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError):
+            pass
+        STOP.wait(5)
+
+
+def hub_loop():
+    while not STOP.is_set():
+        try:
+            policy = manifest()
+            if policy.get("active") and policy.get("hubProtocol") == 1 and "hub" in policy:
+                report = HUB_MANAGER.reconcile(policy)
+                report["id"] = os.environ["ARENA_WORKSPACE_ID"]
+                control = os.environ["ARENA_CONTROL_URL"].rsplit("/manifest", 1)[0]
+                with httpx.Client(timeout=15, follow_redirects=False) as client:
+                    response = client.post(control + "/hub/report", json=report,
+                                           headers={"Authorization": "Bearer " + os.environ["ARENA_AGENT_TOKEN"]})
+                    response.raise_for_status()
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError):
+            pass
+        STOP.wait(5)
+
+
 @asynccontextmanager
 async def lifespan(_app):
+    global HUB_MANAGER
     (ROOT / ".arena").mkdir(parents=True, exist_ok=True)
+    if HUB_MODE:
+        if SERVICES != "jupyter":
+            raise ValueError("Hub requires Jupyter-only")
+        from hub_runtime import HubManager
+        HUB_MANAGER = HubManager(ROOT)
+        HUB_MANAGER.check_privileges()
     STOP.clear()
-    for fn in (dataset_loop, *([model_worker, policy_watchdog] if HAS_LLM else [])):
+    for fn in (dataset_loop, *([hub_loop] if HUB_MODE else []), *([model_worker, policy_watchdog] if HAS_LLM else [])):
         threading.Thread(target=fn, daemon=True).start()
     queue_tasks = [asyncio.create_task(queue_loop(slot)) for slot in range(LLM_PARALLEL)] if HAS_LLM else []
     yield
@@ -276,6 +323,20 @@ async def lifespan(_app):
         MODEL_PROCESS.terminate()
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None, dependencies=[Depends(auth)])
+if HUB_MODE:
+    from starlette.routing import Route
+    from starlette.responses import JSONResponse
+    async def proxy_readiness(_request):
+        return JSONResponse({"status": "ok"})
+    # The only unauthenticated route: minimal readiness through CHP on 8888.
+    app.router.routes.insert(0, Route("/api/status", proxy_readiness, methods=["GET"]))
+
+@app.get("/identity")
+async def identity(challenge: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", challenge):
+        raise HTTPException(400, "Invalid challenge")
+    return {"workspaceId": os.environ.get("ARENA_WORKSPACE_ID"), "podId": os.environ.get("RUNPOD_POD_ID"),
+            "services": SERVICES, "jupyterMode": "team-hub" if HUB_MODE else "single", "hubProtocol": 1 if HUB_MODE else 0, "challenge": challenge}
 class Message(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
     content: str = Field(max_length=96000)
@@ -297,6 +358,19 @@ async def tokenize(messages):
 
 @app.get("/health")
 async def health():
+    if HUB_MODE:
+        ready = False
+        try:
+            await asyncio.to_thread(HUB_MANAGER.hub_request, "GET", "/info")
+            ready = True
+        except (AttributeError, OSError, ValueError, httpx.HTTPError):
+            pass
+        gpu = ""
+        try:
+            gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"], timeout=3, text=True).strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return {**STATE, "hubProtocol": 1, "hubReady": ready, "services": SERVICES, "jupyter": ready, "llm": False, "gpu": gpu}
     async with httpx.AsyncClient(timeout=2) as client:
         async def probe(url, headers=None, lab=False):
             try:

@@ -40,6 +40,7 @@ function invalidRequestFields(value: unknown): string[] {
   ];
 }
 export interface RunpodPod {
+  imageName?: string;
   id: string;
   name: string;
   desiredStatus: string;
@@ -181,6 +182,18 @@ export class Runpod {
   async get(id: string) {
     // Listing also distinguishes an absent Pod from a failed GraphQL query.
     const pod = (await this.list()).find((p) => p.id === id);
+    if (!pod) throw new RunpodError(404);
+    return pod;
+  }
+  async inspect(id: string) {
+    // Only allowlisted metadata; never request or expose provider environment.
+    const result = await this.graphql<{ pods: RunpodPod[] }>(
+      "query ArenaInspect { myself { pods { id name imageName desiredStatus costPerHr runtime { uptimeInSeconds } } } }",
+      {},
+      "myself",
+    );
+    if (!Array.isArray(result.pods)) throw new RunpodError(502);
+    const pod = result.pods.find((p) => p.id === id);
     if (!pod) throw new RunpodError(404);
     return pod;
   }

@@ -94,6 +94,39 @@ export default function WorkspaceTemplateForm({
           onSave();
         }}
       >
+        {services === "jupyter" && (
+          <div className="gpu-form-grid">
+            <label>
+              Chế độ Jupyter
+              <select
+                value={t.jupyterMode ?? "single"}
+                disabled={busy}
+                onChange={(e) =>
+                  onEdit("jupyterMode", e.target.value as "single" | "team-hub")
+                }
+              >
+                <option value="single">Một JupyterLab (chế độ hiện có)</option>
+                <option value="team-hub">
+                  JupyterHub — workspace riêng từng team
+                </option>
+              </select>
+            </label>
+            {t.jupyterMode === "team-hub" && (
+              <label>
+                Số server team hoạt động tối đa
+                <input
+                  type="number"
+                  min={1}
+                  max={32}
+                  value={t.maxTeamServers ?? 7}
+                  onChange={(e) =>
+                    onEdit("maxTeamServers", Number(e.target.value))
+                  }
+                />
+              </label>
+            )}
+          </div>
+        )}
         <fieldset className="template-editor-fields" disabled={busy}>
           <div className="gpu-form-grid template-identity">
             <label>
@@ -176,8 +209,8 @@ export default function WorkspaceTemplateForm({
             </div>
             {t.cloudType === "ALL" && (
               <p className="gpu-hint">
-                All cho phép cấp Pod từ cả Community và Secure. Dự toán dùng
-                mức giá cao hơn trong bảng giá của hai cloud.
+                All cho phép cấp Pod từ cả Community và Secure. Dự toán dùng mức
+                giá cao hơn trong bảng giá của hai cloud.
               </p>
             )}
             {resourceBusy && (

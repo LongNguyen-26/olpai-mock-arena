@@ -19,6 +19,13 @@ import { Runpod, RunpodError, podOrigin, type RunpodPod } from "./runpod";
 import { gpuCloudPrice } from "./gpu-pricing";
 import { podStartupMessage } from "./runpod-startup";
 import {
+  isTeamHub,
+  hubImage,
+  HUB_PROTOCOL,
+  type TeamNotebook,
+} from "./hub-domain";
+import { hubVisible, hubBound, hubView, readHubReport } from "./hub-store";
+import {
   chatbotOpen,
   defaultTemplate,
   driveFileId,
@@ -102,7 +109,7 @@ async function provider(owner: string) {
 }
 async function save(w: Workspace) {
   const saved = await db().eval<unknown[], Workspace>(
-    `local next=cjson.decode(ARGV[1]);local raw=redis.call('GET',KEYS[1]);if raw then local old=cjson.decode(raw);if old.runId~=next.runId then next.runId=old.runId;next.roundTitle=old.roundTitle;next.health=cjson.null;next.syncedAt=cjson.null end end;local encoded=cjson.encode(next);redis.call('SET',KEYS[1],encoded);return encoded`,
+    `local next=cjson.decode(ARGV[1]);local raw=redis.call('GET',KEYS[1]);if raw then local old=cjson.decode(raw);next.hubTeams=old.hubTeams;if old.runId~=next.runId then next.runId=old.runId;next.roundTitle=old.roundTitle;next.health=cjson.null;next.syncedAt=cjson.null end end;local encoded=cjson.encode(next);redis.call('SET',KEYS[1],encoded);return encoded`,
     [recordKey(w.id)],
     [JSON.stringify(w)],
   );
@@ -161,10 +168,11 @@ export async function accessWorkspace(user: SafeUser, id: string) {
     if (
       !team ||
       (!isShared(w) && team.id !== w.teamId) ||
-      !team.members.includes(user.id)
+      !team.members.includes(user.id) ||
+      !hubVisible(w, user)
     )
       throw new ApiError("Bạn không thuộc đội được cấp GPU này.", 403);
-    if (!isShared(w)) await requireRegistration(user, c);
+    if (!isShared(w) || isTeamHub(w)) await requireRegistration(user, c);
   }
   w = await currentRun(w, c);
   w = await withChatPolicy(w);
@@ -220,7 +228,9 @@ export async function workspaceState(user: SafeUser) {
           .filter(
             (w) =>
               user.admin ||
-              (member && (isShared(w) || w.teamId === user.teamId)),
+              (member &&
+                hubVisible(w, user) &&
+                (isShared(w) || w.teamId === user.teamId)),
           )
           .map(async (record) => {
             let c: Contest;
@@ -242,7 +252,8 @@ export async function workspaceState(user: SafeUser) {
             const w = await currentRun(record, c);
             let registered = true;
             try {
-              if (!isShared(w)) await requireRegistration(user, c);
+              if (!isShared(w) || isTeamHub(w))
+                await requireRegistration(user, c);
             } catch {
               registered = false;
             }
@@ -253,6 +264,12 @@ export async function workspaceState(user: SafeUser) {
             return {
               ...workspaceView(await withChatPolicy(w), now, user.admin),
               ...access,
+              ...(isTeamHub(w)
+                ? {
+                    hub: await hubView(w, user, now),
+                    notebookEnabled: access.notebookEnabled && hubBound(w),
+                  }
+                : {}),
               chatbotEnabled:
                 access.chatbotEnabled &&
                 !!worker?.ready &&
@@ -378,6 +395,8 @@ export async function deployWorkspace(
     groupId?: string;
     requestId?: string;
     retryTemplate?: WorkspaceTemplate;
+    teamIds?: string[];
+    manual?: boolean;
   } = {},
 ) {
   const scope = options.scope ?? "team",
@@ -393,7 +412,10 @@ export async function deployWorkspace(
       existing.chatGroupId !== options.groupId ||
       (existing.scope ?? "team") !== scope ||
       (existing.services ?? "both") !== services ||
-      existing.teamId !== (scope === "all" ? null : teamId)
+      existing.teamId !== (scope === "all" ? null : teamId) ||
+      !!existing.manual !== !!options.manual ||
+      JSON.stringify(existing.hubInitialTeamIds ?? []) !==
+        JSON.stringify([...new Set(options.teamIds ?? [])].sort())
     )
       throw new ApiError("Mã cấp phát đã được sử dụng.", 409);
     return workspaceView(existing, await serverNow());
@@ -443,6 +465,40 @@ export async function deployWorkspace(
     throw new ApiError("Chỉ cấp GPU cho đội đã được thí sinh tạo.");
   if (scope === "team") await requireWorkspaceTeam(team!, c);
   if (!t) throw new ApiError("Chọn template đã lưu.");
+  const teamHub = t.jupyterMode === "team-hub";
+  if (
+    (teamHub && (services !== "jupyter" || scope !== "all")) ||
+    (options.manual && !teamHub)
+  )
+    throw new ApiError(
+      "Hub/manual yêu cầu Jupyter-only, phạm vi chung và template JupyterHub.",
+      409,
+    );
+  if (
+    teamHub &&
+    (!hubImage(t.imageName) || t.imageName !== process.env.RUNPOD_HUB_IMAGE)
+  )
+    throw new ApiError(
+      "Chọn image JupyterHub đã publish và được server xác nhận bằng RUNPOD_HUB_IMAGE.",
+      409,
+    );
+  if (!teamHub && options.teamIds?.length)
+    throw new ApiError("Danh sách team chỉ dùng cho JupyterHub.");
+  const initialTeams: Record<string, TeamNotebook> = {};
+  for (const id of [...new Set(options.teamIds ?? [])].sort()) {
+    const selected = await db().hget<Team>(key("teams"), id);
+    if (!selected?.members.length)
+      throw new ApiError("Team không tồn tại hoặc chưa có thành viên.");
+    await requireWorkspaceTeam(selected, c);
+    initialTeams[id] = {
+      teamId: id,
+      teamName: selected.name,
+      enabled: true,
+      desiredState: "stopped",
+      revision: randomUUID(),
+      updatedAt: await serverNow(),
+    };
+  }
   if (t.services && t.services !== services)
     throw new ApiError(
       "Template không khớp dịch vụ đã chọn. Hãy chọn và lưu template tương ứng.",
@@ -491,6 +547,14 @@ export async function deployWorkspace(
   const now = await serverNow(),
     id = allocationId;
   const w: Workspace = {
+    ...(teamHub
+      ? {
+          jupyterMode: "team-hub" as const,
+          hubTeams: initialTeams,
+          hubInitialTeamIds: Object.keys(initialTeams),
+        }
+      : {}),
+    ...(options.manual ? { manual: { state: "prepared" as const } } : {}),
     id,
     teamId: scope === "all" ? null : team!.id,
     teamName: scope === "all" ? "Tất cả các đội" : team!.name,
@@ -536,6 +600,7 @@ export async function deployWorkspace(
     `${WORKSPACE_TEAM_ELIGIBILITY_LUA}
      if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
      if ARGV[6]~='' and not eligible(ARGV[6],ARGV[7],ARGV[8]) then return 3 end
+     local candidate=cjson.decode(ARGV[4]);for tid,_ in pairs(candidate.hubTeams or {}) do if not eligible(tid,ARGV[7],ARGV[8]) then return 3 end end
      if ARGV[5]~='' then local raw=redis.call('GET',KEYS[#KEYS]);if not raw then return 0 end;local g=cjson.decode(raw);if g.retired then return 0 end;table.insert(g.workspaceIds,ARGV[3]);redis.call('SET',KEYS[#KEYS],cjson.encode(g)) end
      for i=1,tonumber(ARGV[1]) do if redis.call('EXISTS',KEYS[i])==1 then return 0 end end;for i=1,tonumber(ARGV[2]) do redis.call('SET',KEYS[i],ARGV[3]) end;redis.call('SET',KEYS[#KEYS-2],ARGV[4]);redis.call('SADD',KEYS[#KEYS-1],ARGV[3]);return 1`,
     [
@@ -567,21 +632,9 @@ export async function deployWorkspace(
       "Phạm vi này đã có Pod hoặc yêu cầu chờ cung cấp dịch vụ đã chọn trong vòng luyện. Đối soát/thu hồi trước khi cấp lại.",
       409,
     );
+  if (options.manual) return workspaceView(w, now);
   try {
-    const pod = await rp.create(w.podName, t, {
-      ARENA_CONTROL_URL: new URL(
-        "/api/workspace/manifest",
-        controlUrl,
-      ).toString(),
-      ARENA_WORKSPACE_ID: id,
-      ARENA_AGENT_TOKEN: decryptSecret(w.secret),
-      ...(hasService(w, "jupyter")
-        ? { JUPYTER_TOKEN: decryptSecret(w.jupyterSecret) }
-        : {}),
-      ARENA_WORKSPACE_SERVICES: services,
-      ARENA_CONTEXT_SIZE: String(w.contextWindowTokens),
-      ARENA_LLM_PARALLEL: String(chatParallel(w.template)),
-    });
+    const pod = await rp.create(w.podName, t, workspaceEnvironment(w));
     if (!pod?.id || !/^[a-zA-Z0-9]{5,64}$/.test(pod.id))
       throw new RunpodError(502, true);
     w.podId = pod.id;
@@ -695,6 +748,7 @@ async function runtime<T>(
 }
 async function syncUnlocked(w: Workspace) {
   if (w.status === "terminated") return w;
+  if (w.manual && w.manual.state !== "bound") return w;
   // Repair records written before we stopped metering unconfirmed allocations.
   if (!w.podId) w = { ...w, meterRate: 0, accruedUsd: 0 };
   const rp = await provider(w.ownerId);
@@ -834,6 +888,11 @@ export async function controlWorkspace(
     let w = await getWorkspace(id);
     if (w.ownerId !== user.id)
       throw new ApiError("Pod thuộc tài khoản quản trị khác.", 403);
+    if (w.manual && w.manual.state !== "bound")
+      throw new ApiError(
+        "Dùng thao tác hồ sơ manual cho Pod chưa gắn hoặc đã gỡ.",
+        409,
+      );
     if (["stop", "terminate"].includes(action) && hasService(w, "llm")) {
       // Fence every future claim before inspecting all existing slots.
       await db().set(key(`gpu:drain:${id}`), true);
@@ -890,10 +949,45 @@ export async function controlWorkspace(
     return workspaceView(w, await serverNow());
   });
 }
-export async function agentManifest(id: string, authorization: string | null) {
+export interface WorkspaceManifest {
+  active: boolean;
+  phase: string;
+  privateLocked: boolean;
+  assets: {
+    name: string;
+    phase: string;
+    sha256: string;
+    bytes: number;
+    workspaceLayout?: "task-root";
+    url?: string;
+    driveId?: string;
+  }[];
+  llmEnabled?: boolean;
+  runId?: string;
+  publicEndsAt?: number | null;
+  chatbotEndsAt?: number | null;
+  queueProtocol?: number;
+  policyExpiresAt?: number;
+  services?: WorkspaceServices;
+  loadDataset?: boolean;
+  hubProtocol?: number;
+  hub?: { maxTeamServers: number; teams: TeamNotebook[] };
+}
+export async function agentManifest(
+  id: string,
+  authorization: string | null,
+): Promise<WorkspaceManifest> {
   let w = await getWorkspace(id);
   if (!matchesSecret(authorization, decryptSecret(w.secret)))
     throw new ApiError("Không có quyền truy cập.", 401);
+  if (!hubBound(w))
+    return {
+      active: false,
+      phase: "ended",
+      assets: [],
+      privateLocked: true,
+      llmEnabled: false,
+    };
   let c: Contest;
   try {
     c = await getContest(w.roundId);
@@ -957,15 +1051,68 @@ export async function agentManifest(id: string, authorization: string | null) {
     phase: phaseOf(c, now),
     assets,
     loadDataset: hasService(w, "jupyter") && w.loadDataset !== false,
+    ...(isTeamHub(w)
+      ? {
+          hubProtocol: HUB_PROTOCOL,
+          hub: {
+            maxTeamServers: w.template.maxTeamServers ?? 7,
+            teams: Object.values(w.hubTeams ?? {}),
+          },
+        }
+      : {}),
     privateLocked: !canRead(c, now, "private"),
     llmEnabled: chatbotOpen(w, c, now),
   };
 }
-export async function launchNotebook(user: SafeUser, id: string) {
+
+export function workspaceEnvironment(w: Workspace) {
+  const controlUrl = process.env.GPU_WORKSPACE_PUBLIC_URL;
+  if (!controlUrl || new URL(controlUrl).protocol !== "https:")
+    throw new ApiError("Thiếu URL điều khiển HTTPS.", 503);
+  return {
+    ARENA_CONTROL_URL: new URL(
+      "/api/workspace/manifest",
+      controlUrl,
+    ).toString(),
+    ARENA_WORKSPACE_ID: w.id,
+    ARENA_AGENT_TOKEN: decryptSecret(w.secret),
+    ...(hasService(w, "jupyter") && !isTeamHub(w)
+      ? { JUPYTER_TOKEN: decryptSecret(w.jupyterSecret) }
+      : {}),
+    ARENA_WORKSPACE_SERVICES: w.services ?? "both",
+    ARENA_JUPYTER_MODE: w.jupyterMode ?? "single",
+    ARENA_MAX_TEAM_SERVERS: String(w.template.maxTeamServers ?? 7),
+    ARENA_CONTEXT_SIZE: String(
+      w.contextWindowTokens ?? chatContextWindow(w.template),
+    ),
+    ARENA_LLM_PARALLEL: String(chatParallel(w.template)),
+  };
+}
+export {
+  provider as workspaceProvider,
+  save as saveWorkspaceRecord,
+  lock as workspaceLock,
+  releaseReservation as releaseWorkspaceReservation,
+};
+export async function launchNotebook(
+  user: SafeUser,
+  id: string,
+  targetTeamId?: string,
+) {
   const { w, c } = await accessWorkspace(user, id),
     now = await serverNow();
   if (!hasService(w, "jupyter"))
     throw new ApiError("Pod này không cung cấp JupyterLab.", 409);
+  if (isTeamHub(w)) {
+    const teamId = user.admin ? targetTeamId : user.teamId;
+    if (!hubBound(w) || !teamId || !w.hubTeams?.[teamId]?.enabled)
+      throw new ApiError("Chọn team đã được cấp quyền trên Hub.", 403);
+    if (w.status !== "running" || !w.podId)
+      throw new ApiError("Pod chưa chạy.", 409);
+    if (!user.admin && !notebookAllowed(c, now))
+      throw new ApiError("Quyền mở JupyterLab đang khóa.", 403);
+    return `${podOrigin(w.podId, 8888)}/hub/arena-login?teamId=${encodeURIComponent(teamId)}`;
+  }
   if (!user.admin && (w.runId !== c.id || !notebookAllowed(c, now)))
     throw new ApiError("Quyền mở JupyterLab của vòng này đang khóa.", 403);
   if (w.status !== "running" || !w.podId || !w.health?.jupyter)
