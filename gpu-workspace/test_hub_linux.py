@@ -256,11 +256,25 @@ class LinuxHubTests(unittest.TestCase):
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
                 page = browser.new_page()
+                page.on("pageerror", lambda error: print("Legacy browser error:", str(error)))
+                page.on("console", lambda message: print("Legacy console:", message.text[-500:]) if message.type == "error" else None)
+                page.on("response", lambda response: print("Legacy HTTP error:", response.status, urlparse(response.url).path) if response.status >= 400 else None)
                 page.goto(base + "/lab?token=qa-legacy-only")
                 page.locator(".jp-DirListing-item").filter(has_text="compat.ipynb").dblclick(timeout=60000)
                 editor = page.locator(".jp-Notebook .jp-CodeCell .cm-content").first
-                editor.wait_for(timeout=30000); editor.click(); editor.press("Shift+Enter")
-                page.locator(".jp-OutputArea-output").get_by_text("legacy-kernel-ok", exact=False).first.wait_for(timeout=30000)
+                try:
+                    editor.wait_for(timeout=30000)
+                    # The editor appears before the document/session is fully
+                    # initialized. Execute only after the real kernel is idle.
+                    page.wait_for_function("document.body.innerText.includes(' | Idle')", timeout=60000)
+                    editor.click(); editor.press("Shift+Enter")
+                    page.locator(".jp-OutputArea-output").get_by_text("legacy-kernel-ok", exact=False).first.wait_for(timeout=30000)
+                except Exception:
+                    print("Legacy diagnostics:", page.evaluate("""() => { const c=JSON.parse(document.getElementById('jupyter-config-data').textContent); return {disabled:c.disabledExtensions, body:document.body.innerText.slice(-2500)} }"""))
+                    self.log.flush()
+                    logs = (Path(self.temp.name) / "hub.log").read_text(errors="replace").splitlines()
+                    print("\n".join(line for line in logs if any(term in line for term in ("8899", "Kernel", "Error", "Traceback")))[-5000:])
+                    raise
                 browser.close()
         finally:
             process.terminate()
