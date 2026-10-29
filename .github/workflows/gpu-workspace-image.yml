@@ -137,6 +137,11 @@ jobs:
             fi
           fi
           # A fast-forward release of an already built commit can reuse its immutable image.
+          # Until the first Hub dependency image is published, the old runtime base
+          # cannot supply Node, the controller venv or collaboration packages.
+          if ! grep -q '^# HUB_DEPENDENCIES_READY=true$' gpu-workspace/Dockerfile.runtime; then
+            dockerfile=gpu-workspace/Dockerfile
+          fi
           if [[ "$PUBLISH" == 'true' && "$GITHUB_EVENT_NAME" == 'push' ]]; then
             existing_digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" 2>/dev/null | awk '$1=="Digest:" {print $2; exit}') || true
             tag_digest=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" 2>/dev/null | awk '$1=="Digest:" {print $2; exit}') || true

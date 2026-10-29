@@ -79,7 +79,7 @@ c.Spawner.cmd = ["/opt/arena/venv/bin/jupyterhub-singleuser"]
 c.Spawner.default_url = "/lab"
 c.Spawner.disable_user_config = True
 c.Spawner.start_timeout = 120
-c.Spawner.args = ["--ServerApp.allow_remote_access=True", "--ServerApp.trust_xheaders=True"]
+c.Spawner.args = ["--ServerApp.allow_remote_access=True", "--ServerApp.trust_xheaders=True", "--MappingKernelManager.default_kernel_name=pytorch", "--KernelSpecManager.ensure_native_kernel=False"]
 pod = os.getenv("RUNPOD_POD_ID")
 if pod:
     public = "https://" + pod + "-8888.proxy.runpod.net"

@@ -266,7 +266,7 @@ export async function workspaceState(user: SafeUser) {
               ...access,
               ...(isTeamHub(w)
                 ? {
-                    hub: await hubView(w, user, now),
+                    hub: await hubView(w, user, now, c.chatEpoch ?? 0),
                     notebookEnabled: access.notebookEnabled && hubBound(w),
                   }
                 : {}),

@@ -13,14 +13,15 @@ import {
 } from "./hub-domain";
 
 export const hubReportKey = (id: string) => key(`gpu:hub:report:${id}`);
-export const hubTurnKey = (id: string, run: string) =>
-  key(`gpu:hub:turns:${id}:${run}`);
+export const hubTurnKey = (id: string, run: string, epoch = 0) =>
+  key(`gpu:hub:turns:${id}:${run}:${epoch}`);
 export async function readHubReport(id: string) {
   return db().get<HubReport>(hubReportKey(id));
 }
-export async function readGpuTurns(id: string, run: string) {
+export async function readGpuTurns(id: string, run: string, epoch = 0) {
   return Object.values(
-    (await db().hgetall<Record<string, GpuTurn>>(hubTurnKey(id, run))) ?? {},
+    (await db().hgetall<Record<string, GpuTurn>>(hubTurnKey(id, run, epoch))) ??
+      {},
   ).sort(
     (a, b) => a.requestedAt - b.requestedAt || a.teamId.localeCompare(b.teamId),
   );
@@ -35,11 +36,16 @@ export function hubVisible(w: Workspace, user: SafeUser) {
 export function hubBound(w: Workspace) {
   return !w.manual || w.manual.state === "bound";
 }
-export async function hubView(w: Workspace, user: SafeUser, now: number) {
+export async function hubView(
+  w: Workspace,
+  user: SafeUser,
+  now: number,
+  epoch = 0,
+) {
   if (!isTeamHub(w)) return undefined;
   const [report, turns] = await Promise.all([
     readHubReport(w.id),
-    readGpuTurns(w.id, w.runId),
+    readGpuTurns(w.id, w.runId, epoch),
   ]);
   const fresh = report?.runId === w.runId && now - report.observedAt <= 45000;
   return {
@@ -69,6 +75,7 @@ const AUTHORITY = `
 local raw=redis.call('GET',KEYS[1]);if not raw then return 'missing' end
 local w=cjson.decode(raw);local round=redis.call('GET',KEYS[2]);
 if not round or cjson.decode(round).id~=ARGV[1] or w.runId~=ARGV[1] then return 'run' end
+if (cjson.decode(round).chatEpoch or 0)~=tonumber(ARGV[#ARGV]) then return 'run' end
 if w.jupyterMode~='team-hub' or w.status=='terminated' or (w.manual and w.manual.state~='bound') then return 'inactive' end
 if ARGV[3]~='' then
  local team=redis.call('HGET',KEYS[3],ARGV[2]);local reg=redis.call('HGET',KEYS[4],ARGV[3]);local member=false
@@ -111,6 +118,7 @@ export async function mutateNotebook(
     teamId,
     action,
     expectedRevision ?? "",
+    c.chatEpoch ?? 0,
   ]);
   const result = await db().eval<unknown[], string>(
     AUTHORITY +
@@ -140,6 +148,7 @@ redis.call('SET',KEYS[5],cjson.encode({signature=ARGV[8],value=encoded}),'EX',86
       now,
       expectedRevision ?? "",
       signature,
+      c.chatEpoch ?? 0,
     ],
   );
   writeError(result);
@@ -157,7 +166,13 @@ export async function gpuTurn(
   const teamId = user.teamId;
   if (!teamId) throw new ApiError("Bạn cần thuộc một đội.", 403);
   const now = await serverNow(),
-    signature = JSON.stringify([user.id, w.runId, teamId, action]);
+    signature = JSON.stringify([
+      user.id,
+      w.runId,
+      teamId,
+      action,
+      c.chatEpoch ?? 0,
+    ]);
   const result = await db().eval<unknown[], string>(
     AUTHORITY +
       `
@@ -175,9 +190,9 @@ redis.call('SET',KEYS[5],ARGV[6],'EX',86400);return 'ok'`,
       key("teams"),
       registrationKey(c),
       key(`gpu:hub:turn-op:${w.id}:${requestId}`),
-      hubTurnKey(w.id, w.runId),
+      hubTurnKey(w.id, w.runId, c.chatEpoch ?? 0),
     ],
-    [w.runId, teamId, user.id, action, now, signature],
+    [w.runId, teamId, user.id, action, now, signature, c.chatEpoch ?? 0],
   );
   writeError(result);
   return { ok: true };

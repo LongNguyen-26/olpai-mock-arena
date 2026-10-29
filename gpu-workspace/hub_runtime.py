@@ -185,6 +185,7 @@ class HubManager:
             kernel = self.control / (name + "-kernel.json")
             atomic_json(kernel, {"argv": [str(venv / "bin/python"), "-m", "ipykernel_launcher", "-f", "{connection_file}"], "display_name": "Python (PyTorch · riêng đội)", "language": "python"})
             files.install(".local/share/jupyter/kernels/pytorch/kernel.json", kernel)
+            files.install(".local/share/jupyter/kernels/python3/kernel.json", kernel)
             return {**old, "home": str(home)}
 
     def cache_asset(self, asset, load, current_policy):

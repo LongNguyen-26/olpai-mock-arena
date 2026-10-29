@@ -114,6 +114,7 @@ export async function receiveHubReport(
 const ticketKey = (ticket: string) =>
   key(`gpu:hub:ticket:${createHash("sha256").update(ticket).digest("hex")}`);
 interface LoginTicket {
+  epoch: number;
   hostId: string;
   teamId: string;
   userId: string;
@@ -148,6 +149,7 @@ export async function authorizeHub(
       userId: user.id,
       runId: c.id,
       state,
+      epoch: c.chatEpoch ?? 0,
     } satisfies LoginTicket,
     { ex: 60, nx: true },
   );
@@ -179,6 +181,7 @@ export async function redeemHub(
   const { w, c } = await hubContext(user, id, t.teamId);
   if (
     c.id !== t.runId ||
+    (c.chatEpoch ?? 0) !== t.epoch ||
     !w.hubTeams?.[t.teamId]?.enabled ||
     (!user.admin &&
       (user.teamId !== t.teamId || !notebookAllowed(c, await serverNow())))

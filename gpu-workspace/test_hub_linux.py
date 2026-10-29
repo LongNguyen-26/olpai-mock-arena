@@ -171,13 +171,24 @@ class LinuxHubTests(unittest.TestCase):
                 page.locator(".jp-DirListing").wait_for(timeout=60000)
             response = page1.evaluate("""async (base) => {
                 const token = document.cookie.split('; ').find(x => x.startsWith('_xsrf='))?.split('=').slice(1).join('=');
-                const r = await fetch(base+'/api/contents/shared.ipynb', {method:'PUT', headers:{'Content-Type':'application/json','X-XSRFToken':decodeURIComponent(token||'')}, body:JSON.stringify({type:'notebook',content:{nbformat:4,nbformat_minor:5,metadata:{},cells:[{cell_type:'code',execution_count:null,metadata:{},outputs:[],source:''}]}})});
+                const r = await fetch(base+'/api/contents/shared.ipynb', {method:'PUT', headers:{'Content-Type':'application/json','X-XSRFToken':decodeURIComponent(token||'')}, body:JSON.stringify({type:'notebook',content:{nbformat:4,nbformat_minor:5,metadata:{kernelspec:{name:'pytorch',display_name:'Python (PyTorch · riêng đội)',language:'python'},language_info:{name:'python'}},cells:[{cell_type:'code',execution_count:null,metadata:{},outputs:[],source:''}]}})});
                 return r.status;
             }""", "/user/" + a)
             self.assertIn(response, (200, 201))
             for page in (page1, page2):
                 page.goto(base + "/user/" + a + "/lab/tree/shared.ipynb")
                 page.locator(".jp-Notebook .jp-CodeCell .cm-content").first.wait_for(timeout=60000)
+                dialog = page.locator(".jp-Dialog")
+                if dialog.is_visible():
+                    print("Notebook dialog:", dialog.inner_text())
+                    selector = dialog.locator("select")
+                    if selector.count():
+                        selector.select_option("pytorch")
+                        dialog.locator(".jp-mod-accept").click()
+                    elif "trust" in dialog.inner_text().lower():
+                        dialog.get_by_role("button", name="Trust", exact=True).click()
+                    else:
+                        raise AssertionError("Unexpected notebook dialog")
             editor = page1.locator(".jp-Notebook .jp-CodeCell .cm-content").first
             editor.click()
             editor.press_sequentially("print('rtc-shared')", delay=15)
