@@ -3,6 +3,7 @@ import { Cpu, HardDrive, MessageSquare, Save, Copy } from "lucide-react";
 import type { GpuPrice } from "@/lib/runpod";
 import type { WorkspaceTemplate } from "@/lib/workspace-domain";
 import type { WorkspaceServices } from "@/lib/workspace-options";
+import { gpuCloudPrice } from "@/lib/gpu-pricing";
 
 type Props = {
   template: WorkspaceTemplate;
@@ -142,16 +143,15 @@ export default function WorkspaceTemplateForm({
                 {!gpus.some((g) => g.id === t.gpuTypeId) && (
                   <option value={t.gpuTypeId}>{t.gpuTypeId}</option>
                 )}
-                {gpus.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} · {g.memory} GB
-                    {g.price[
-                      t.cloudType === "SECURE" ? "secure" : "community"
-                    ] != null
-                      ? ` · $${g.price[t.cloudType === "SECURE" ? "secure" : "community"]}/giờ`
-                      : ""}
-                  </option>
-                ))}
+                {gpus.map((g) => {
+                  const price = gpuCloudPrice(g.price, t.cloudType);
+                  return (
+                    <option key={g.id} value={g.id}>
+                      {g.name} · {g.memory} GB
+                      {price != null ? ` · $${price}/giờ` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <div className="gpu-form-grid template-resource-grid">
@@ -162,17 +162,24 @@ export default function WorkspaceTemplateForm({
                   onChange={(e) =>
                     onGpuChange(
                       t.gpuTypeId,
-                      e.target.value as "SECURE" | "COMMUNITY",
+                      e.target.value as WorkspaceTemplate["cloudType"],
                     )
                   }
                 >
                   <option value="COMMUNITY">Community</option>
                   <option value="SECURE">Secure</option>
+                  <option value="ALL">All</option>
                 </select>
               </label>
               {number("minRAMPerGPU", "RAM tối thiểu · GB", 1, 1024)}
               {number("minVCPUPerGPU", "vCPU tối thiểu", 1, 128)}
             </div>
+            {t.cloudType === "ALL" && (
+              <p className="gpu-hint">
+                All cho phép cấp Pod từ cả Community và Secure. Dự toán dùng
+                mức giá cao hơn trong bảng giá của hai cloud.
+              </p>
+            )}
             {resourceBusy && (
               <p role="status">Đang lấy RAM/vCPU theo GPU và cloud…</p>
             )}

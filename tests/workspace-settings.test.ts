@@ -18,6 +18,72 @@ import {
 } from "../src/lib/chat-limits";
 import { validateTemplateSave } from "../src/lib/workspace-templates";
 import { Runpod } from "../src/lib/runpod";
+import { gpuCloudPrice } from "../src/lib/gpu-pricing";
+
+test("All cloud templates use the higher known price for the allocation budget", () => {
+  const template = {
+    ...defaultTemplate,
+    cloudType: "ALL" as const,
+    imageName: "example/image",
+  };
+  assert.ok(templateSchema.safeParse(template).success);
+  assert.equal(
+    templateSchema.safeParse({ ...template, cloudType: "OTHER" }).success,
+    false,
+  );
+  const prices = { secure: 0.59, community: 0.35 };
+  assert.equal(gpuCloudPrice(prices, "ALL"), 0.59);
+  assert.equal(gpuCloudPrice(prices, "COMMUNITY"), 0.35);
+  assert.equal(gpuCloudPrice(prices, "SECURE"), 0.59);
+  assert.equal(gpuCloudPrice({ secure: null, community: 0.35 }, "ALL"), 0.35);
+  assert.equal(gpuCloudPrice({ secure: 0.59, community: null }, "ALL"), 0.59);
+  assert.equal(gpuCloudPrice(undefined, "ALL"), null);
+  assert.equal(gpuCloudPrice({ secure: null, community: null }, "ALL"), null);
+  assert.equal(gpuCloudPrice({ secure: NaN, community: -1 }, "ALL"), null);
+});
+
+test("All cloud resource lookup has no secure-only or community-only filter", async () => {
+  const rp = new Runpod("fake", (async (_url, init) => {
+    const value = JSON.parse(String(init?.body));
+    assert.equal(value.variables.gpu.id, "NVIDIA A40");
+    assert.equal("secureCloud" in value.variables.offer, false);
+    assert.equal(value.variables.offer.gpuCount, 1);
+    return Response.json({
+      data: {
+        gpuTypes: [{
+          id: "NVIDIA A40",
+          lowestPrice: { minMemory: 50, minVcpu: 9, stockStatus: "Medium" },
+        }],
+      },
+    });
+  }) as typeof fetch);
+  assert.deepEqual(await rp.resources("NVIDIA A40", "ALL"), {
+    minRAMPerGPU: 50,
+    minVCPUPerGPU: 9,
+    stockStatus: "Medium",
+  });
+});
+
+test("All cloud provisioning forwards ALL to Runpod in one create request", async () => {
+  let calls = 0;
+  const rp = new Runpod("fake", (async (_url, init) => {
+    calls++;
+    const value = JSON.parse(String(init?.body));
+    assert.equal(value.variables.input.cloudType, "ALL");
+    assert.equal(value.variables.input.gpuCount, 1);
+    return Response.json({
+      data: {
+        podFindAndDeployOnDemand: {
+          id: "testpod123",
+          name: "all-cloud",
+          desiredStatus: "RUNNING",
+        },
+      },
+    });
+  }) as typeof fetch);
+  await rp.create("all-cloud", { ...defaultTemplate, cloudType: "ALL" }, {});
+  assert.equal(calls, 1);
+});
 
 test("concurrent inference preserves legacy allocations and validates bounded capacity", () => {
   const { llmParallel: _newDefault, ...legacy } = defaultTemplate;

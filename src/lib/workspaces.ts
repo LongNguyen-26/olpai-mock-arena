@@ -16,6 +16,7 @@ import {
   matchesSecret,
 } from "./workspace-crypto";
 import { Runpod, RunpodError, podOrigin, type RunpodPod } from "./runpod";
+import { gpuCloudPrice } from "./gpu-pricing";
 import { podStartupMessage } from "./runpod-startup";
 import {
   chatbotOpen,
@@ -320,7 +321,7 @@ export async function saveTemplate(
 export async function gpuResources(
   user: SafeUser,
   gpuTypeId: string,
-  cloudType: "SECURE" | "COMMUNITY",
+  cloudType: WorkspaceTemplate["cloudType"],
 ) {
   const cache = key(`gpu:resources:${user.id}:${cloudType}:${gpuTypeId}`);
   const old = await db().get<Awaited<ReturnType<Runpod["resources"]>>>(cache);
@@ -473,9 +474,10 @@ export async function deployWorkspace(
     );
   const rp = await provider(user.id),
     prices = await gpuPrices(user);
-  const price = prices.gpus.find((g) => g.id === t.gpuTypeId)?.price[
-    t.cloudType === "SECURE" ? "secure" : "community"
-  ];
+  const price = gpuCloudPrice(
+    prices.gpus.find((g) => g.id === t.gpuTypeId)?.price,
+    t.cloudType,
+  );
   if (
     typeof price !== "number" ||
     !Number.isFinite(price) ||

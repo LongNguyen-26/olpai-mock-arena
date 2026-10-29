@@ -290,15 +290,6 @@ export default function Arena() {
               Đội của tôi
             </button>
           )}
-          {isAdmin && (
-            <button
-              className={`nav-link ${section === "people" ? "active" : ""}`}
-              onClick={() => go("people")}
-            >
-              <Users size={19} />
-              Đội & thí sinh
-            </button>
-          )}
           {inside && isAdmin && (
             <button
               className={`nav-link admin-nav-link ${section === "admin" ? "active" : ""}`}
@@ -312,6 +303,15 @@ export default function Arena() {
                   aria-label="Khu vực quản trị"
                 />
               )}
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              className={`nav-link ${section === "people" ? "active" : ""}`}
+              onClick={() => go("people")}
+            >
+              <Users size={19} />
+              Đội & thí sinh
             </button>
           )}
           <button

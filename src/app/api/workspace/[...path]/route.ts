@@ -8,7 +8,7 @@ import {
   sameOrigin,
 } from "@/lib/auth";
 import { RunpodError } from "@/lib/runpod";
-import { templateSchema } from "@/lib/workspace-domain";
+import { templateSchema, workspaceCloudSchema } from "@/lib/workspace-domain";
 import { workspaceTeams } from "@/lib/workspace-teams";
 import { workerAction, settleUncertain } from "@/lib/chat-queue";
 import {
@@ -248,7 +248,7 @@ async function handle(
         const p = z
           .object({
             gpuTypeId: z.string().min(1).max(100),
-            cloudType: z.enum(["SECURE", "COMMUNITY"]),
+            cloudType: workspaceCloudSchema,
           })
           .parse(v);
         return json(await gpuResources(user, p.gpuTypeId, p.cloudType));

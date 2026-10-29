@@ -95,6 +95,8 @@ Chọn **Cấu hình mới** trong dropdown hoặc **Tạo bản sao**, nhập t
 
 Đổi GPU/cloud sẽ truy vấn [`gpuTypes.lowestPrice`](https://graphql-spec.runpod.io/) cho 1 GPU và tự điền `minMemory`/`minVcpu`. Đây là RAM hệ thống/vCPU theo offer, không phải VRAM; không bảo đảm tài nguyên host cuối cùng hoặc còn stock. Nếu không có thông số, form xóa số cũ và yêu cầu nhập thủ công. Response cũ đến muộn không ghi đè lựa chọn mới. Lưu template đúng chế độ trước khi cấp Pod; API kiểm tra dịch vụ. Phần cứng/image trong snapshot Pod không bị sửa khi lưu template.
 
+Cloud có **Community**, **Secure** và **All**. All lưu `cloudType=ALL`, bỏ bộ lọc `secureCloud` khi lấy tài nguyên và gửi một yêu cầu cấp Pod với enum `ALL` mà [Runpod hỗ trợ](https://graphql-spec.runpod.io/#definition-CloudTypeEnum). Dự toán và kiểm tra trần USD/giờ dùng mức giá hợp lệ cao hơn giữa hai cloud trong catalogue; phí thực tế sau khi cấp lấy từ Pod. Chọn All không tự cấp hai Pod.
+
 Khi Pod đang chạy, admin có **Ẩn/Hiện metrics cho đội thi** ngay trên thẻ Pod; không có nút này trong phần chuẩn bị deploy. Admin luôn xem được metrics. Khi ẩn, thí sinh không thấy telemetry/uptime trên UI và cả API state/sync đều bỏ các trường đó. Quyền JupyterLab/Chatbot giữ theo lịch/quyền hiện có.
 
 1. Admin vào GPU Workspace, lưu Runpod key; server kiểm tra list Pod trước khi lưu. Không đổi key khi còn Pod/yêu cầu đang hoạt động.

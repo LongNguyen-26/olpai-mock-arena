@@ -307,7 +307,10 @@ export class Runpod {
     );
     return result.gpus;
   }
-  async resources(gpuTypeId: string, cloudType: "SECURE" | "COMMUNITY") {
+  async resources(
+    gpuTypeId: string,
+    cloudType: WorkspaceTemplate["cloudType"],
+  ) {
     const result = await this.graphql<
       {
         id: string;
@@ -323,7 +326,9 @@ export class Runpod {
         gpu: { id: gpuTypeId },
         offer: {
           gpuCount: 1,
-          secureCloud: cloudType === "SECURE",
+          ...(cloudType === "ALL"
+            ? {}
+            : { secureCloud: cloudType === "SECURE" }),
           minCudaVersion: WORKSPACE_MIN_CUDA,
         },
       },

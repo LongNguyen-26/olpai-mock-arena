@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceTemplateForm from "./workspace-template-form";
 import ChatGroups, { ChatWorkerOperations, GpuBoard } from "./chat-groups";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
+import { gpuCloudPrice } from "@/lib/gpu-pricing";
 import { templateName } from "@/lib/template-presentation";
 import {
   Cpu,
@@ -44,8 +45,6 @@ const statusNames = {
   terminated: "Đã thu hồi",
   failed: "Cấp phát bị từ chối",
 };
-const priceOf = (g: GpuPrice | undefined, t: WorkspaceTemplate | null) =>
-  g?.price[t?.cloudType === "SECURE" ? "secure" : "community"];
 export default function GpuWorkspace({ data }: ViewProps) {
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState(""),
@@ -346,7 +345,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
     setTemplate(target);
   }
   const chosen = prices?.gpus.find((g) => g.id === template?.gpuTypeId),
-    hourly = priceOf(chosen, template);
+    hourly = template ? gpuCloudPrice(chosen?.price, template.cloudType) : null;
   const hasActive = state?.workspaces.some(
     (w) =>
       w.scope === scope &&
