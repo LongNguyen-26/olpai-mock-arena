@@ -119,3 +119,10 @@
 - HTTP QA xác minh 202/idempotency/xung đột nội dung, group/worker auth, Origin, cách ly đội và khóa private. Fixture thiếu runtime thật bị giữ ở readiness gate; redirect chỉ hợp lệ khi đủ readiness.
 - Playwright Edge desktop/mobile: prompt hiện ngay, không có nhãn tiến trình, animation suy luận hoặc nút hủy; giữ draft khi đang có request, khóa gửi/new, refresh không trùng prompt, outbox retry cùng ID, tách tab và browser. Admin 1/2 thấy và sửa cùng template, trần tổng hiện ở cả hai mode, payload thêm Pod có groupId/allocation UUID. Provider/model giả lập; không tràn ngang hoặc pageerror; đăng xuất sau QA.
 - Ảnh QA ở `output/playwright/chat-queue-*.png`, `chat-admin-*.png`. `benchmark-chat-queue.ts` chuẩn bị tải 14/28 request trên nhóm do admin cấp, mặc định dry-run; chưa đo throughput GPU thật.
+
+## Chẩn đoán Pod lỗi host GPU — 29/10/2026
+
+- Log người dùng xác nhận image tải đủ nhưng host lỗi `GPU requires reset` 14 lần khi tạo container. Đối soát thật: Pod đã bị thu hồi, REST 404 và danh sách Runpod rỗng; nhóm còn tồn tại, vòng chưa bắt đầu. Không cấp thêm GPU tính phí để thử.
+- Typecheck, 59 unit test và production build đạt. Unit test mới kiểm tra SSE chia chunk, log lỗi có secret chỉ trả mã, log không được cấp quyền/đang tải bình thường không bị xem là lỗi, giới hạn stream và hủy reader.
+- `qa-workspace-flow.ts`: Redis thật trong namespace riêng, Runpod/model giả lập; kiểm tra desired RUNNING nhưng chưa có container, lỗi GPU reset, cache log 60 giây, giữ phí và reservation, không tạo trùng, phục hồi cùng Pod. Các kiểm tra vòng đời/quyền/token cũ vẫn đạt. `qa-chat-queue.ts` đạt lại, gồm burst 28 request và phục hồi/lease/cutoff/template.
+- Playwright Edge desktop/mobile qua `qa-pod-startup-ui.js`: nhãn lỗi, thao tác dừng/thu hồi còn dùng được cho Pod xác nhận, Admin tự đối soát cả Pod lỗi, nhãn khởi động và trạng thái sau phục hồi. Không tràn ngang hoặc pageerror trong luồng thử; ảnh `output/playwright/pod-startup-{desktop,mobile}.png`. Provider và health được giả lập; chưa xác nhận GPU/inference thật sau sự cố.

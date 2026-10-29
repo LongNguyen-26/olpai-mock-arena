@@ -2,6 +2,7 @@ import { z } from "zod";
 import { phaseOf } from "./domain";
 import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
+import type { PodStartupFailure } from "./runpod-startup";
 import {
   hasService,
   type WorkspaceScope,
@@ -108,6 +109,8 @@ export interface Workspace {
   health: RuntimeHealth | null;
   uptimeSeconds?: number | null;
   uptimeObservedAt?: number | null;
+  startupFailure?: PodStartupFailure | null;
+  startupCheckedAt?: number | null;
   error: string | null;
 }
 export type WorkspaceView = Omit<

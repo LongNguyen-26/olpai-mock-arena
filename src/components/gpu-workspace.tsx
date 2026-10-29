@@ -140,12 +140,14 @@ export default function GpuWorkspace({ data }: ViewProps) {
   }, [data.contest?.roundId]);
   const syncIds =
     state?.workspaces
-      .filter((w) => !["terminated", "failed"].includes(w.status))
+      .filter(
+        (w) =>
+          w.status !== "terminated" && (w.status !== "failed" || !!w.podId),
+      )
       .map((w) => w.id)
       .join(",") ?? "";
   // Refresh shared and private Pods, not just the first allocation.
   useEffect(() => {
-    if (data.user.admin) return;
     const ids = syncIds ? syncIds.split(",") : [];
     if (!ids.length) return;
     let active = true;
@@ -173,7 +175,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       active = false;
       clearInterval(timer);
     };
-  }, [data.user.admin, syncIds, load]);
+  }, [syncIds, load]);
   async function run(fn: () => Promise<unknown>, message: string) {
     setBusy(true);
     setError("");
@@ -968,7 +970,11 @@ function WorkspaceCard({
             <Cpu size={34} />
           </span>
           <span className={`pill ${running ? "green" : "neutral"}`}>
-            {statusNames[w.status]}
+            {w.status === "failed" && w.podId
+              ? "Lỗi khởi động Pod"
+              : w.status === "provisioning" && w.podId
+                ? "Container chưa sẵn sàng"
+                : statusNames[w.status]}
           </span>
           <h3>{w.template.gpuTypeId}</h3>
           <p>{w.teamName}</p>
@@ -1121,15 +1127,16 @@ function WorkspaceCard({
                 : "Ẩn metrics với đội thi"}
             </button>
           )}
-          {w.status === "running" && (
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => control("stop")}
-            >
-              {w.scope === "all" ? "Dừng Pod chung" : "Dừng Pod"}
-            </button>
-          )}
+          {w.podId &&
+            ["running", "provisioning", "failed"].includes(w.status) && (
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => control("stop")}
+              >
+                {w.scope === "all" ? "Dừng Pod chung" : "Dừng Pod"}
+              </button>
+            )}
           {w.status === "stopped" && (
             <button
               className="btn"

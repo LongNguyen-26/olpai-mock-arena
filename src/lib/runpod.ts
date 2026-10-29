@@ -1,4 +1,5 @@
 import type { WorkspaceTemplate } from "./workspace-domain";
+import { podStartupFailure, type PodStartupFailure } from "./runpod-startup";
 // The image uses CUDA 12.8. Use the scheduler's minimum rather than a frozen
 // REST v1 enum, which excludes otherwise compatible hosts advertising 13.2.
 export const WORKSPACE_MIN_CUDA = "12.8";
@@ -182,6 +183,67 @@ export class Runpod {
     const pod = (await this.list()).find((p) => p.id === id);
     if (!pod) throw new RunpodError(404);
     return pod;
+  }
+  async startupFailure(id: string): Promise<PodStartupFailure | null> {
+    // This is a live SSE stream, not a JSON response. Bound time and bytes even
+    // when the provider never closes it. Read system logs only, server-side.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let pending = "",
+      bytes = 0,
+      lines = 0;
+    let failure: PodStartupFailure | null = null;
+    try {
+      const response = await this.transport(
+        `https://api.runpod.io/v2/pods/${encodeURIComponent(id)}/logs?source=system&tail=20`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            Accept: "text/event-stream",
+          },
+          cache: "no-store",
+          redirect: "error",
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok || !response.body) return null;
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (bytes < 32768 && lines < 20) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value.subarray(0, 32768 - bytes), {
+          stream: true,
+        });
+        bytes += value.byteLength;
+        let end: number;
+        while (lines < 20 && (end = pending.indexOf("\n")) >= 0) {
+          const line = pending.slice(0, end).trim();
+          pending = pending.slice(end + 1);
+          if (!line.startsWith("data:")) continue;
+          try {
+            const event = JSON.parse(line.slice(5));
+            if (event.source !== "system" || typeof event.line !== "string")
+              continue;
+            lines++;
+            const classified = podStartupFailure(event.line);
+            if (classified === "gpu-reset") return classified;
+            if (classified) failure = classified;
+          } catch {
+            /* Ignore malformed events without exposing their contents. */
+          }
+        }
+      }
+      return failure;
+    } catch {
+      // Missing log permission or a transient outage is not proof of Pod failure.
+      return failure;
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+      await reader?.cancel().catch(() => {});
+    }
   }
   create(name: string, t: WorkspaceTemplate, env: Record<string, string>) {
     // Same operation as the Python GraphQL SDK. Never fall back/retry a mutation

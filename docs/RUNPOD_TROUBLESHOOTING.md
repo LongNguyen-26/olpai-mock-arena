@@ -56,6 +56,16 @@ Reset đổi `Contest.id` (run ID), còn round ID ổn định. Workspace từng
 
 Pod cũ mặc định `scope=team`, `services=both`. Pod chung là một allocation cho mọi đội, không fan-out tạo từng Pod. Khóa cấp phát theo phạm vi/vòng/dịch vụ; giữ tương thích reservation cũ. Hai đội dùng trùng session ID vẫn phải có lịch sử/token tách biệt. Teamless hoặc người không còn là thành viên không được vào Pod chung. Jupyter chung thật sự chia sẻ tệp/kernel/GPU, phải ghi rõ trên UI.
 
+## 9. RUNNING nhưng container lỗi `GPU requires reset` — 29/10/2026
+
+- Log sự cố: image digest `f87f1337…` tải thành công, sau đó host lặp lỗi `error creating container: nvidia-smi ... ([GPU requires reset])` 14 lần. Lỗi xuất hiện trước khi agent/model chạy. Đây là lỗi GPU/driver trên host Runpod; sửa quota, image hoặc hàng đợi không reset được GPU vật lý.
+- `desiredStatus=RUNNING` chỉ là trạng thái yêu cầu. Khi agent chưa phản hồi và Runpod chưa có runtime, web giữ trạng thái container chưa sẵn sàng. Đối soát đọc tối đa 20 dòng System Logs, 32 KiB và 2,5 giây, cache kiểm tra 60 giây; chỉ lưu mã chẩn đoán/thông báo cố định, không lưu/trả log hoặc credential.
+- Khi có lỗi tạo container xác nhận, web báo “Lỗi khởi động Pod”; vẫn giữ allocation/reservation và ước tính phí của Pod đã cấp. Admin có thể dừng/thu hồi; không tự retry tạo thêm Pod. Trạng thái tự phục hồi khi agent trả health; cả Admin và thí sinh đang mở dashboard đều đối soát định kỳ.
+- Với GPU cần reset: nhờ Runpod xử lý host, hoặc kiểm tra/sao lưu dữ liệu rồi thu hồi Pod lỗi và thêm Pod vào **nhóm hiện có**. Stop/start giữ host cũ, không đảm bảo sửa lỗi. Pod thành viên khác, lịch sử và quota nhóm được giữ nguyên. Không tạo GPU để QA.
+- Tại lần đối soát sự cố này, Pod cũ đã bị thu hồi (Runpod 404, danh sách Pod rỗng); nhóm vẫn tồn tại, vòng chưa bắt đầu. Không diễn đạt việc sửa web thành đã khôi phục GPU thật.
+
+Nguồn API: [System Logs SSE](https://docs.runpod.io/api-reference-v2/pods/stream-pod-logs), [vòng đời Pod và host](https://docs.runpod.io/pods/troubleshooting/zero-gpus).
+
 ## Mốc kiểm chứng và giới hạn
 
 - Pod thật dùng để nghiệm thu ban đầu: `0fb95yqf1t0bka`. Không suy trạng thái hiện tại từ ghi chép này; luôn truy vấn lại trước thao tác.

@@ -44,6 +44,9 @@ async function main() {
     tokenCount = 20,
     tokenCounts = 0,
     mode: "ok" | "timeout" | "reject" = "ok";
+  let runtimeAvailable = true,
+    systemLog = "Pulling image",
+    logReads = 0;
   // Drive the durable protocol explicitly; the model remains a CPU-only stub.
   async function sendChat(...args: Parameters<typeof enqueueChat>) {
     await enqueueChat(...args);
@@ -95,6 +98,12 @@ async function main() {
     });
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (/^https:\/\/api\.runpod\.io\/v2\/pods\/[^/]+\/logs\?/.test(url)) {
+      logReads++;
+      return new Response(
+        `data: ${JSON.stringify({ source: "system", line: systemLog })}\n\n`,
+      );
+    }
     if (url === "https://api.runpod.io/v2/catalog/gpus")
       return json({
         gpus: [
@@ -167,6 +176,7 @@ async function main() {
     }
     if (url.includes(".proxy.runpod.net")) {
       if (url.endsWith("/api/status")) return json({ status: "ok" });
+      if (url.endsWith("/health") && !runtimeAvailable) return json({}, 502);
       if (url.endsWith("/health"))
         return json({
           jupyter: true,
@@ -311,6 +321,49 @@ async function main() {
     ).value;
     await assert.rejects(() => accessWorkspace(other, w.id), /không thuộc/);
     await syncWorkspace(member, w.id);
+    // RUNNING is only desired state: the host can fail before the container
+    // starts. Keep billing/reservation, report safe diagnostics, then recover
+    // the same Pod when health returns. No replacement mutation is allowed.
+    const forceSync = async (recheckLogs = true) => {
+      await db().set(key(`gpu:workspace:${w.id}`), {
+        ...(await getWorkspace(w.id)),
+        syncedAt: 0,
+        ...(recheckLogs ? { startupCheckedAt: 0 } : {}),
+      });
+      return syncWorkspace(admin, w.id);
+    };
+    runtimeAvailable = false;
+    const starting = await forceSync();
+    assert.equal(starting.status, "provisioning");
+    assert.equal(starting.health, null);
+    assert.match(starting.error!, /chưa xác nhận container/);
+    systemLog =
+      "error creating container: nvidia-smi: failed to parse ([GPU requires reset]) secret-not-for-client";
+    const broken = await forceSync();
+    assert.equal(broken.status, "failed");
+    assert.equal(broken.startupFailure, "gpu-reset");
+    assert.match(broken.error!, /GPU trên host Runpod cần reset/);
+    assert.ok(!JSON.stringify(broken).includes("secret-not-for-client"));
+    assert.ok(broken.meterRate > 0);
+    assert.equal(broken.podId, starting.podId);
+    const reads = logReads;
+    assert.equal((await forceSync(false)).status, "failed");
+    assert.equal(logReads, reads, "cache system-log checks for 60 seconds");
+    await assert.rejects(
+      () => deployWorkspace(admin, team.id, c.roundId!, t.id, 0.75),
+      /đã có Pod/,
+    );
+    assert.equal(creates, 1);
+    runtimeAvailable = true;
+    const recovered = await forceSync(false);
+    assert.equal(recovered.status, "running");
+    assert.equal(recovered.health?.llm, true);
+    assert.equal(recovered.startupFailure, null);
+    assert.equal(recovered.error, null);
+    assert.equal(recovered.podId, broken.podId);
+    console.log(
+      "Startup QA: desired RUNNING, host GPU reset, safe logs, billing, reservation and recovery passed.",
+    );
     const stored = await getWorkspace(w.id);
     const manifest = await agentManifest(
       w.id,

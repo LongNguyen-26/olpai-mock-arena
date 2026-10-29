@@ -15,6 +15,7 @@ import {
   matchesSecret,
 } from "./workspace-crypto";
 import { Runpod, RunpodError, podOrigin, type RunpodPod } from "./runpod";
+import { podStartupMessage } from "./runpod-startup";
 import {
   chatbotOpen,
   defaultTemplate,
@@ -622,6 +623,8 @@ async function syncUnlocked(w: Workspace) {
   if (!pod) {
     if (w.podId) {
       w = meter(w, now, "terminated", 0);
+      w.health = null;
+      w.startupFailure = null;
       w.error = "Pod không còn tồn tại trên Runpod.";
     } else {
       if (w.status !== "failed")
@@ -670,11 +673,33 @@ async function syncUnlocked(w: Workspace) {
           llm: hasService(w, "llm") && health.llm,
           jupyter: health.jupyter && jupyter,
         };
+        w.startupFailure = null;
+        w.startupCheckedAt = null;
       } catch {
         w.health = null;
-        w.error = "Pod đang chạy; đang chờ dịch vụ khởi động.";
+        if (pod.runtime) {
+          w.startupFailure = null;
+          w.error = "Container đang chạy; chưa kết nối được dịch vụ trên Pod.";
+        } else {
+          // desiredStatus=RUNNING means requested state, not a running container.
+          // Keep the allocation and its billing estimate; never auto-create a
+          // replacement for a host failure (the original may still be billable).
+          if (!w.startupCheckedAt || now - w.startupCheckedAt >= 60000) {
+            w.startupFailure =
+              (await rp.startupFailure(pod.id)) ?? w.startupFailure;
+            w.startupCheckedAt = now;
+          }
+          w.status = w.startupFailure ? "failed" : "provisioning";
+          w.error = w.startupFailure
+            ? podStartupMessage(w.startupFailure)
+            : "Runpod đã nhận Pod; chưa xác nhận container khởi động. Kiểm tra System Logs trên Runpod nếu tình trạng kéo dài.";
+        }
       }
-    } else w.health = null;
+    } else {
+      w.health = null;
+      w.startupFailure = null;
+      w.startupCheckedAt = null;
+    }
   }
   w.syncedAt = now;
   await save(w);
