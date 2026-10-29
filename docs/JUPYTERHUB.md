@@ -2,7 +2,13 @@
 
 Arena hỗ trợ chế độ `team-hub` cho Pod **Jupyter-only**. Mỗi team có một tài khoản Linux, home, server Lab, kernel và terminal riêng. Hai máy cùng team dùng cùng server và sửa notebook đồng thời. GPU dùng chung; không chia cứng VRAM và không chặn CUDA bằng hàng đợi.
 
-Image Hub phải qua job `hub-linux`, build/push và được ghim digest trong `RUNPOD_HUB_IMAGE` trước khi cấp Pod. Web từ chối image Hub chưa nằm trong allowlist này. Trạng thái phát hành/digest cụ thể được ghi sau khi pipeline hoàn tất; không dùng digest cũ để deploy Hub.
+Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40969488285), từ mã runtime `fc97a34fe490a3a4972be7c1a8e0bd2c3804b8d6`. Dùng image bất biến sau cho Pod mới:
+
+```text
+nguyenlong26/olpai-workspace@sha256:179b5581b07e2f4a3b51f27101bdc1bc3f71e6daedbe9f138b21ced172513951
+```
+
+Ghim cùng digest trong `RUNPOD_HUB_IMAGE` và `RUNPOD_WORKSPACE_IMAGE`; web từ chối image Hub không nằm trong allowlist. Tag tiện tra cứu là `2026.10.30-hub`. `Dockerfile.runtime` kế thừa image dependency đầy đủ đã xác minh; chỉ rebuild CUDA/dependency khi các dependency thay đổi.
 
 Nếu Arena dùng nhiều tên miền, cấu hình `GPU_WORKSPACE_LOGIN_ORIGINS` bằng danh sách HTTPS origin chính xác, cách nhau bằng dấu phẩy. Địa chỉ của `GPU_WORKSPACE_PUBLIC_URL` được cho phép sẵn. Hub đăng nhập qua đúng tên miền người dùng đang mở để giữ phiên Arena; callback đổi ticket vẫn dùng control URL cố định.
 
