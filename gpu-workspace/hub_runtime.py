@@ -77,7 +77,7 @@ class TeamFiles:
         # Write as the final owner; never make a team home world-readable.
         request = {"action": action, "home": str(self.home), "uid": self.uid, "gid": self.gid, **values}
         result = subprocess.run(
-            ["/opt/arena/hub-venv/bin/python", str(Path(__file__).resolve()), "--team-files", json.dumps(request)],
+            ["/opt/arena/hub-venv/bin/python", "/opt/arena/hub_runtime.py", "--team-files", json.dumps(request)],
             user=self.uid, group=self.gid, extra_groups=[], pass_fds=pass_fds,
             cwd="/tmp", env={"HOME": str(self.home), "PATH": "/usr/bin:/bin"},
             capture_output=True, text=True, timeout=30,
@@ -87,9 +87,11 @@ class TeamFiles:
                 detail = json.loads(result.stdout)
             except (ValueError, TypeError):
                 detail = {}
+                kind = "bundle-path" if "can't open file" in result.stderr else "module-import" if "ModuleNotFoundError" in result.stderr else "worker-exit"
+                logging.getLogger("arena.hub").warning("team file worker failed action=%s kind=%s exit=%s", action, kind, result.returncode)
             if detail.get("unsafe"):
                 raise ValueError("Unsafe team filesystem path")
-            raise OSError(detail.get("errno") or 5, "Team filesystem operation failed")
+            raise OSError(detail.get("errno") or 5, "Team filesystem operation failed: " + action)
 
     def mkdir(self, parts):
         if os.geteuid() != self.uid:

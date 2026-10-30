@@ -77,6 +77,10 @@ class LinuxHubTests(unittest.TestCase):
         cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"], env=env, cwd=cls.root, stdout=cls.log, stderr=cls.log, start_new_session=True)
         try:
             cls.wait(lambda: cls.manager.hub_request("GET", "/info"), 60)
+            # Fail immediately on a helper launch problem, instead of hiding
+            # it behind repeated reconciliation and a long spawn timeout.
+            for team in cls.policy["hub"]["teams"]:
+                cls.manager.ensure_user(team["teamId"])
             cls.wait(lambda: cls.all_ready(cls.manager.reconcile(cls.policy), 3), 150)
         except BaseException:
             cls.process.terminate(); cls.process.wait(timeout=20)
