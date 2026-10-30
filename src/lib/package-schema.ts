@@ -26,6 +26,10 @@ const spec = z
         : s.reference > s.baseline,
     "Invalid score thresholds",
   );
+const directSpec = z.object({
+  kind: z.enum(["scaled-mae", "multilabel-f1"]),
+  maxScore: z.literal(100),
+});
 export const packageSchema = z
   .object({
     version: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
@@ -71,6 +75,11 @@ export const packageSchema = z
         "3": spec.optional(),
       })
       .optional(),
+    directJudgeSpecs: z.object({
+      "1": directSpec.optional(),
+      "2": directSpec.optional(),
+      "3": directSpec.optional(),
+    }).optional(),
   })
   .superRefine((pkg, ctx) => {
     const ids = pkg.tasks.map((t) => t.id);
@@ -87,6 +96,10 @@ export const packageSchema = z
       });
     for (const t of pkg.tasks) {
       const s = pkg.judgeSpecs?.[t.id];
+      const direct = pkg.directJudgeSpecs?.[t.id];
+      if (direct && (s || direct.maxScore !== t.maxScore ||
+        t.columns?.join(",") !== (direct.kind === "scaled-mae" ? "id,prediction" : "id,labels")))
+        ctx.addIssue({ code: "custom", message: "Task display must match the direct judge.", path: ["directJudgeSpecs", t.id] });
       if (
         s &&
         (s.maxScore !== t.maxScore ||
@@ -103,7 +116,7 @@ export const packageSchema = z
           message: "Task display must match the configured judge.",
           path: ["judgeSpecs", t.id],
         });
-      if (t.id === "3" && !s)
+      if (t.id === "3" && !s && !direct)
         ctx.addIssue({
           code: "custom",
           message: "Task 3 requires a judge specification.",

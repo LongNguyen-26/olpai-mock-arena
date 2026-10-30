@@ -1,7 +1,7 @@
 import { parse } from "csv-parse/sync";
 import type { CVImage, QAItem, JudgeResult } from "./types";
 export class SubmissionError extends Error {}
-function rows(csv: string, columns: string[]): string[][] {
+export function submissionRows(csv: string, columns: string[]): string[][] {
   let values: string[][];
   try {
     values = parse(csv, {
@@ -61,7 +61,7 @@ export function judgeQA(csv: string, truth: QAItem[]): JudgeResult {
   const seen = new Set<string>();
   let f1 = 0,
     em = 0;
-  for (const [id, prediction] of rows(csv, ["id", "prediction"])) {
+  for (const [id, prediction] of submissionRows(csv, ["id", "prediction"])) {
     const q = known.get(id);
     if (!q || seen.has(id))
       throw new SubmissionError("ID không tồn tại hoặc bị lặp.");
@@ -152,7 +152,7 @@ export function judgeCV(csv: string, truth: CVImage[]): JudgeResult {
   const known = new Map(truth.map((q) => [q.id, q]));
   const predictions = new Map<string, number[][]>();
   const allRuns = new Map<string, number[]>();
-  for (const [id, value] of rows(csv, ["ImageId", "EncodedPixels"])) {
+  for (const [id, value] of submissionRows(csv, ["ImageId", "EncodedPixels"])) {
     const q = known.get(id);
     if (!q)
       throw new SubmissionError("ImageId không tồn tại trong tập đang nộp.");

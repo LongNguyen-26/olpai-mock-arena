@@ -13,6 +13,7 @@ import {
 } from "./rounds";
 import { SubmissionError, judgeCV, judgeQA } from "./judge";
 import { judgeArena02 } from "./judge-arena02";
+import { judgeDirect } from "./judge-direct";
 import { taskStatements } from "./statements";
 import {
   storeSubmissionFile,
@@ -137,11 +138,13 @@ export async function submit(
         ),
       ).toString("utf8"),
     );
-    const result = pkg.judgeSpecs?.[task]
-      ? judgeArena02(text, truth, pkg.judgeSpecs[task]!)
-      : task === "1"
-        ? judgeCV(text, truth as CVImage[])
-        : judgeQA(text, truth as QAItem[]);
+    const result = pkg.directJudgeSpecs?.[task]
+      ? judgeDirect(text, truth, pkg.directJudgeSpecs[task]!)
+      : pkg.judgeSpecs?.[task]
+        ? judgeArena02(text, truth, pkg.judgeSpecs[task]!)
+        : task === "1"
+          ? judgeCV(text, truth as CVImage[])
+          : judgeQA(text, truth as QAItem[]);
     score = result.score;
     secondary = result.secondary;
     metric = result.metric;

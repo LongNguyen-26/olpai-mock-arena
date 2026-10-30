@@ -74,6 +74,10 @@ export interface JudgeSpec {
   baseline: number;
   reference: number;
 }
+export interface DirectJudgeSpec {
+  kind: "scaled-mae" | "multilabel-f1";
+  maxScore: 100;
+}
 export interface Registration {
   userId: string;
   status: "approved" | "pending" | "rejected";
@@ -89,6 +93,7 @@ export interface ContestPackage {
     "3"?: Record<Split, string>;
   };
   judgeSpecs?: Partial<Record<TaskId, JudgeSpec>>;
+  directJudgeSpecs?: Partial<Record<TaskId, DirectJudgeSpec>>;
   importedAt: number;
 }
 export interface Submission {
