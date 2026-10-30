@@ -14,7 +14,7 @@ Image `179b5581…` có lỗi `ModuleNotFoundError: No module named 'hub_auth'` 
 
 Image `75434bdf…` sửa lỗi import nhưng vẫn tạo home bằng root rồi chown, thất bại trên volume NFS có UID remapping của Pod đã nghiệm thu. Image `5141126f…` ghi tệp trực tiếp dưới UID team, như phần lưu trữ bên dưới. Sau khi cập nhật web/template, refresh Arena và chọn lại template đã lưu trước khi cấp Pod mới.
 
-Image `5141126f…` còn gặp lỗi Hub từ chối quyền tệp cookie trên volume NFS trong log người dùng mới gửi. Bản hiện tại `0ca70c5f…` giữ khóa bền vững nhưng dùng bản cookie có quyền nghiêm ngặt trên filesystem cục bộ; không bỏ kiểm tra quyền của Hub. Chọn template **JupyterHub** dành cho dịch vụ **Chỉ JupyterLab** trước khi cấp Pod mới.
+Image `5141126f…` còn gặp lỗi Hub từ chối quyền tệp cookie trên volume NFS trong log người dùng. Bản `0ca70c5f…` đã bổ sung bản cookie có quyền nghiêm ngặt trên filesystem cục bộ, giữ khóa bền vững và kiểm tra quyền của Hub; thay đổi này được giữ trong bản mới. Chọn template **JupyterHub** dành cho dịch vụ **Chỉ JupyterLab** trước khi cấp Pod mới.
 
 Image `0ca70c5f…` còn dừng ở kiểm tra thư mục `.arena` trên Pod người dùng. Bản hiện tại `fd544272…` sửa điểm tạo thư mục đầu tiên của startup thành `0700`, bỏ chown/chmod thừa, phân biệt bit quyền truy cập với setgid/sticky, và ghi UID/mode vào lỗi startup. Không bỏ kiểm tra thư mục thực sự có quyền rộng. UID/mode thực tế của Pod lỗi chưa lấy được vì Web Terminal báo stopped; kết quả CI không thay thế nghiệm thu trên host đó.
 
