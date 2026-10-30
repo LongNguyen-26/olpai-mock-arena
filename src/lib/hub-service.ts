@@ -132,6 +132,8 @@ export async function authorizeHub(
     throw new ApiError("Workspace chưa được mở.", 409);
   if (!user.admin && !notebookAllowed(c, await serverNow()))
     throw new ApiError("Quyền Jupyter đang khóa.", 403);
+  if (w.hubTeams[teamId].desiredState === "stopped")
+    throw new ApiError("Workspace của đội đã dừng. Hãy quay lại Arena và khởi động lại.", 409);
   const server = notebookReport(
     w,
     await readHubReport(id),
@@ -139,7 +141,13 @@ export async function authorizeHub(
     w.runId,
     await serverNow(),
   );
-  if (server?.state !== "ready") return { pending: true as const };
+  if (server?.state === "error")
+    throw new ApiError(
+      server.error ?? "Không khởi động được workspace của đội. Hãy báo quản trị viên kiểm tra runtime.",
+      503,
+    );
+  if (server?.state !== "ready")
+    return { pending: true as const, state: server?.state ?? "preparing" };
   const ticket = randomBytes(32).toString("base64url");
   await db().set(
     ticketKey(ticket),

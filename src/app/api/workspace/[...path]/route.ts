@@ -22,6 +22,7 @@ import {
 } from "@/lib/hub-service";
 import { gpuTurn } from "@/lib/hub-store";
 import { notebookStateSchema } from "@/lib/hub-domain";
+import { hubPendingPage } from "@/lib/hub-login-page";
 import { workerAction, settleUncertain } from "@/lib/chat-queue";
 import {
   createChatGroup,
@@ -174,7 +175,7 @@ async function handle(
       );
       if (result.url) return NextResponse.redirect(result.url, { headers });
       return new Response(
-        '<!doctype html><html lang="vi"><meta charset="utf-8"><meta http-equiv="refresh" content="3"><meta name="viewport" content="width=device-width"><title>Đang mở JupyterLab</title><body><p>Đang chuẩn bị workspace của đội. Trang sẽ tự cập nhật.</p><a href="/">Về Arena</a></body></html>',
+        hubPendingPage(url, result.state ?? "preparing"),
         {
           headers: {
             ...headers,
@@ -531,7 +532,7 @@ async function handle(
   } catch (e) {
     if (
       req.method === "GET" &&
-      new URL(req.url).pathname.endsWith("/workspace/launch")
+      ["/workspace/launch", "/workspace/hub/authorize"].some(path => new URL(req.url).pathname.endsWith(path))
     ) {
       const message =
         e instanceof ApiError

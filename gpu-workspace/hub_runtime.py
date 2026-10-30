@@ -1,10 +1,13 @@
 """Root-only Hub provisioning. Notebook code is never executed by this module."""
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
 import subprocess
+import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -69,7 +72,34 @@ class TeamFiles:
     def __init__(self, home, uid, gid):
         self.home, self.uid, self.gid = Path(home), uid, gid
 
+    def run(self, action, *, pass_fds=(), **values):
+        # NFS sees the remapped user ID, not container-root's DAC/CHOWN caps.
+        # Write as the final owner; never make a team home world-readable.
+        request = {"action": action, "home": str(self.home), "uid": self.uid, "gid": self.gid, **values}
+        result = subprocess.run(
+            ["/opt/arena/hub-venv/bin/python", str(Path(__file__).resolve()), "--team-files", json.dumps(request)],
+            user=self.uid, group=self.gid, extra_groups=[], pass_fds=pass_fds,
+            cwd="/tmp", env={"HOME": str(self.home), "PATH": "/usr/bin:/bin"},
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode:
+            try:
+                detail = json.loads(result.stdout)
+            except (ValueError, TypeError):
+                detail = {}
+            if detail.get("unsafe"):
+                raise ValueError("Unsafe team filesystem path")
+            raise OSError(detail.get("errno") or 5, "Team filesystem operation failed")
+
+    def mkdir(self, parts):
+        if os.geteuid() != self.uid:
+            return self.run("mkdir", parts=list(parts))
+        fd = self.parent(parts)
+        os.close(fd)
+
     def parent(self, parts):
+        if os.geteuid() != self.uid:
+            raise RuntimeError("Team directory operations must use the team UID")
         fd = os.open(self.home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             for part in parts:
@@ -80,7 +110,6 @@ class TeamFiles:
                 except FileExistsError:
                     pass
                 child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                os.fchown(child, self.uid, self.gid)
                 os.close(fd)
                 fd = child
             return fd
@@ -89,7 +118,17 @@ class TeamFiles:
             raise
 
     def install(self, relative, source, link=False):
+        if os.geteuid() != self.uid:
+            if link:
+                return self.run("install", relative=str(relative), source=str(source), link=True)
+            incoming = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                return self.run("install", relative=str(relative), source_fd=incoming, pass_fds=(incoming,))
+            finally:
+                os.close(incoming)
         parts = Path(relative).parts
+        if not parts or Path(relative).is_absolute():
+            raise ValueError("Unsafe destination")
         fd = self.parent(parts[:-1])
         try:
             if link:
@@ -102,9 +141,9 @@ class TeamFiles:
                     target = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
                 except FileExistsError:
                     return
-                with os.fdopen(target, "wb") as output, Path(source).open("rb") as incoming:
+                incoming = os.fdopen(os.dup(source), "rb") if isinstance(source, int) else Path(source).open("rb")
+                with os.fdopen(target, "wb") as output, incoming:
                     shutil.copyfileobj(incoming, output)
-                    os.fchown(output.fileno(), self.uid, self.gid)
         finally:
             os.close(fd)
 
@@ -177,18 +216,35 @@ class HubManager:
             home = self.teams_root / team_id
             if home.is_symlink():
                 raise ValueError("Unsafe home")
-            home.mkdir(mode=0o700, exist_ok=True)
-            home.chmod(0o700)
-            os.chown(home, old["uid"], old["uid"])
             files = TeamFiles(home, old["uid"], old["uid"])
+            if home.exists() and home.stat().st_uid != old["uid"]:
+                # The previous implementation can leave an empty root-owned
+                # home after failed chown. Repair only that exact empty case.
+                if home.stat().st_uid != 0 or any(home.iterdir()):
+                    raise RuntimeError("Existing home ownership needs administrator review; files preserved")
+                home.rmdir()
+            if not home.exists():
+                # A passed FD reaches a staging parent below root-only control.
+                # Other teams cannot traverse .arena to reach this temporary
+                # writable parent. The child creates its own 0700 home, then
+                # root publishes it by rename without changing ownership.
+                with tempfile.TemporaryDirectory(prefix="team-home-", dir=self.control) as staging:
+                    Path(staging).chmod(0o777)
+                    fd = os.open(staging, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    try:
+                        files.run("create-home", parent_fd=fd, pass_fds=(fd,))
+                        os.rename(Path(staging) / "home", home)
+                    finally:
+                        os.close(fd)
+            files.run("check-home")
             # Directory FDs reject contestant-controlled symlinks before use.
-            fd = files.parent((".venvs",)); os.close(fd)
+            files.mkdir((".venvs",))
             venv = home / ".venvs" / "pytorch"
-            if not (venv / "bin/python").exists():
-                clean = {"HOME": str(home), "USER": name, "PATH": "/usr/bin:/bin"}
-                script = "import venv,pathlib,sys; p=pathlib.Path(sys.argv[1]); venv.create(p,system_site_packages=True,with_pip=True); site=next(p.glob('lib/python*/site-packages')); (site/'arena-base.pth').write_text('/opt/arena/venv/lib/python3.10/site-packages\\n')"
-                # All writes in the virtualenv run as the team, including .pth.
-                subprocess.run([os.getenv("ARENA_SYSTEM_PYTHON", "/usr/bin/python3"), "-c", script, str(venv)], env=clean, user=old["uid"], group=old["uid"], extra_groups=[], check=True, timeout=90)
+            clean = {"HOME": str(home), "USER": name, "PATH": "/usr/bin:/bin"}
+            script = "import venv,pathlib,sys; p=pathlib.Path(sys.argv[1]); exists=(p/'bin/python').exists(); venv.create(p,system_site_packages=True,with_pip=True) if not exists else None; site=next(p.glob('lib/python*/site-packages')); marker=site/'arena-base.pth'; marker.write_text('/opt/arena/venv/lib/python3.10/site-packages\\n') if not marker.exists() else None"
+            # The existence check also runs as the team: NFS can deny root a
+            # read of a valid existing 0700 home after container UID remapping.
+            subprocess.run([os.getenv("ARENA_SYSTEM_PYTHON", "/usr/bin/python3"), "-c", script, str(venv)], env=clean, cwd="/tmp", user=old["uid"], group=old["uid"], extra_groups=[], check=True, timeout=90)
             kernel = self.control / (name + "-kernel.json")
             atomic_json(kernel, {"argv": [str(venv / "bin/python"), "-m", "ipykernel_launcher", "-f", "{connection_file}"], "display_name": "Python (PyTorch · riêng đội)", "language": "python"})
             files.install(".local/share/jupyter/kernels/pytorch/kernel.json", kernel)
@@ -282,6 +338,7 @@ class HubManager:
             observed = online.get(name, {})
             server = observed.get("servers", {}).get("", {})
             report = {"teamId": team["teamId"], "revision": team["revision"], "state": "stopped", "publicReady": False, "privateReady": False}
+            step = "stop"
             try:
                 if not team["enabled"] or team["desiredState"] == "stopped":
                     if server:
@@ -289,6 +346,7 @@ class HubManager:
                     reports.append(report)
                     continue
                 if server.get("ready"):
+                    step = "dataset"
                     report["publicReady"], report["privateReady"] = self.install_assets(team["teamId"], policy)
                     report["state"] = "ready"
                 elif server or observed.get("pending"):
@@ -296,14 +354,52 @@ class HubManager:
                 elif active >= policy["hub"].get("maxTeamServers", 7) or pending >= 2 or measured["availableRAMGiB"] is None or measured["availableRAMGiB"] < 4 or measured["freeDiskGiB"] < 2:
                     report["state"] = "waiting-resource"
                 else:
+                    step = "account"
                     self.ensure_user(team["teamId"])
+                    step = "dataset"
                     report["publicReady"], report["privateReady"] = self.install_assets(team["teamId"], policy)
                     if not observed:
+                        step = "hub-user"
                         self.hub_request("POST", "/users/" + name)
+                    step = "hub-start"
                     self.hub_request("POST", "/users/" + name + "/server")
                     active += 1; pending += 1
                     report["state"] = "starting"
-            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError):
-                report.update(state="error", error="Không chuẩn bị được workspace. Admin kiểm tra tài nguyên và quyền runtime.")
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError) as error:
+                # Fixed fields only; exception strings/HTTP bodies can contain
+                # paths, signed URLs or credentials. Keep those out of logs.
+                logging.getLogger("arena.hub").warning("team preparation failed step=%s type=%s errno=%s", step, type(error).__name__, getattr(error, "errno", None))
+                report.update(state="error", error="Không chuẩn bị được workspace (" + step + "). Admin kiểm tra runtime.")
             reports.append(report)
         return {"runId": policy["runId"], "hubReady": True, "resources": measured, "notebooks": reports}
+
+
+def team_files_worker(request):
+    files = TeamFiles(request["home"], request["uid"], request["gid"])
+    if os.geteuid() != files.uid or os.getegid() != files.gid or not 10000 <= files.uid < 60000:
+        raise ValueError("Invalid team worker identity")
+    action = request["action"]
+    if action == "create-home":
+        os.mkdir("home", 0o700, dir_fd=request["parent_fd"])
+    elif action == "check-home":
+        fd = os.open(files.home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if os.fstat(fd).st_uid != files.uid:
+                raise ValueError("Unexpected home owner")
+            os.fchmod(fd, 0o700)
+        finally:
+            os.close(fd)
+    elif action == "mkdir":
+        files.mkdir(request["parts"])
+    elif action == "install":
+        files.install(request["relative"], request.get("source_fd", request.get("source")), request.get("link", False))
+    else:
+        raise ValueError("Invalid team worker operation")
+
+
+if __name__ == "__main__" and sys.argv[1:2] == ["--team-files"]:
+    try:
+        team_files_worker(json.loads(sys.argv[2]))
+    except (OSError, ValueError) as error:
+        print(json.dumps({"errno": getattr(error, "errno", None), "unsafe": isinstance(error, ValueError)}))
+        sys.exit(1)

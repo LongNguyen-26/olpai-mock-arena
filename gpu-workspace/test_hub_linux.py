@@ -351,6 +351,48 @@ class LinuxHubTests(unittest.TestCase):
         self.assertIn("uid-check", (Path(user["home"]) / "shared.ipynb").read_text())
         self.assertEqual(cls.manager.ensure_user(team)["uid"], user["uid"])
 
+    def test_08_remapped_nfs_writes_as_team_without_chown_or_root_home_reads(self):
+        team = str(uuid.uuid4())
+        home = self.manager.teams_root / team
+        # Failed legacy chown leaves this exact empty root-owned directory.
+        home.mkdir(mode=0o700)
+        original_stat, original_open, original_chown = Path.stat, Path.open, os.chown
+        def inside_home(path):
+            return os.geteuid() == 0 and home in path.parents
+        def nfs_stat(path, *args, **kwargs):
+            if inside_home(path):
+                raise PermissionError(13, "QA NFS denies root traversal")
+            return original_stat(path, *args, **kwargs)
+        def nfs_open(path, *args, **kwargs):
+            if inside_home(path):
+                raise PermissionError(13, "QA NFS denies root reads")
+            return original_open(path, *args, **kwargs)
+        def nfs_chown(path, uid, gid, *args, **kwargs):
+            if uid != 0 or gid != 0:
+                raise PermissionError(1, "QA NFS denies chown")
+            return original_chown(path, uid, gid, *args, **kwargs)
+        source = self.manager.control / "nfs-starter.py"
+        source.write_text("print('private team starter')")
+        with patch("hub_runtime.os.chown", side_effect=nfs_chown), \
+             patch("hub_runtime.os.fchown", side_effect=PermissionError(1, "QA NFS denies fchown")), \
+             patch.object(Path, "stat", nfs_stat), patch.object(Path, "open", nfs_open):
+            user = self.manager.ensure_user(team)
+            TeamFiles(home, user["uid"], user["uid"]).install("Tac_vu_1/starter.py", source)
+            self.assertEqual(self.manager.ensure_user(team)["uid"], user["uid"])
+        self.assertEqual(home.stat().st_uid, user["uid"])
+        self.assertEqual(home.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.run_team(team, "from pathlib import Path; assert Path('Tac_vu_1/starter.py').read_text().startswith('print'); open('checkpoint.txt','w').write('saved')").returncode, 0)
+        other = self.team_ids[0]
+        self.assertNotEqual(self.run_team(other, f"open({str(home / 'checkpoint.txt')!r}).read()").returncode, 0)
+        # Preserve a nonempty root-owned home rather than moving/deleting work.
+        blocked = str(uuid.uuid4())
+        blocked_home = self.manager.teams_root / blocked
+        blocked_home.mkdir(mode=0o700)
+        (blocked_home / "keep.txt").write_text("existing work")
+        with self.assertRaisesRegex(RuntimeError, "files preserved"):
+            self.manager.ensure_user(blocked)
+        self.assertEqual((blocked_home / "keep.txt").read_text(), "existing work")
+
 
 if __name__ == "__main__":
     unittest.main()

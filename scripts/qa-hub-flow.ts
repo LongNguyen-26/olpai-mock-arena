@@ -223,6 +223,8 @@ async function main() {
     );
     assert.equal(new Set(starts.map((v) => v.revision)).size, 1);
     assert.equal(creates, 1);
+    await assert.rejects(authorizeHub(members[1], id, randomBytes(32).toString("base64url")), /đã dừng/);
+    await changeHubServer(members[1], id, "start", randomUUID());
     let w = await getWorkspace(id);
     const auth = "Bearer " + decryptSecret(w.secret);
     const report = {
@@ -237,6 +239,16 @@ async function main() {
         privateReady: false,
       })),
     };
+    await receiveHubReport(id, auth, {
+      ...report,
+      notebooks: report.notebooks.map(n => ({ ...n, state: "error" as const, error: "Workspace preparation failed" })),
+    });
+    await assert.rejects(authorizeHub(members[0], id, randomBytes(32).toString("base64url")), /Workspace preparation failed/);
+    await receiveHubReport(id, auth, {
+      ...report,
+      notebooks: report.notebooks.map(n => ({ ...n, state: "waiting-resource" as const })),
+    });
+    assert.deepEqual(await authorizeHub(members[0], id, randomBytes(32).toString("base64url")), { pending: true, state: "waiting-resource" });
     await receiveHubReport(id, auth, report);
     const studentState = await workspaceState(members[0]);
     assert.equal(studentState.workspaces[0].hub?.teams.length, 1);
