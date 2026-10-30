@@ -282,7 +282,7 @@ async function handle(
     }
     if (route === "submit") {
       await rateLimit(`submit:${user.id}`, 10, 60);
-      const raw = await body(req, 3_200_000);
+      const raw = await body(req, 4_200_000);
       const form = await new Request(req.url, {
         method: "POST",
         headers: { "content-type": req.headers.get("content-type") ?? "" },

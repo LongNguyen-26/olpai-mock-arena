@@ -1,5 +1,6 @@
 import { submissionRows, SubmissionError } from "./judge";
 import type { DirectJudgeSpec, JudgeResult } from "./types";
+import { judgeTrimap, judgeGeneration, type TrimapTruth, type GenerationTruth } from "./judge-generation";
 
 export interface ForecastTruth {
   horizon: number;
@@ -72,6 +73,8 @@ export function judgeMultilabel(csv: string, truth: MultilabelTruth): JudgeResul
 }
 
 export function judgeDirect(csv: string, truth: unknown, spec: DirectJudgeSpec): JudgeResult {
+  if (spec.kind === "trimap-iou") return judgeTrimap(csv, truth as TrimapTruth);
+  if (spec.kind === "generation-chrf") return judgeGeneration(csv, truth as GenerationTruth);
   return spec.kind === "scaled-mae"
     ? judgeScaledMAE(csv, truth as ForecastTruth)
     : judgeMultilabel(csv, truth as MultilabelTruth);

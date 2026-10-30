@@ -27,7 +27,7 @@ const spec = z
     "Invalid score thresholds",
   );
 const directSpec = z.object({
-  kind: z.enum(["scaled-mae", "multilabel-f1"]),
+  kind: z.enum(["scaled-mae", "multilabel-f1", "trimap-iou", "generation-chrf"]),
   maxScore: z.literal(100),
 });
 export const packageSchema = z
@@ -43,6 +43,7 @@ export const packageSchema = z
           content: z.string().min(1),
           maxScore: z.number().positive().max(100).optional(),
           columns: z.array(z.string().min(1)).min(2).optional(),
+          maxSubmissionBytes: z.number().int().min(1).max(4_000_000).optional(),
         }),
       )
       .min(2)
@@ -98,7 +99,7 @@ export const packageSchema = z
       const s = pkg.judgeSpecs?.[t.id];
       const direct = pkg.directJudgeSpecs?.[t.id];
       if (direct && (s || direct.maxScore !== t.maxScore ||
-        t.columns?.join(",") !== (direct.kind === "scaled-mae" ? "id,prediction" : "id,labels")))
+        t.columns?.join(",") !== ({ "scaled-mae": "id,prediction", "multilabel-f1": "id,labels", "trimap-iou": "id,pet_rle,border_rle", "generation-chrf": "id,prediction" }[direct.kind])))
         ctx.addIssue({ code: "custom", message: "Task display must match the direct judge.", path: ["directJudgeSpecs", t.id] });
       if (
         s &&

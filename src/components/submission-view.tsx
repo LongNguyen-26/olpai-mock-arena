@@ -234,7 +234,7 @@ export default function SubmitView({
               <label className="dropzone">
                 <UploadCloud size={32} />
                 <b>Chọn tệp CSV</b>
-                <span>UTF-8 · Tối đa 3 MB</span>
+                <span>UTF-8 · Tối đa {(data.tasks.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000) / 1_000_000} MB</span>
                 <input
                   type="file"
                   name="file"

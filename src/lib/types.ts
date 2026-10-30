@@ -67,6 +67,7 @@ export interface TaskStatement {
   content: string;
   maxScore?: number;
   columns?: string[];
+  maxSubmissionBytes?: number;
 }
 export interface JudgeSpec {
   kind: "pinball" | "aspect-f1" | "pump-f1";
@@ -75,7 +76,7 @@ export interface JudgeSpec {
   reference: number;
 }
 export interface DirectJudgeSpec {
-  kind: "scaled-mae" | "multilabel-f1";
+  kind: "scaled-mae" | "multilabel-f1" | "trimap-iou" | "generation-chrf";
   maxScore: 100;
 }
 export interface Registration {

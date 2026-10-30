@@ -30,7 +30,7 @@ export async function readSubmissionFile(s: FileLocation) {
   const value = await db().get<string>(s.path);
   if (!value) throw new ApiError("Không tìm thấy tệp bài nộp.", 404);
   return gunzipSync(Buffer.from(value, "base64"), {
-    maxOutputLength: 3_000_000,
+    maxOutputLength: 4_000_000,
   });
 }
 export async function deleteSubmissionFile(s: FileLocation) {

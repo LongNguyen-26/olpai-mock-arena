@@ -114,12 +114,13 @@ export async function submit(
     metric: number | undefined,
     error = "";
   try {
+    const maxBytes = pkg.tasks?.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000;
     if (
       !file.name.toLowerCase().endsWith(".csv") ||
       file.size < 1 ||
-      file.size > 3_000_000
+      file.size > maxBytes
     )
-      throw new SubmissionError("Chọn một CSV UTF-8, tối đa 3 MB.");
+      throw new SubmissionError(`Chọn một CSV UTF-8, tối đa ${maxBytes / 1_000_000} MB.`);
     bytes = new Uint8Array(await file.arrayBuffer());
     let text: string;
     try {
