@@ -2,21 +2,17 @@
 
 Arena hỗ trợ chế độ `team-hub` cho Pod **Jupyter-only**. Mỗi team có một tài khoản Linux, home, server Lab, kernel và terminal riêng. Hai máy cùng team dùng cùng server và sửa notebook đồng thời. GPU dùng chung; không chia cứng VRAM và không chặn CUDA bằng hàng đợi.
 
-Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40997124372), từ mã runtime `0569a7ea698ccdda96a199577f70346e1bd1ccfd`. Dùng image bất biến sau cho Pod mới:
+Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/41004156324), từ mã runtime `d8695f7b99b102d84824b4b310b9fe3f65ba854d`. Dùng image bất biến sau cho Pod mới:
 
 ```text
-nguyenlong26/olpai-workspace@sha256:fd54427217f45123053c33ad8ea369af9eef1c2512d076dcc72db834b08b8df1
+nguyenlong26/olpai-workspace@sha256:5691a3d185f474eec536a49417717c5a91a16011949024d18a9f5b342b129740
 ```
 
 Ghim cùng digest trong `RUNPOD_HUB_IMAGE` và `RUNPOD_WORKSPACE_IMAGE`; web từ chối image Hub không nằm trong allowlist. Tag tiện tra cứu là `2026.10.30-hub`. `Dockerfile.runtime` kế thừa image dependency đầy đủ đã xác minh; chỉ rebuild CUDA/dependency khi các dependency thay đổi.
 
-Image `179b5581…` có lỗi `ModuleNotFoundError: No module named 'hub_auth'` khi Hub đọc cấu hình, làm container khởi động lại trước khi tạo server team. Bản sửa thêm đường dẫn module quản trị `/opt/arena` ngay trong cấu hình Hub. CI hiện khởi động Hub từ thư mục khác và bỏ `PYTHONPATH`, đúng điều kiện đã làm lộ lỗi trên Pod thật. Pod đang dùng image cũ cần được quản trị xử lý riêng, giữ volume và kiểm tra kernel trước khi thay image.
+Các image Hub cũ đến `fd544272…` được thay bằng layout lưu trữ v2: control/secret ở đĩa cục bộ riêng, checkpoint mã hóa trên volume. Log `(20)` xác nhận volume ép thư mục root thành `0777`, nên chỉ tạo lại/chmod không đủ. Chi tiết lịch sử ở [RUNPOD_TROUBLESHOOTING.md](RUNPOD_TROUBLESHOOTING.md).
 
-Image `75434bdf…` sửa lỗi import nhưng vẫn tạo home bằng root rồi chown, thất bại trên volume NFS có UID remapping của Pod đã nghiệm thu. Image `5141126f…` ghi tệp trực tiếp dưới UID team, như phần lưu trữ bên dưới. Sau khi cập nhật web/template, refresh Arena và chọn lại template đã lưu trước khi cấp Pod mới.
-
-Image `5141126f…` còn gặp lỗi Hub từ chối quyền tệp cookie trên volume NFS trong log người dùng. Bản `0ca70c5f…` đã bổ sung bản cookie có quyền nghiêm ngặt trên filesystem cục bộ, giữ khóa bền vững và kiểm tra quyền của Hub; thay đổi này được giữ trong bản mới. Chọn template **JupyterHub** dành cho dịch vụ **Chỉ JupyterLab** trước khi cấp Pod mới.
-
-Image `0ca70c5f…` còn dừng ở kiểm tra thư mục `.arena` trên Pod người dùng. Bản hiện tại `fd544272…` sửa điểm tạo thư mục đầu tiên của startup thành `0700`, bỏ chown/chmod thừa, phân biệt bit quyền truy cập với setgid/sticky, và ghi UID/mode vào lỗi startup. Không bỏ kiểm tra thư mục thực sự có quyền rộng. UID/mode thực tế của Pod lỗi chưa lấy được vì Web Terminal báo stopped; kết quả CI không thay thế nghiệm thu trên host đó.
+Refresh Arena, chọn lại template **JupyterHub** cho dịch vụ **Chỉ JupyterLab**, rồi cấp **Pod/volume mới**. Không tự thay image Pod cũ hoặc tự chuyển volume layout cũ. Kết quả CI không thay thế nghiệm thu kernel/WebSocket/CUDA trên Runpod thật.
 
 Nếu Arena dùng nhiều tên miền, cấu hình `GPU_WORKSPACE_LOGIN_ORIGINS` bằng danh sách HTTPS origin chính xác, cách nhau bằng dấu phẩy. Địa chỉ của `GPU_WORKSPACE_PUBLIC_URL` được cho phép sẵn. Hub đăng nhập qua đúng tên miền người dùng đang mở để giữ phiên Arena; callback đổi ticket vẫn dùng control URL cố định.
 
@@ -56,13 +52,23 @@ Không nhận Pod PyTorch bất kỳ hoặc Pod có Chatbot. Không sửa image/
 
 ## Tệp, thư viện và dataset
 
-Home của team ở `/workspace/teams/<team-id>`, quyền `0700`, UID/GID ổn định được lưu trên volume. Cấu hình, database, cookie secret và mapping tài khoản Hub ở `.arena/hub`, chỉ root đọc được. Notebook không nhận token agent, token điều khiển Hub hay credential Runpod.
+Log Runpod đã xác nhận thư mục do root tạo trên volume vẫn có mode `0777`, kể cả sau yêu cầu `0700`. Vì vậy Hub không lưu bản rõ của control/secret trong `/workspace/.arena` nữa:
 
-Khóa cookie gốc được giữ trên volume qua restart; bản dùng lúc chạy nằm ở `/run/arena-hub/cookie-secret` trên đĩa cục bộ, thư mục `0700`, tệp `0600`, cùng giá trị khóa. JupyterHub vẫn kiểm tra quyền tệp như bình thường. Cách này tránh lỗi Hub từ chối tệp cookie trên một số volume NFS báo quyền file quá rộng. Runtime xác minh thư mục điều khiển do root sở hữu và có quyền `0700`, không theo symlink, không đưa khóa vào biến môi trường notebook, và từ chối tự xoay khóa nếu bản lưu bị hỏng.
+| Dữ liệu | Vị trí | Bảo vệ |
+|---|---|---|
+| Database, mapping, policy và các khóa Hub đang dùng | `/run/arena-hub/control` trên đĩa cục bộ | Root, thư mục `0700`; khóa `0600` |
+| Checkpoint bền vững của Hub | `/workspace/.arena-hub-state-v1.enc` | AES-GCM xác thực, ràng buộc workspace và credential của agent |
+| Home, venv, notebook và checkpoint của team | `/workspace/teams/<team-id>` | UID/GID riêng, home `0700` khi hoạt động |
+| Dataset đã công bố | `/workspace/datasets/<sha256>` | UID dữ liệu riêng `62000`, thư mục `0755`, tệp `0444` |
+| Staging, marker khởi tạo và cache tải | `/workspace/.arena-assets-v2` | UID dữ liệu `62000`, thư mục `0700` |
 
-Các thư mục điều khiển được tạo bằng mode `0700` ngay từ lệnh `mkdir` đầu tiên của startup; không tạo `0755` rồi mới sửa. Bit setgid/sticky được giữ nếu chín bit quyền truy cập vẫn là `0700`. Runtime không bỏ qua owner hoặc quyền truy cập quá rộng; lỗi startup có UID/GID/mode để chẩn đoán khi Web Terminal không mở được.
+Checkpoint Hub được ghi mỗi 10 giây và khi dừng bình thường; dùng bản backup SQLite nhất quán. Notebook/venv vẫn ghi trực tiếp trên volume, không phụ thuộc chu kỳ checkpoint Hub. Khi mất đĩa cục bộ, runtime giải mã checkpoint để giữ khóa, UID và database; policy/URL tải không được khôi phục từ checkpoint cũ mà phải lấy lại từ Arena. PID cũ bị bỏ để không nhận nhầm tiến trình sau restart. Mất điện có thể mất vài giây metadata Hub gần nhất; UID được đối chiếu với ownership và marker của home để giữ đúng dữ liệu team.
 
-Runpod có thể dùng NFS với UID container được ánh xạ sang UID host. Trong trường hợp này, root trong container không đổi được chủ tệp trên volume và cũng có thể không đọc được home `0700` của team. Runtime tạo home bằng UID team trong staging kín dưới `.arena`, rồi công bố bằng rename; các thao tác tạo thư mục, chép notebook/kernel và kiểm tra venv cũng chạy bằng UID đó. Nguồn được mở bởi quản trị và chỉ truyền file descriptor đọc cho tiến trình ghi. Không nới quyền home thành thư mục dùng chung. Home root sở hữu còn trống do lỗi khởi tạo cũ được tạo lại; home sai chủ đã có tệp được giữ và báo quản trị xử lý.
+Credential agent hiện có được dùng để dẫn xuất khóa checkpoint; không cần thêm khóa do admin nhập. Không đổi token agent, chép ciphertext sang hồ sơ khác hoặc gắn volume Hub cũ vào allocation khác. Checkpoint bị sửa, sai binding hoặc bị mất khi đã có home sẽ gây lỗi, không tự tạo đè khóa hay xóa bài. Volume từ layout cũ cần được xử lý riêng; bản nâng cấp này dùng Pod/volume mới theo quy trình nghiệm thu.
+
+Dataset được tải, kiểm checksum và giải nén dưới UID dữ liệu, không nhận credential Hub/Runpod. UID này có HOME/cache cookie Drive riêng. Sau khi Arena xác nhận lại quyền pha, dữ liệu được công bố chỉ đọc, ưu tiên hardlink khi cùng owner/filesystem; cache tải được dọn sau khi công bố thành công. Team nhận bản starter riêng và liên kết dataset, không ghi đè bài làm đã có.
+
+Home mới được tạo bằng UID team trong staging riêng trên cùng volume. Thư mục còn trống được chuyển tới vị trí cuối, khóa thành `0700` và kiểm tra không có tệp chèn trước khi tạo venv/notebook. Marker khởi tạo nằm ngoài home, chỉ UID dữ liệu ghi được. Runtime kiểm tra volume thực thi quyền của UID không phải root; nếu cả các UID này cũng bị ép `0777`, runtime từ chối thay vì cho các team dùng home công khai. Notebook không nhận token agent, khóa checkpoint, token điều khiển Hub hoặc credential Runpod. Chỉ file descriptor đọc của đúng starter/kernel được chuyển cho tiến trình ghi của team.
 
 Kernel `pytorch` và alias `python3` dùng `.venvs/pytorch` trong home team, kế thừa bộ thư viện nền chỉ đọc. Terminal cũng ưu tiên Python/pip của venv này. Kiểm tra trước khi cài:
 

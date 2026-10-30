@@ -1,5 +1,15 @@
 # Runpod: các lỗi đã gặp và cách tránh lặp lại
 
+## Volume ép thư mục root thành `0777`: layout Hub v2 — 30/10/2026
+
+- Log `(20)` đã xác nhận `.arena uid=0 gid=0 mode=0o777` sau CREATE/chmod; các bản chỉ sửa mode chưa đủ. Không dùng volume này để chứa bản rõ của Hub control/secret và không tắt kiểm tra quyền để vượt startup.
+- Control/database/secret chuyển sang `/run/arena-hub/control`, thư mục root `0700`. Volume giữ `.arena-hub-state-v1.enc`: checkpoint AES-GCM có xác thực, khóa dẫn xuất từ agent credential hiện có và AAD gắn workspace. Không đưa khóa vào notebook hoặc worker dữ liệu. Checkpoint chứa database nhất quán và khóa/mapping; không chứa policy/URL tải cũ. Snapshot lỗi/sai binding không bị ghi đè bằng state mới.
+- Checkpoint mỗi 10 giây và khi dừng bình thường. Home/venv/notebook vẫn ghi trực tiếp trên volume. UID được đối chiếu ownership/marker để phục hồi metadata gần nhất; PID cũ không được dùng sau restart để tránh tác động tiến trình khác.
+- UID `62000` dành cho thao tác volume, ngoài dải team `10000..59999`: private staging/cache `0700`, dataset công bố `0755`/`0444`. Tải HTTPS/Drive, checksum và ZIP chạy bằng UID này với HOME riêng, không nhận control credential. Recheck pha trước publish; hardlink khi cùng owner/filesystem, fallback copy rồi dọn cache sau publish.
+- Home mới được tạo dưới UID team trong staging riêng trên cùng volume; chuyển thư mục rỗng ra vị trí cuối rồi khóa `0700`, từ chối nếu có tệp chèn, ghi marker bền vững rồi mới cài venv/kernel/starter. Bản này không nới quyền home đang hoạt động. Worker dùng stdin/FD thay vì đưa URL/key vào command line; không bật Python user site cho helper.
+- Runtime kiểm tra owner/mode thực của UID dữ liệu và team. Nếu cả UID không phải root cũng không giữ được quyền riêng, runtime từ chối với metadata cụ thể; backend đó không đáp ứng yêu cầu cô lập trên volume. Giới hạn nhóm luyện nội bộ vẫn áp dụng: mã hóa bảo vệ nội dung control, không ngăn được việc xóa blob hoặc phá namespace trên một volume có quyền rộng.
+- Không tự chuyển layout volume cũ hoặc thay image Pod đang dùng. Dùng Pod/volume mới như đã thống nhất; checkpoint đã có không được chuyển sang allocation/token khác.
+
 ## Kiểm tra quyền thư mục dừng cold-start — 30/10/2026
 
 - Log mới xác nhận container dừng tại kiểm tra `.arena` trong `private_directory`, trước khi Hub/agent chạy. Log cũ chưa có UID/mode nên chưa phân biệt được owner không đúng, quyền rộng hay bit đặc biệt. Web Terminal báo stopped, chưa lấy được metadata thực tế của Pod đó.
