@@ -16,7 +16,7 @@ from hub_auth import ArenaAuthenticator
 from hub_runtime import resources, username, runtime_directory
 
 root = Path(os.getenv("ARENA_WORKSPACE_ROOT", "/workspace"))
-control = root / ".arena" / "hub"
+control = runtime_directory() / "control"
 spawn_slots = asyncio.Semaphore(2)
 
 

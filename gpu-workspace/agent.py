@@ -213,7 +213,7 @@ def dataset_loop():
                     load_asset(asset)
             STATE["publicReady"] = True
             STATE["privateReady"] = not policy["privateLocked"]
-            if STATE["privateReady"]:
+            if STATE["privateReady"] and not HUB_MODE:
                 (ROOT / "data/private/PRIVATE_LOCKED.txt").unlink(missing_ok=True)
             STATE["stage"] = "Dữ liệu sẵn sàng · Private " + ("đã mở" if STATE["privateReady"] else "đang khóa")
             STATE["error"] = None
@@ -285,7 +285,8 @@ def hub_loop():
 @asynccontextmanager
 async def lifespan(_app):
     global HUB_MANAGER
-    (ROOT / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not HUB_MODE:
+        (ROOT / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
     if HUB_MODE:
         if SERVICES != "jupyter":
             raise ValueError("Hub requires Jupyter-only")

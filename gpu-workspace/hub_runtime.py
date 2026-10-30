@@ -1,20 +1,28 @@
 """Root-only Hub provisioning. Notebook code is never executed by this module."""
 import json
+import array
+import base64
+import hashlib
 import logging
 import os
 import re
 import secrets
 import shutil
 import stat
+import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
 
 PROTOCOL = 1
+DATA_UID = 62000  # Outside the team UID range; never assigned to a notebook.
 TEAM_ID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
 
 
@@ -129,6 +137,181 @@ def mirror_cookie_secret(path, value):
         raise RuntimeError("Runtime cookie secret must be owned by root with mode 0600")
 
 
+class HubState:
+    """Local private control, authenticated encrypted checkpoints on the volume."""
+    names = ("users.json", "assets.json", "service-token", "cookie-secret", "proxy-token", "hub.sqlite")
+    limit = 32 * 1024**2
+    magic = b"ARENA-HUB-STATE-1\0"
+
+    def __init__(self, root, control):
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        identity = os.getenv("ARENA_WORKSPACE_ID", "")
+        token = os.getenv("ARENA_AGENT_TOKEN", "")
+        if not TEAM_ID.fullmatch(identity) or len(token) < 32:
+            raise RuntimeError("Encrypted Hub state requires workspace identity and server credential")
+        self.root, self.control = Path(root), Path(control)
+        self.path = self.root / ".arena-hub-state-v1.enc"
+        self.aad = ("arena-hub-state-v1:" + identity).encode()
+        secret = hashlib.sha256(b"arena-hub-state-key-v1\0" + token.encode()).digest()
+        self.cipher = AESGCM(secret)
+        self.binding = hashlib.sha256(self.aad + secret).hexdigest()
+
+    @contextmanager
+    def locked(self):
+        import fcntl
+        fd = os.open(self.control / ".snapshot.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(fd)
+
+    def restore(self):
+        with self.locked():
+            marker = self.control / ".binding.json"
+            if marker.exists():
+                if json.loads(marker.read_text()) != {"binding": self.binding}:
+                    raise RuntimeError("Local Hub state belongs to another workspace or credential")
+                if self.path.exists() and any(not (self.control / name).exists() for name in ("service-token", "cookie-secret", "proxy-token")):
+                    raise RuntimeError("Local Hub control is incomplete; refusing to rotate persisted keys")
+                return False
+            if self.path.is_symlink():
+                raise ValueError("Unsafe encrypted Hub state path")
+            if self.path.exists():
+                fd = os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(fd, "rb") as incoming:
+                    blob = incoming.read(self.limit + 1)
+                try:
+                    if len(blob) > self.limit or not blob.startswith(self.magic):
+                        raise ValueError()
+                    raw = self.cipher.decrypt(blob[len(self.magic):len(self.magic)+12], blob[len(self.magic)+12:], self.aad)
+                    payload = json.loads(raw)
+                    if payload.get("version") != 1 or not isinstance(payload.get("files"), dict) or set(payload["files"]) - set(self.names):
+                        raise ValueError()
+                    decoded = {name: base64.b64decode(value, validate=True) for name, value in payload["files"].items()}
+                    if any(len(value) > self.limit for value in decoded.values()):
+                        raise ValueError()
+                    if any(not re.fullmatch(rb"[a-fA-F0-9]{64}", decoded.get(name, b"")) for name in ("service-token", "cookie-secret", "proxy-token")):
+                        raise ValueError()
+                except Exception:
+                    raise ValueError("Encrypted Hub state is invalid; refusing to replace or rotate it") from None
+                for name, value in decoded.items():
+                    fd, temp = tempfile.mkstemp(dir=self.control, prefix="restore-")
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(value)
+                    os.replace(temp, self.control / name)
+            elif (self.root / "teams").exists() and any((self.root / "teams").iterdir()):
+                raise RuntimeError("Hub state checkpoint is missing; existing team files preserved")
+            elif (self.root / ".arena/hub").exists():
+                raise RuntimeError("Legacy Hub volume requires explicit migration; use a new Pod for this image")
+            atomic_json(marker, {"binding": self.binding})
+            return True
+
+    def flush(self):
+        with self.locked():
+            files = {}
+            for name in self.names:
+                path = self.control / name
+                if not path.exists():
+                    continue
+                if path.is_symlink() or path.stat().st_size > self.limit:
+                    raise ValueError("Invalid local Hub state file")
+                if name == "hub.sqlite":
+                    fd, backup = tempfile.mkstemp(dir=self.control, prefix="sqlite-")
+                    os.close(fd)
+                    deadline = time.monotonic() + 5
+                    def progress(*_):
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("Hub database checkpoint is busy")
+                    try:
+                        with sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True, timeout=2) as source, sqlite3.connect(backup) as target:
+                            source.backup(target, pages=128, progress=progress, sleep=0.02)
+                        value = Path(backup).read_bytes()
+                    finally:
+                        Path(backup).unlink(missing_ok=True)
+                else:
+                    value = path.read_bytes()
+                files[name] = base64.b64encode(value).decode()
+            raw = json.dumps({"version": 1, "files": files}, separators=(",", ":")).encode()
+            if len(raw) > self.limit - 1024:
+                raise ValueError("Hub checkpoint exceeds its size limit")
+            nonce = secrets.token_bytes(12)
+            blob = self.magic + nonce + self.cipher.encrypt(nonce, raw, self.aad)
+            fd, temp = tempfile.mkstemp(dir=self.root, prefix=".arena-encrypted-")
+            try:
+                with os.fdopen(fd, "wb") as output:
+                    output.write(blob); output.flush(); os.fsync(output.fileno())
+                os.replace(temp, self.path)
+            finally:
+                Path(temp).unlink(missing_ok=True)
+
+
+def data_request(root, action, want_fd=False, **values):
+    """Run volume operations as a separate UID, without control credentials."""
+    parent, child = socket.socketpair()
+    try:
+        result = subprocess.run(
+            ["/opt/arena/hub-venv/bin/python", "/opt/arena/hub_runtime.py", "--data-worker"],
+            input=json.dumps({"root": str(root), "action": action, "socket": child.fileno(), **values}),
+            user=DATA_UID, group=DATA_UID, extra_groups=[], pass_fds=(child.fileno(),),
+            cwd="/tmp", env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "PYTHONNOUSERSITE": "1"}, capture_output=True, text=True,
+            timeout=600 if action == "publish" else 30,
+        )
+        if result.returncode:
+            try: metadata = json.loads(result.stdout).get("metadata", [])
+            except ValueError: metadata = []
+            raise RuntimeError("Volume operation failed: " + action + "; non-root storage metadata=" + json.dumps(metadata))
+        value = json.loads(result.stdout)
+        if want_fd:
+            parent.settimeout(2)
+            _, messages, _, _ = parent.recvmsg(1, socket.CMSG_SPACE(array.array("i").itemsize))
+            fds = array.array("i")
+            for level, kind, raw in messages:
+                if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                    fds.frombytes(raw[:len(raw) - len(raw) % fds.itemsize])
+            if len(fds) != 1:
+                for fd in fds: os.close(fd)
+                raise RuntimeError("Missing volume descriptor")
+            return value, fds[0]
+        return value
+    finally:
+        parent.close(); child.close()
+
+
+def volume_directory(root, path, mode):
+    """POSIX volumes allow chown; root-squashed volumes create under DATA_UID."""
+    if path.is_symlink():
+        raise ValueError("Unsafe volume directory")
+    if not path.exists():
+        path.mkdir(mode=mode)
+        try:
+            os.chown(path, DATA_UID, DATA_UID)
+        except PermissionError:
+            path.rmdir()  # Only this just-created empty directory.
+    elif path.stat().st_uid != DATA_UID:
+        raise RuntimeError("Existing volume directory needs migration; files preserved")
+
+
+def open_published(root_fd, relative):
+    parts = Path(relative).parts
+    if not parts or Path(relative).is_absolute() or any(p in ("", ".", "..") for p in parts):
+        raise ValueError("Unsafe published asset path")
+    fd = os.dup(root_fd)
+    try:
+        for i, part in enumerate(parts):
+            child = os.open(part, os.O_RDONLY | os.O_NOFOLLOW | (os.O_DIRECTORY if i < len(parts)-1 else 0), dir_fd=fd)
+            os.close(fd); fd = child
+            info = os.fstat(fd)
+            if info.st_uid != DATA_UID or info.st_mode & 0o022:
+                raise ValueError("Published asset ownership or permissions changed")
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("Invalid published asset")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def link_or_copy(source, target):
     try:
         os.link(source, target)
@@ -149,7 +332,7 @@ class TeamFiles:
         result = subprocess.run(
             ["/opt/arena/hub-venv/bin/python", "/opt/arena/hub_runtime.py", "--team-files", json.dumps(request)],
             user=self.uid, group=self.gid, extra_groups=[], pass_fds=pass_fds,
-            cwd="/tmp", env={"HOME": str(self.home), "PATH": "/usr/bin:/bin"},
+            cwd="/tmp", env={"HOME": str(self.home), "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"},
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode:
@@ -193,7 +376,7 @@ class TeamFiles:
         if os.geteuid() != self.uid:
             if link:
                 return self.run("install", relative=str(relative), source=str(source), link=True)
-            incoming = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+            incoming = os.dup(source) if isinstance(source, int) else os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
             try:
                 return self.run("install", relative=str(relative), source_fd=incoming, pass_fds=(incoming,))
             finally:
@@ -227,27 +410,34 @@ class HubManager:
         self.root = Path(root)
         if self.root.is_symlink():
             raise ValueError("Unsafe workspace root")
-        os.chown(self.root, 0, 0)
-        self.root.chmod(0o755)
-        self.control = self.root / ".arena" / "hub"
-        private_directory(self.root / ".arena")
+        self.runtime = runtime_directory()
+        private_directory(self.runtime)
+        self.control = self.runtime / "control"
         private_directory(self.control)
+        self.state = HubState(self.root, self.control)
+        restored = self.state.restore()
         self.teams_root = self.root / "teams"
         self.shared = self.root / "datasets"
-        for path in (self.teams_root, self.shared):
-            if path.is_symlink():
-                raise ValueError("Unsafe root")
-            path.mkdir(exist_ok=True)
-            os.chown(path, 0, 0)
-            path.chmod(0o755)
+        self.volume_cache = self.root / ".arena-assets-v2"
+        for path, mode in ((self.teams_root, 0o755), (self.shared, 0o755), (self.volume_cache, 0o700)):
+            volume_directory(self.root, path, mode)
+        data_request(self.root, "init")
+        self.shared_fd = os.open(self.shared, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         self.guard = threading.RLock()
         self.users = self._read("users.json", {})
         self.published = self._read("assets.json", {})
-        self.runtime = runtime_directory()
         for name in ("service-token", "cookie-secret", "proxy-token"):
             value = persisted_secret(self.control / name)
             if name == "cookie-secret":
                 mirror_cookie_secret(self.runtime / name, value)
+        if restored or not self.state.path.exists():
+            self.state.flush()
+
+    def __del__(self):
+        fd = getattr(self, "shared_fd", None)
+        if fd is not None:
+            try: os.close(fd)
+            except OSError: pass
 
     def _read(self, name, default):
         path = self.control / name
@@ -266,8 +456,11 @@ class HubManager:
         with self.guard:
             old = self.users.get(team_id)
             if old is None:
-                used = {v["uid"] for v in self.users.values()} | {v.pw_uid for v in pwd.getpwall()} | {v.gr_gid for v in grp.getgrall()}
-                uid = next(i for i in range(10000, 60000) if i not in used)
+                homes = data_request(self.root, "homes")
+                used = {v["uid"] for v in self.users.values()} | {v.pw_uid for v in pwd.getpwall()} | {v.gr_gid for v in grp.getgrall()} | set(homes.values())
+                uid = homes.get(team_id) or next(i for i in range(10000, 60000) if i not in used)
+                if not 10000 <= uid < 60000 or any(v["uid"] == uid for v in self.users.values()) or any(k != team_id and v == uid for k, v in homes.items()):
+                    raise RuntimeError("Persisted team UID collision")
                 if any(v["name"] == name for v in self.users.values()):
                     raise RuntimeError("Team username collision")
                 old = {"name": name, "uid": uid}
@@ -296,18 +489,13 @@ class HubManager:
                     raise RuntimeError("Existing home ownership needs administrator review; files preserved")
                 home.rmdir()
             if not home.exists():
-                # A passed FD reaches a staging parent below root-only control.
-                # Other teams cannot traverse .arena to reach this temporary
-                # writable parent. The child creates its own 0700 home, then
-                # root publishes it by rename without changing ownership.
-                with tempfile.TemporaryDirectory(prefix="team-home-", dir=self.control) as staging:
-                    Path(staging).chmod(0o777)
-                    fd = os.open(staging, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                    try:
-                        files.run("create-home", parent_fd=fd, pass_fds=(fd,))
-                        os.rename(Path(staging) / "home", home)
-                    finally:
-                        os.close(fd)
+                stage, fd = data_request(self.root, "home-stage", want_fd=True)
+                try:
+                    files.run("create-home", parent_fd=fd, pass_fds=(fd,))
+                    data_request(self.root, "home-publish", team_id=team_id, stage=stage["stage"])
+                finally:
+                    os.close(fd)
+                    data_request(self.root, "stage-clean", stage=stage["stage"])
             files.run("check-home")
             # Directory FDs reject contestant-controlled symlinks before use.
             files.mkdir((".venvs",))
@@ -329,32 +517,25 @@ class HubManager:
             raise ValueError("Invalid checksum")
         if digest in self.published:
             return
-        source = self.control / "objects" / digest
-        source.mkdir(parents=True, exist_ok=True)
-        load(asset, source)
+        if not data_request(self.root, "exists", digest=digest)["exists"]:
+            _, fd = data_request(self.root, "cache", want_fd=True, digest=digest)
+            try:
+                # Descriptor access bypasses only the private cache's ancestors.
+                # Keep the existing checksum/ZIP checks; no control paths here.
+                source = Path("/proc/self/fd") / str(fd)
+                load(asset, source)
+                for item in source.rglob("*"):
+                    if item.is_symlink():
+                        raise ValueError("Unsafe cached asset")
+                    if item.stat().st_uid == 0:
+                        item.chmod(0o755 if item.is_dir() else 0o444)
+            finally:
+                os.close(fd)
         # Recheck the live gate after potentially long downloads.
         latest = current_policy()
         if not latest.get("active") or not any(a.get("sha256") == digest for a in latest.get("assets", [])):
             return
-        target = self.shared / digest
-        if not target.exists():
-            staging = self.control / (digest + "-publish")
-            if staging.exists():
-                shutil.rmtree(staging)
-            staging.mkdir()
-            if asset.get("workspaceLayout") == "task-root":
-                for task in source.glob("Tac_vu_*"):
-                    data = task / "dataset"
-                    if data.is_dir():
-                        shutil.copytree(data, staging / task.name / "dataset", copy_function=link_or_copy)
-            else:
-                shutil.copytree(source / "data" / asset["phase"], staging / "data" / asset["phase"], copy_function=link_or_copy)
-            for path in staging.rglob("*"):
-                if path.is_symlink():
-                    raise ValueError("Unsafe staged dataset")
-                path.chmod(0o755 if path.is_dir() else 0o444)
-            staging.chmod(0o755)
-            staging.replace(target)
+        data_request(self.root, "publish", digest=digest, task_root=asset.get("workspaceLayout") == "task-root", phase=asset["phase"])
         with self.guard:
             self.published[digest] = {"phase": asset["phase"], "taskRoot": asset.get("workspaceLayout") == "task-root"}
             atomic_json(self.control / "assets.json", self.published)
@@ -369,22 +550,14 @@ class HubManager:
                 public_ready &= asset["phase"] != "public"
                 private_ready &= asset["phase"] != "private"
                 continue
-            source, shared = self.control / "objects" / digest, self.shared / digest
+            catalog = data_request(self.root, "catalog", digest=digest, task_root=self.published[digest]["taskRoot"], phase=asset["phase"])
             if self.published[digest]["taskRoot"]:
-                for task in source.glob("Tac_vu_*"):
-                    for item in task.rglob("*"):
-                        rel = item.relative_to(source)
-                        if "dataset" in rel.parts or not item.is_file():
-                            continue
-                        files.install(rel, item)
-                    data = shared / task.name / "dataset"
-                    if data.exists():
-                        for item in data.iterdir():
-                            files.install(Path(task.name) / "dataset" / item.name, item, link=True)
-            else:
-                data = shared / "data" / asset["phase"]
-                for item in data.iterdir():
-                    files.install(Path("data") / asset["phase"] / item.name, item, link=True)
+                for rel in catalog["starters"]:
+                    fd = open_published(self.shared_fd, Path(digest) / rel)
+                    try: files.install(rel, fd)
+                    finally: os.close(fd)
+            for rel in catalog["datasets"]:
+                files.install(rel, self.shared / digest / rel, link=True)
         return public_ready, private_ready
 
     def hub_request(self, method, path):
@@ -459,6 +632,8 @@ def team_files_worker(request):
             if os.fstat(fd).st_uid != files.uid:
                 raise ValueError("Unexpected home owner")
             os.fchmod(fd, 0o700)
+            if os.fstat(fd).st_mode & 0o777 != 0o700:
+                raise RuntimeError("Volume cannot enforce team home mode 0700")
         finally:
             os.close(fd)
     elif action == "mkdir":
@@ -469,9 +644,130 @@ def team_files_worker(request):
         raise ValueError("Invalid team worker operation")
 
 
+def data_worker(request):
+    if os.geteuid() != DATA_UID or os.getegid() != DATA_UID:
+        raise ValueError("Invalid volume worker identity")
+    os.umask(0)  # Isolated single-purpose process; modes apply at CREATE.
+    root = Path(request["root"])
+    cache, teams, shared = root / ".arena-assets-v2", root / "teams", root / "datasets"
+    for path, mode in ((cache, 0o700), (teams, 0o755), (shared, 0o755)):
+        if path.is_symlink():
+            raise ValueError("Unsafe volume root")
+        path.mkdir(mode=mode, exist_ok=True)
+        if path.stat().st_uid != DATA_UID or path.stat().st_mode & 0o777 != mode:
+            raise RuntimeError("Volume does not enforce non-root UID permissions")
+    action = request["action"]
+    result, descriptor = {}, None
+    if action == "init":
+        pass
+    elif action == "homes":
+        result = {p.name: p.stat().st_uid for p in teams.iterdir() if TEAM_ID.fullmatch(p.name) and not p.is_symlink() and p.is_dir()}
+    elif action in ("home-stage", "cache"):
+        if action == "home-stage":
+            path = cache / ("home-" + secrets.token_hex(16))
+            path.mkdir(mode=0o777)
+            result = {"stage": path.name}
+        else:
+            digest = request["digest"]
+            if not re.fullmatch(r"[a-f0-9]{64}", digest): raise ValueError("Invalid checksum")
+            path = cache / digest
+            path.mkdir(mode=0o777, exist_ok=True)
+            path.chmod(0o777)
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    elif action in ("home-publish", "stage-clean"):
+        stage = request["stage"]
+        if not re.fullmatch(r"home-[a-zA-Z0-9_-]+", stage): raise ValueError("Invalid home stage")
+        parent = cache / stage
+        fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if action == "home-publish":
+                team_id = request["team_id"]
+                if not TEAM_ID.fullmatch(team_id): raise ValueError("Invalid team")
+                if (teams / team_id).exists(): raise FileExistsError("Home already exists")
+                os.rename("home", teams / team_id, src_dir_fd=fd)
+            else:
+                # A failed stage can contain only an empty team-owned home.
+                try: os.rmdir("home", dir_fd=fd)
+                except FileNotFoundError: pass
+        finally:
+            os.close(fd)
+        if action == "stage-clean": parent.rmdir()
+    elif action in ("publish", "catalog", "exists"):
+        digest = request["digest"]
+        if not re.fullmatch(r"[a-f0-9]{64}", digest): raise ValueError("Invalid checksum")
+        target = shared / digest
+        if target.is_symlink() or (target.exists() and target.stat().st_uid != DATA_UID):
+            raise ValueError("Unsafe published data")
+        if action == "exists":
+            result = {"exists": target.is_dir()}
+        elif action == "publish":
+            if not target.exists():
+                source = cache / digest
+                stage = Path(tempfile.mkdtemp(prefix="publish-", dir=cache))
+                try:
+                    if request["task_root"]:
+                        for task in source.glob("Tac_vu_*"):
+                            if task.is_symlink(): raise ValueError("Unsafe cached task")
+                            shutil.copytree(task, stage / task.name, copy_function=shutil.copyfile)
+                    else:
+                        phase = request["phase"]
+                        if phase not in ("public", "private"): raise ValueError("Invalid phase")
+                        shutil.copytree(source / "data" / phase, stage / "data" / phase, copy_function=shutil.copyfile)
+                    for item in stage.rglob("*"):
+                        if item.is_symlink(): raise ValueError("Unsafe published dataset")
+                        mode = 0o755 if item.is_dir() else 0o444
+                        item.chmod(mode)
+                        if item.stat().st_mode & 0o777 != mode:
+                            raise RuntimeError("Volume cannot enforce readonly dataset permissions")
+                    stage.chmod(0o755)
+                    stage.replace(target)
+                finally:
+                    if stage.exists(): shutil.rmtree(stage)
+        else:
+            starters, datasets = [], []
+            if request["task_root"]:
+                for task in target.glob("Tac_vu_*"):
+                    for folder, directories, names in os.walk(task, followlinks=False):
+                        directories[:] = [d for d in directories if d != "dataset"]
+                        for name in names:
+                            item = Path(folder) / name
+                            if item.is_symlink(): raise ValueError("Unsafe starter")
+                            starters.append(str(item.relative_to(target)))
+                    data = task / "dataset"
+                    if data.exists(): datasets += [str(p.relative_to(target)) for p in data.iterdir()]
+            else:
+                phase = request["phase"]
+                if phase not in ("public", "private"): raise ValueError("Invalid phase")
+                datasets = [str(p.relative_to(target)) for p in (target / "data" / phase).iterdir()]
+            if len(starters) + len(datasets) > 10000: raise ValueError("Asset catalogue too large")
+            result = {"starters": starters, "datasets": datasets}
+    else:
+        raise ValueError("Invalid volume operation")
+    if descriptor is not None:
+        with socket.socket(fileno=request["socket"]) as channel:
+            channel.sendmsg([b"F"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [descriptor]))])
+        os.close(descriptor)
+    return result
+
+
 if __name__ == "__main__" and sys.argv[1:2] == ["--team-files"]:
     try:
         team_files_worker(json.loads(sys.argv[2]))
     except (OSError, ValueError) as error:
         print(json.dumps({"errno": getattr(error, "errno", None), "unsafe": isinstance(error, ValueError)}))
+        sys.exit(1)
+
+if __name__ == "__main__" and sys.argv[1:2] == ["--data-worker"]:
+    request = {}
+    try:
+        request = json.loads(sys.stdin.read(1024 * 1024))
+        print(json.dumps(data_worker(request)))
+    except (OSError, ValueError, RuntimeError) as error:
+        metadata = []
+        for name in ("teams", "datasets", ".arena-assets-v2"):
+            try:
+                info = (Path(request["root"]) / name).lstat()
+                metadata.append({"name": name, "uid": info.st_uid, "gid": info.st_gid, "mode": oct(info.st_mode & 0o7777)})
+            except (OSError, KeyError): pass
+        print(json.dumps({"error": type(error).__name__, "errno": getattr(error, "errno", None), "metadata": metadata}))
         sys.exit(1)

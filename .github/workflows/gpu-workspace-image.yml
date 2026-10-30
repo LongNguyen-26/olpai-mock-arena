@@ -68,9 +68,10 @@ jobs:
         run: |
           sudo mkdir -p /opt/arena
           sudo "$(which python)" -m venv /opt/arena/venv
-          sudo /opt/arena/venv/bin/pip install -r gpu-workspace/requirements-hub.txt jupyterlab==4.3.6 jupyter-collaboration==3.1.2 ipykernel==6.29.5 playwright==1.56.0
+          sudo /opt/arena/venv/bin/pip install -r gpu-workspace/requirements-hub.txt jupyterlab==4.3.6 jupyter-collaboration==3.1.2 ipykernel==6.29.5 playwright==1.56.0 fastapi==0.115.11
           sudo ln -s /opt/arena/venv /opt/arena/hub-venv
           sudo cp gpu-workspace/hub_*.py /opt/arena/
+          sudo cp gpu-workspace/agent.py /opt/arena/
           sudo /opt/arena/venv/bin/python -m playwright install --with-deps chromium
           npm install --prefix "$RUNNER_TEMP/hub-proxy" configurable-http-proxy@5.1.0
       - name: Verify real UIDs, files, Hub, kernel and two-client collaboration

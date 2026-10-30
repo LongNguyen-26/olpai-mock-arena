@@ -1,13 +1,17 @@
 """Start only the requested services. Never execute contestant notebooks."""
 import os
 import json
+import logging
 import signal
 import subprocess
 import time
 from pathlib import Path
+HUB_BOOT_MANAGER = None
 
 
 def launch_plan(root: Path, services: str):
+    global HUB_BOOT_MANAGER
+    HUB_BOOT_MANAGER = None
     if services not in ("both", "llm", "jupyter"):
         raise ValueError("Invalid workspace services")
     commands = [["uvicorn", "agent:app", "--host=0.0.0.0", "--port=8000", "--app-dir=/opt/arena", "--no-access-log"]]
@@ -21,6 +25,7 @@ def launch_plan(root: Path, services: str):
         manager.check_privileges()
         for team_id in list(manager.users):
             manager.ensure_user(team_id)
+        HUB_BOOT_MANAGER = manager
         commands.insert(0, ["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"])
         return commands
     if not os.environ.get("JUPYTER_TOKEN"):
@@ -81,7 +86,14 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
+        next_checkpoint = time.monotonic() + 10
         while all(p.poll() is None for p in processes):
+            if HUB_BOOT_MANAGER is not None and time.monotonic() >= next_checkpoint:
+                try:
+                    HUB_BOOT_MANAGER.state.flush()
+                except Exception as error:
+                    logging.warning("Hub checkpoint delayed type=%s", type(error).__name__)
+                next_checkpoint = time.monotonic() + 10
             time.sleep(1)
     finally:
         stop()
@@ -91,12 +103,18 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+        if HUB_BOOT_MANAGER is not None:
+            try:
+                HUB_BOOT_MANAGER.state.flush()
+            except Exception as error:
+                logging.warning("Final Hub checkpoint failed type=%s", type(error).__name__)
 
 
 def prepare_root(root):
     # launch_plan and HubManager must never inherit a public directory created
     # here: some NFS implementations do not apply chmod after mkdir.
-    (root / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.getenv("ARENA_JUPYTER_MODE", "single") != "team-hub":
+        (root / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":

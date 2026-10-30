@@ -3,19 +3,21 @@ import json
 import os
 import secrets
 import signal
+import shutil
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
 import uuid
+import zipfile
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from hub_runtime import HubManager, TeamFiles, username
+from hub_runtime import HubManager, TeamFiles, username, DATA_UID
 import start as startup
 
 
@@ -28,6 +30,11 @@ class LinuxHubTests(unittest.TestCase):
         Path(cls.temp.name).chmod(0o755)
         cls.root = Path(cls.temp.name) / "workspace"
         cls.root.mkdir()
+        cls.token = "qa-" + secrets.token_hex(32)
+        cls.identity = str(uuid.uuid4())
+        cls.env_patch = patch.dict(os.environ, {"ARENA_AGENT_TOKEN": cls.token, "ARENA_WORKSPACE_ID": cls.identity,
+                                              "ARENA_HUB_RUNTIME_ROOT": str(Path(cls.temp.name) / "runtime")})
+        cls.env_patch.start()
         cls.manager = HubManager(cls.root)
         # Reproduce the provider failure at initial Hub startup: the NFS
         # source may report broad file modes inside a private control folder.
@@ -37,7 +44,6 @@ class LinuxHubTests(unittest.TestCase):
         cls.teams = [{"teamId": i, "teamName": "QA " + str(n), "enabled": True, "desiredState": "running", "revision": str(uuid.uuid4())} for n, i in enumerate(cls.team_ids)]
         cls.policy = {"active": True, "runId": str(uuid.uuid4()), "privateLocked": True, "assets": [], "hub": {"teams": cls.teams[:3], "maxTeamServers": 7}}
         cls.tickets = {}
-        cls.token = "qa-fake-arena-agent-secret"
 
         class Arena(BaseHTTPRequestHandler):
             def log_message(self, *_):
@@ -69,7 +75,7 @@ class LinuxHubTests(unittest.TestCase):
         threading.Thread(target=cls.arena.serve_forever, daemon=True).start()
         cls.probe = ThreadingHTTPServer(("127.0.0.1", 8000), Arena)
         threading.Thread(target=cls.probe.serve_forever, daemon=True).start()
-        env = {**os.environ, "ARENA_WORKSPACE_ROOT": str(cls.root), "ARENA_WORKSPACE_ID": str(uuid.uuid4()),
+        env = {**os.environ, "ARENA_WORKSPACE_ROOT": str(cls.root), "ARENA_WORKSPACE_ID": cls.identity,
                "ARENA_CONTROL_URL": "http://127.0.0.1:19090/api/workspace/manifest", "ARENA_AGENT_TOKEN": cls.token,
                "ARENA_TEST_HTTP": "1", "ARENA_MAX_TEAM_SERVERS": "7"}
         env.pop("RUNPOD_POD_ID", None)
@@ -123,6 +129,7 @@ class LinuxHubTests(unittest.TestCase):
             subprocess.run(["userdel", item["name"]], check=False)
             subprocess.run(["groupdel", item["name"]], check=False, capture_output=True)
         cls.temp.cleanup()
+        cls.env_patch.stop()
 
     def run_team(self, team_id, script):
         user = self.manager.ensure_user(team_id)
@@ -436,42 +443,117 @@ class LinuxHubTests(unittest.TestCase):
     def test_10_cold_start_creates_private_control_when_nfs_ignores_chmod(self):
         cold_root = Path(self.temp.name) / "cold-workspace"
         cold_root.mkdir()
-        control = cold_root / ".arena"
-        original_chmod = Path.chmod
+        cold_root.chmod(0o777)
+        runtime = Path(self.temp.name) / "cold-runtime"
+        original_chmod, original_mkdir, original_chown = Path.chmod, Path.mkdir, os.chown
+        def on_volume(path):
+            return path == cold_root or cold_root in path.parents
+        def nfs_mkdir(path, *args, **kwargs):
+            result = original_mkdir(path, *args, **kwargs)
+            if on_volume(path) and path.stat().st_uid == 0:
+                original_chmod(path, 0o777)
+            return result
         def nfs_chmod(path, mode, *args, **kwargs):
-            if path == control or control in path.parents:
-                return  # Keep the CREATE permissions, as observed on NFS.
+            if on_volume(path) and path.stat().st_uid == 0:
+                return
             return original_chmod(path, mode, *args, **kwargs)
-        with patch.object(Path, "chmod", nfs_chmod), patch.dict(os.environ, {
+        def nfs_chown(path, uid, gid, *args, **kwargs):
+            if on_volume(Path(path)) and uid != 0:
+                raise PermissionError(1, "QA remapped NFS denies root chown")
+            return original_chown(path, uid, gid, *args, **kwargs)
+        with patch.object(Path, "mkdir", nfs_mkdir), patch.object(Path, "chmod", nfs_chmod), patch("hub_runtime.os.chown", nfs_chown), patch.dict(os.environ, {
             "ARENA_JUPYTER_MODE": "team-hub",
-            "ARENA_HUB_RUNTIME_ROOT": str(Path(self.temp.name) / "cold-runtime"),
+            "ARENA_HUB_RUNTIME_ROOT": str(runtime),
         }):
-            # Exercise the same pre-creation and plan used by start.main,
-            # rather than constructing HubManager in isolation.
             startup.prepare_root(cold_root)
             plan = startup.launch_plan(cold_root, "jupyter")
             self.assertIn("jupyterhub", plan[0][0])
             self.assertEqual(plan[1][0], "uvicorn")
-            for path in (control, control / "hub"):
+            manager = startup.HUB_BOOT_MANAGER
+            self.assertFalse((cold_root / ".arena").exists())
+            for path in (runtime, manager.control):
                 self.assertEqual(path.stat().st_uid, 0)
                 self.assertEqual(path.stat().st_mode & 0o777, 0o700)
                 for team in self.team_ids[:2]:
                     self.assertNotEqual(self.run_team(team, f"__import__('os').listdir({str(path)!r})").returncode, 0)
-            self.assertEqual((control / "hub/cookie-secret").stat().st_mode & 0o777, 0o600)
-            # A genuinely public existing directory remains a hard failure;
-            # never disable the access check to get Hub to start.
-            original_chmod(control, 0o755)
-            with self.assertRaisesRegex(RuntimeError, r"name=\.arena uid=0 gid=\d+ mode=0o755"):
-                HubManager(cold_root)
-        # A setgid directory is still private when all group/other access is
-        # zero; special filesystem bits must not cause a false rejection.
-        original_chmod(control, 0o2700)
-        def retain_setgid(path, mode, *args, **kwargs):
-            if path == control:
-                return
-            return original_chmod(path, mode, *args, **kwargs)
-        with patch.object(Path, "chmod", retain_setgid), patch.dict(os.environ, {"ARENA_HUB_RUNTIME_ROOT": str(Path(self.temp.name) / "cold-runtime")}):
-            HubManager(cold_root)
+            self.assertEqual((manager.control / "cookie-secret").stat().st_mode & 0o777, 0o600)
+            blob = manager.state.path.read_bytes()
+            self.assertNotIn(self.token.encode(), blob)
+            self.assertNotIn((manager.control / "cookie-secret").read_bytes(), blob)
+            self.assertEqual(manager.volume_cache.stat().st_uid, DATA_UID)
+            self.assertEqual(manager.volume_cache.stat().st_mode & 0o777, 0o700)
+        startup.HUB_BOOT_MANAGER = None
+
+    def test_11_encrypted_checkpoint_restores_and_rejects_tamper_and_wrong_binding(self):
+        root = Path(self.temp.name) / "encrypted-volume"
+        root.mkdir(); root.chmod(0o777)
+        runtime = Path(self.temp.name) / "encrypted-runtime"
+        identity = str(uuid.uuid4())
+        user = None
+        with patch.dict(os.environ, {"ARENA_WORKSPACE_ID": identity, "ARENA_HUB_RUNTIME_ROOT": str(runtime)}):
+            manager = HubManager(root)
+            try:
+                team = str(uuid.uuid4())
+                user = manager.ensure_user(team)
+                value = (manager.control / "cookie-secret").read_bytes()
+                (manager.control / "policy.json").write_text('{"active":true,"assets":["do-not-restore-old-gate"]}')
+                import sqlite3
+                with sqlite3.connect(manager.control / "hub.sqlite") as database:
+                    database.execute("CREATE TABLE durable(value TEXT)")
+                    database.execute("INSERT INTO durable VALUES ('saved')")
+                manager.state.flush()
+                blob = manager.state.path.read_bytes()
+                manager.state.path.chmod(0o777)  # Untrusted, world-readable NFS.
+                self.assertNotIn(value, blob)
+                self.assertNotIn(self.token.encode(), blob)
+                shutil.rmtree(runtime)
+                restored = HubManager(root)
+                self.assertEqual(restored.ensure_user(team)["uid"], user["uid"])
+                self.assertEqual((restored.control / "cookie-secret").read_bytes(), value)
+                self.assertFalse((restored.control / "policy.json").exists())
+                with sqlite3.connect(restored.control / "hub.sqlite") as database:
+                    self.assertEqual(database.execute("SELECT value FROM durable").fetchone()[0], "saved")
+                valid = manager.state.path.read_bytes()
+                shutil.rmtree(runtime)
+                tampered = valid[:-1] + bytes([valid[-1] ^ 1])
+                manager.state.path.write_bytes(tampered)
+                with self.assertRaisesRegex(ValueError, "Encrypted Hub state is invalid"):
+                    HubManager(root)
+                self.assertEqual(manager.state.path.read_bytes(), tampered)
+                manager.state.path.write_bytes(valid)
+                with patch.dict(os.environ, {"ARENA_WORKSPACE_ID": str(uuid.uuid4()), "ARENA_HUB_RUNTIME_ROOT": str(runtime.parent / "wrong-binding")}):
+                    with self.assertRaisesRegex(ValueError, "Encrypted Hub state is invalid"):
+                        HubManager(root)
+                self.assertEqual(HubManager(root).ensure_user(team)["uid"], user["uid"])
+            finally:
+                if user:
+                    subprocess.run(["userdel", user["name"]], check=False)
+                    subprocess.run(["groupdel", user["name"]], check=False, capture_output=True)
+
+    def test_12_asset_descriptor_works_when_root_cannot_traverse_private_volume_cache(self):
+        archive = Path(self.temp.name) / "descriptor.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("Tac_vu_2/dataset/train/x.csv", "id\n2\n")
+            bundle.writestr("Tac_vu_2/baseline.ipynb", "{}")
+        asset = {"sha256": "d" * 64, "phase": "public", "workspaceLayout": "task-root"}
+        policy = {**self.policy, "assets": [asset]}
+        code = """import os,sys
+from pathlib import Path
+from agent import safe_extract
+fd=int(sys.argv[1]); source=Path('/proc/self/fd')/str(fd)
+try: os.listdir(os.readlink(source))
+except PermissionError: pass
+else: raise AssertionError('Root DAC override was not removed')
+safe_extract(Path(sys.argv[2]), source, task_root=True)
+"""
+        def loader(_asset, source):
+            fd = int(source.name)
+            result = subprocess.run(["setpriv", "--bounding-set=-dac_override,-dac_read_search", "/opt/arena/venv/bin/python", "-c", code, str(fd), str(archive)],
+                                    pass_fds=(fd,), cwd="/opt/arena", capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.manager.cache_asset(asset, loader, lambda: policy)
+        self.manager.install_assets(self.team_ids[0], policy)
+        self.assertEqual(self.run_team(self.team_ids[0], "from pathlib import Path; assert Path('Tac_vu_2/dataset/train/x.csv').read_text()=='id\\n2\\n'").returncode, 0)
 
 
 if __name__ == "__main__":
