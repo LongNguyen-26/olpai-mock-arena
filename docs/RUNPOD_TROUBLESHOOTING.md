@@ -1,5 +1,13 @@
 # Runpod: các lỗi đã gặp và cách tránh lặp lại
 
+## JupyterHub: NFS từ chối đổi UID — 30/10/2026
+
+- **Đã xác nhận trên Pod người dùng:** Hub/API đã chạy, còn đủ RAM/đĩa, nhưng `os.chown` home team trên `/workspace` trả `EPERM`. `/tmp` cho phép chown; `/workspace` là NFS4 trong container có UID remapping. Tạo thư mục/tệp trực tiếp bằng UID team thành công, team khác bị chặn; root trong container nhận `EACCES` khi đọc home `0700` của team.
+- **Cách sửa:** tạo home dưới UID team trong staging chỉ quản trị truy cập, rồi rename ra thư mục team. Ghi thư mục, notebook, kernel và kiểm tra venv dưới UID đó; truyền FD đọc của đúng nguồn thay vì mở toàn bộ thư mục điều khiển cho team. Không dùng chown trên dữ liệu team, không đổi home thành thư mục dùng chung và không chuyển dữ liệu sang `/tmp`.
+- Home root sở hữu còn trống do lần khởi tạo lỗi được tạo lại. Home sai chủ đã có tệp được giữ nguyên và yêu cầu quản trị xem xét; không tự xóa hoặc thay quyền hàng loạt.
+- Trang đăng nhập phải dừng chờ và hiển thị lỗi nếu report team là `error` hoặc team đã dừng. Chỉ tự kiểm tra lại với trạng thái chuẩn bị/khởi động/chờ tài nguyên, tối đa ba phút. Hub Ready và Lab Ready vẫn là hai trạng thái riêng.
+- CI Linux có ca mô phỏng NFS chặn chown và root đọc home, kiểm tra chủ tệp thật, home `0700`, team khác không đọc được, và giữ tệp khi gặp home sai chủ. Kiểm chứng trên filesystem Linux không thay thế nghiệm thu Lab/kernel/WebSocket/CUDA trên Pod mới.
+
 Ghi nhận từ quá trình triển khai/nghiệm thu ngày 27/10/2026. Phân biệt lỗi đã có phản hồi thực tế, giả thuyết và trạng thái chưa kiểm chứng. Không lưu API key, token Jupyter/agent, cookie đăng nhập hoặc signed URL trong tài liệu/log/Git.
 
 ## 1. Không có Pod dù web hiện đang đối soát

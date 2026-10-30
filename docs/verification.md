@@ -1,3 +1,12 @@
+# Sửa home team trên Runpod NFS và trang chờ đăng nhập — 30/10/2026
+
+- Người dùng xác nhận `/workspace` dùng NFS4 trong container có UID remapping: root không chown được home (`EPERM`), trong khi `/tmp` chown được. Phép thử tạo tệp trực tiếp bằng UID team thành công, team khác bị chặn, root không đọc được home `0700` (`EACCES`). Đây là lỗi chuẩn bị home sau khi Hub đã chạy; khác lỗi import trước đó.
+- Runtime tạo home dưới UID team qua FD staging kín, công bố bằng rename, rồi tạo thư mục/chép tệp/kiểm tra venv bằng UID đó. Kernel và starter nhận đúng FD nguồn đọc; không mở thư mục quản trị cho team hoặc nới quyền home. Chỉ tạo lại home root sở hữu còn trống do lần khởi tạo lỗi; giữ home sai chủ đã có tệp. Log chỉ ghi bước, loại lỗi và errno, không ghi exception string hoặc HTTP body.
+- Trang authorize hiển thị lỗi hoặc trạng thái đã dừng thay vì refresh mãi. Chỉ tự kiểm tra trạng thái tạm thời trong tối đa ba phút; không tự dừng workspace khi hết thời gian chờ.
+- [CI 40984307571](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40984307571) đạt typecheck, 82 test TypeScript, build, 28 test Python 3.10 và 8 test Linux. Ca mới mô phỏng chặn chown/root đọc home, kiểm tra chủ tệp thật, quyền giữa team, khởi tạo lại home rỗng và giữ home đã có tệp. Các ca Hub/kernel/RTC/khôi phục trước đó tiếp tục đạt. QA Hub và Workspace dùng Redis thật trong namespace riêng, provider giả lập, đã đạt và tự dọn; không thuê Pod.
+- Image đã publish ở `sha256:5141126f199fe035a87f172821d14fb28bc7a2a89f9178b36ea265087f45fa95`, mã runtime `5feb69b6e96a2f385094ecc9bff81920f7c7ad2c`. Theo yêu cầu người dùng, dừng kế hoạch sửa/restart Pod hiện tại để người dùng terminate rồi tự cấp Pod mới. Chưa kiểm chứng image này qua SSO/kernel/WebSocket/CUDA trên Runpod thật; không quy kết quả Linux và phép thử filesystem thành nghiệm thu GPU.
+- Kiểm thử Python cục bộ trên Windows/Python 3.10 lại treo và đã dừng đúng tiến trình của lần chạy này. Kết quả Python công bố ở trên là 28 ca đã đạt trên CI Linux, không phải lần chạy Windows đó.
+
 # Sửa đường dẫn module khi JupyterHub khởi động — 30/10/2026
 
 - Log Pod thật xác nhận Hub không import được `hub_auth` khi Traitlets đọc `hub_config.py`; container thoát trước khi khởi tạo JupyterLab. Cấu hình hiện thêm đường dẫn module root sở hữu `/opt/arena`, không phụ thuộc thư mục hiện hành hay biến môi trường kế thừa.
