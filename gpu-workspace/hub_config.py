@@ -3,7 +3,14 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+# Traitlets executes this config without adding its directory to sys.path.
+# The controller CLI runs from hub-venv/bin, separately from start.py.
+# Resolve only the root-owned modules bundled in the image, not workspace files.
+sys.path.insert(0, "/opt/arena")
+
 from jupyterhub.spawner import LocalProcessSpawner
 from hub_auth import ArenaAuthenticator
 from hub_runtime import resources, username

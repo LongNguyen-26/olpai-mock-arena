@@ -67,11 +67,14 @@ class LinuxHubTests(unittest.TestCase):
         threading.Thread(target=cls.probe.serve_forever, daemon=True).start()
         env = {**os.environ, "ARENA_WORKSPACE_ROOT": str(cls.root), "ARENA_WORKSPACE_ID": str(uuid.uuid4()),
                "ARENA_CONTROL_URL": "http://127.0.0.1:19090/api/workspace/manifest", "ARENA_AGENT_TOKEN": cls.token,
-               "ARENA_TEST_HTTP": "1", "PYTHONPATH": "/opt/arena", "ARENA_MAX_TEAM_SERVERS": "7"}
+               "ARENA_TEST_HTTP": "1", "ARENA_MAX_TEAM_SERVERS": "7"}
         env.pop("RUNPOD_POD_ID", None)
+        # Match the deployed CLI environment. An injected PYTHONPATH previously
+        # hid a config import failure that caused the real Pod to restart-loop.
+        env.pop("PYTHONPATH", None)
         cls.hub_env = env
         cls.log = open(Path(cls.temp.name) / "hub.log", "wb")
-        cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"], env=env, stdout=cls.log, stderr=cls.log, start_new_session=True)
+        cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"], env=env, cwd=cls.root, stdout=cls.log, stderr=cls.log, start_new_session=True)
         try:
             cls.wait(lambda: cls.manager.hub_request("GET", "/info"), 60)
             cls.wait(lambda: cls.all_ready(cls.manager.reconcile(cls.policy), 3), 150)
@@ -341,7 +344,7 @@ class LinuxHubTests(unittest.TestCase):
             restored = cls.manager.ensure_user(team_id)
             self.assertEqual(restored["uid"], old["uid"])
         cls.process = subprocess.Popen(["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"],
-                                       env=cls.hub_env, stdout=cls.log, stderr=cls.log, start_new_session=True)
+                                       env=cls.hub_env, cwd=cls.root, stdout=cls.log, stderr=cls.log, start_new_session=True)
         self.wait(lambda: cls.manager.hub_request("GET", "/info"), 60)
         self.wait(lambda: self.all_ready(cls.manager.reconcile(cls.policy), 4), 150)
         self.assertEqual(self.run_team(team, "from pathlib import Path; assert Path('restart-check.txt').read_text()=='saved'; assert Path('.venvs/pytorch/bin/python').exists()").returncode, 0)
