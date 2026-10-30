@@ -24,7 +24,7 @@ def launch_plan(root: Path, services: str):
         manager = HubManager(root)
         manager.check_privileges()
         for team_id in list(manager.users):
-            manager.ensure_user(team_id)
+            manager.ensure_user(team_id, prepare=False)
         HUB_BOOT_MANAGER = manager
         commands.insert(0, ["/opt/arena/hub-venv/bin/jupyterhub", "--config=/opt/arena/hub_config.py"])
         return commands

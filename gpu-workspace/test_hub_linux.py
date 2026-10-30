@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from hub_runtime import HubManager, TeamFiles, username, DATA_UID
+from hub_runtime import HubManager, TeamFiles, username, DATA_UID, data_request
 import start as startup
 
 
@@ -554,6 +554,25 @@ safe_extract(Path(sys.argv[2]), source, task_root=True)
         self.manager.cache_asset(asset, loader, lambda: policy)
         self.manager.install_assets(self.team_ids[0], policy)
         self.assertEqual(self.run_team(self.team_ids[0], "from pathlib import Path; assert Path('Tac_vu_2/dataset/train/x.csv').read_text()=='id\\n2\\n'").returncode, 0)
+
+    def test_13_home_activation_rejects_an_entry_injected_before_lockdown(self):
+        team_id = str(uuid.uuid4())
+        owner = self.manager.ensure_user(self.team_ids[0])
+        stage, fd = data_request(self.root, "home-stage", want_fd=True)
+        home = self.manager.teams_root / team_id
+        files = TeamFiles(home, owner["uid"], owner["uid"])
+        try:
+            files.run("create-home", parent_fd=fd, pass_fds=(fd,))
+            data_request(self.root, "home-publish", team_id=team_id, stage=stage["stage"])
+        finally:
+            os.close(fd)
+            data_request(self.root, "stage-clean", stage=stage["stage"])
+        self.assertEqual(self.run_team(self.team_ids[1], f"open({str(home / 'injected.py')!r},'w').write('must not execute')").returncode, 0)
+        with self.assertRaises(ValueError):
+            files.run("activate-home")
+        self.assertEqual(home.stat().st_mode & 0o777, 0o700)
+        self.assertFalse(data_request(self.root, "home-status", team_id=team_id, uid=owner["uid"])["activated"])
+        self.assertTrue((home / "injected.py").exists())
 
 
 if __name__ == "__main__":

@@ -21,6 +21,13 @@ spawn_slots = asyncio.Semaphore(2)
 
 
 class TeamSpawner(LocalProcessSpawner):
+    def load_state(self, state):
+        # PIDs in a restored DB refer to the previous container. Never attach
+        # to or signal an unrelated process that reused one of those numbers.
+        state = dict(state)
+        state.pop("pid", None)
+        return super().load_state(state)
+
     async def stop(self, now=False):
         await super().stop(now=now)
         users = json.loads((control / "users.json").read_text())

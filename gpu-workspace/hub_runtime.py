@@ -34,7 +34,9 @@ def username(team_id):
 
 def atomic_json(path, value):
     temp = path.with_name(path.name + ".tmp")
-    temp.write_text(json.dumps(value), encoding="utf-8")
+    with temp.open("w", encoding="utf-8") as output:
+        json.dump(value, output)
+        output.flush(); os.fsync(output.fileno())
     temp.chmod(0o600)
     temp.replace(path)
 
@@ -286,7 +288,9 @@ def volume_directory(root, path, mode):
         path.mkdir(mode=mode)
         try:
             os.chown(path, DATA_UID, DATA_UID)
-        except PermissionError:
+        except OSError as error:
+            if error.errno not in (1, 13, 95): raise
+        if path.stat().st_uid != DATA_UID:
             path.rmdir()  # Only this just-created empty directory.
     elif path.stat().st_uid != DATA_UID:
         raise RuntimeError("Existing volume directory needs migration; files preserved")
@@ -344,6 +348,7 @@ class TeamFiles:
                 logging.getLogger("arena.hub").warning("team file worker failed action=%s kind=%s exit=%s", action, kind, result.returncode)
             if detail.get("unsafe"):
                 raise ValueError("Unsafe team filesystem path")
+            logging.getLogger("arena.hub").warning("team filesystem failed action=%s uid=%s mode=%s errno=%s", action, detail.get("uid"), detail.get("mode"), detail.get("errno"))
             raise OSError(detail.get("errno") or 5, "Team filesystem operation failed: " + action)
 
     def mkdir(self, parts):
@@ -449,7 +454,7 @@ class HubManager:
         # A child proves setgroups/setgid/setuid work, without altering the agent.
         subprocess.run([os.getenv("ARENA_SYSTEM_PYTHON", "/usr/bin/python3"), "-c", "import os; os.setgroups([]); os.setgid(65534); os.setuid(65534); assert os.geteuid()==65534"], check=True, timeout=10)
 
-    def ensure_user(self, team_id):
+    def ensure_user(self, team_id, prepare=True):
         import pwd
         import grp
         name = username(team_id)
@@ -479,6 +484,8 @@ class HubManager:
                     subprocess.run(["groupadd", "--gid", str(old["uid"]), name], check=True, timeout=10)
                 subprocess.run(["useradd", "--uid", str(old["uid"]), "--gid", str(old["uid"]), "--home-dir", str(self.teams_root / team_id), "--shell", "/bin/bash", "--no-create-home", "--no-log-init", name], check=True, timeout=10)
             home = self.teams_root / team_id
+            if not prepare:
+                return {**old, "home": str(home)}
             if home.is_symlink():
                 raise ValueError("Unsafe home")
             files = TeamFiles(home, old["uid"], old["uid"])
@@ -496,6 +503,12 @@ class HubManager:
                 finally:
                     os.close(fd)
                     data_request(self.root, "stage-clean", stage=stage["stage"])
+            if not data_request(self.root, "home-status", team_id=team_id, uid=old["uid"])["activated"]:
+                # The directory is still empty at publication. Lock it before
+                # writing any data, reject any injected entry, then durably
+                # mark activation outside the team's writable home.
+                files.run("activate-home")
+                data_request(self.root, "home-activated", team_id=team_id, uid=old["uid"])
             files.run("check-home")
             # Directory FDs reject contestant-controlled symlinks before use.
             files.mkdir((".venvs",))
@@ -625,8 +638,12 @@ def team_files_worker(request):
         raise ValueError("Invalid team worker identity")
     action = request["action"]
     if action == "create-home":
-        os.mkdir("home", 0o700, dir_fd=request["parent_fd"])
-    elif action == "check-home":
+        os.umask(0)
+        # A non-root publisher must update '..' during rename. This empty
+        # directory stays below private staging, and is locked immediately
+        # after publication, before venvs, config or notebooks are written.
+        os.mkdir("home", 0o777, dir_fd=request["parent_fd"])
+    elif action in ("check-home", "activate-home"):
         fd = os.open(files.home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             if os.fstat(fd).st_uid != files.uid:
@@ -634,6 +651,8 @@ def team_files_worker(request):
             os.fchmod(fd, 0o700)
             if os.fstat(fd).st_mode & 0o777 != 0o700:
                 raise RuntimeError("Volume cannot enforce team home mode 0700")
+            if action == "activate-home" and os.listdir(fd):
+                raise ValueError("New home was modified before activation; files preserved")
         finally:
             os.close(fd)
     elif action == "mkdir":
@@ -655,13 +674,27 @@ def data_worker(request):
             raise ValueError("Unsafe volume root")
         path.mkdir(mode=mode, exist_ok=True)
         if path.stat().st_uid != DATA_UID or path.stat().st_mode & 0o777 != mode:
-            raise RuntimeError("Volume does not enforce non-root UID permissions")
+            if path.stat().st_uid == DATA_UID: path.chmod(mode)
+            if path.stat().st_uid != DATA_UID or path.stat().st_mode & 0o777 != mode:
+                raise RuntimeError("Volume does not enforce non-root UID permissions")
     action = request["action"]
     result, descriptor = {}, None
     if action == "init":
         pass
     elif action == "homes":
         result = {p.name: p.stat().st_uid for p in teams.iterdir() if TEAM_ID.fullmatch(p.name) and not p.is_symlink() and p.is_dir()}
+    elif action in ("home-status", "home-activated"):
+        team_id, uid = request["team_id"], request["uid"]
+        if not TEAM_ID.fullmatch(team_id) or not 10000 <= uid < 60000:
+            raise ValueError("Invalid activation identity")
+        marker = cache / ("activated-" + team_id + ".json")
+        if marker.is_symlink(): raise ValueError("Unsafe activation marker")
+        if action == "home-activated":
+            info = (teams / team_id).stat()
+            if info.st_uid != uid or info.st_mode & 0o777 != 0o700:
+                raise ValueError("Unverified home activation")
+            atomic_json(marker, {"uid": uid})
+        result = {"activated": marker.exists() and json.loads(marker.read_text()) == {"uid": uid}}
     elif action in ("home-stage", "cache"):
         if action == "home-stage":
             path = cache / ("home-" + secrets.token_hex(16))
@@ -751,10 +784,17 @@ def data_worker(request):
 
 
 if __name__ == "__main__" and sys.argv[1:2] == ["--team-files"]:
+    request = {}
     try:
-        team_files_worker(json.loads(sys.argv[2]))
-    except (OSError, ValueError) as error:
-        print(json.dumps({"errno": getattr(error, "errno", None), "unsafe": isinstance(error, ValueError)}))
+        request = json.loads(sys.argv[2])
+        team_files_worker(request)
+    except (OSError, ValueError, RuntimeError) as error:
+        detail = {"errno": getattr(error, "errno", None), "unsafe": isinstance(error, ValueError)}
+        try:
+            info = Path(request["home"]).lstat()
+            detail.update(uid=info.st_uid, mode=oct(info.st_mode & 0o7777))
+        except (KeyError, OSError): pass
+        print(json.dumps(detail))
         sys.exit(1)
 
 if __name__ == "__main__" and sys.argv[1:2] == ["--data-worker"]:
