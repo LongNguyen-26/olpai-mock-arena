@@ -1161,7 +1161,11 @@ function WorkspaceCard({
             {w.status === "failed" && w.podId
               ? "Lỗi khởi động Pod"
               : w.status === "provisioning" && w.podId
-                ? "Container chưa sẵn sàng"
+                ? w.startupProgress === "pulling"
+                  ? "Đang tải image Docker"
+                  : w.startupProgress === "extracting"
+                    ? "Đang giải nén image Docker"
+                    : "Container chưa sẵn sàng"
                 : statusNames[w.status]}
           </span>
           <h3>{w.template.gpuTypeId}</h3>

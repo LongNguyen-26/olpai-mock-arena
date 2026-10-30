@@ -2,7 +2,7 @@ import { z } from "zod";
 import { chatbotAllowed, notebookAllowed } from "./domain";
 import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
-import type { PodStartupFailure } from "./runpod-startup";
+import type { PodStartupFailure, PodStartupProgress } from "./runpod-startup";
 import type { TeamNotebook, ManualBinding } from "./hub-domain";
 import {
   hasService,
@@ -133,6 +133,7 @@ export interface Workspace {
   uptimeSeconds?: number | null;
   uptimeObservedAt?: number | null;
   startupFailure?: PodStartupFailure | null;
+  startupProgress?: PodStartupProgress | null;
   startupCheckedAt?: number | null;
   error: string | null;
 }

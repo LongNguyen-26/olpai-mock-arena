@@ -49,6 +49,46 @@ test("unavailable logs and normal image/model startup are not container failures
   }
 });
 
+test("image pull and extraction are explicit nonfatal startup stages with no raw logs", async () => {
+  for (const [line, progress] of [
+    [
+      "create container: still fetching image private-registry/secret-name",
+      "pulling",
+    ],
+    ["4d3f7d58a3f0 Downloading 1MB/3998MB private-secret", "pulling"],
+    ["4d3f7d58a3f0 Extracting 1MB/9000MB private-secret", "extracting"],
+  ]) {
+    const provider = new Runpod(
+      "fake",
+      (async () => new Response(event(line))) as typeof fetch,
+    );
+    assert.deepEqual(await provider.startupDiagnostic("qa123"), {
+      failure: null,
+      progress,
+    });
+  }
+  const wrongSource = new Runpod(
+    "fake",
+    (async () =>
+      new Response(
+        event("create container: still fetching image", "container"),
+      )) as typeof fetch,
+  );
+  assert.deepEqual(await wrongSource.startupDiagnostic("qa123"), {
+    failure: null,
+    progress: null,
+  });
+  const failed = new Runpod(
+    "fake",
+    (async () =>
+      new Response(
+        event("Pulling image") +
+          event("error creating container: private-error"),
+      )) as typeof fetch,
+  );
+  assert.equal((await failed.startupDiagnostic("qa123")).failure, "container");
+});
+
 test("startup diagnostics bound an endless log stream and recognize other container errors", async () => {
   const provider = new Runpod(
     "fake",

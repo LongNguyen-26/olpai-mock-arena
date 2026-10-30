@@ -1,5 +1,10 @@
 import type { WorkspaceTemplate } from "./workspace-domain";
-import { podStartupFailure, type PodStartupFailure } from "./runpod-startup";
+import {
+  podStartupFailure,
+  podStartupProgress,
+  type PodStartupFailure,
+  type PodStartupDiagnostic,
+} from "./runpod-startup";
 // The image uses CUDA 12.8. Use the scheduler's minimum rather than a frozen
 // REST v1 enum, which excludes otherwise compatible hosts advertising 13.2.
 export const WORKSPACE_MIN_CUDA = "12.8";
@@ -198,6 +203,9 @@ export class Runpod {
     return pod;
   }
   async startupFailure(id: string): Promise<PodStartupFailure | null> {
+    return (await this.startupDiagnostic(id)).failure;
+  }
+  async startupDiagnostic(id: string): Promise<PodStartupDiagnostic> {
     // This is a live SSE stream, not a JSON response. Bound time and bytes even
     // when the provider never closes it. Read system logs only, server-side.
     const controller = new AbortController();
@@ -206,7 +214,7 @@ export class Runpod {
     let pending = "",
       bytes = 0,
       lines = 0;
-    let failure: PodStartupFailure | null = null;
+    const diagnostic: PodStartupDiagnostic = { failure: null, progress: null };
     try {
       const response = await this.transport(
         `https://api.runpod.io/v2/pods/${encodeURIComponent(id)}/logs?source=system&tail=20`,
@@ -220,7 +228,7 @@ export class Runpod {
           signal: controller.signal,
         },
       );
-      if (!response.ok || !response.body) return null;
+      if (!response.ok || !response.body) return diagnostic;
       reader = response.body.getReader();
       const decoder = new TextDecoder();
       while (bytes < 32768 && lines < 20) {
@@ -241,17 +249,19 @@ export class Runpod {
               continue;
             lines++;
             const classified = podStartupFailure(event.line);
-            if (classified === "gpu-reset") return classified;
-            if (classified) failure = classified;
+            if (classified) diagnostic.failure = classified;
+            if (classified === "gpu-reset") return diagnostic;
+            const progress = podStartupProgress(event.line);
+            if (progress) diagnostic.progress = progress;
           } catch {
             /* Ignore malformed events without exposing their contents. */
           }
         }
       }
-      return failure;
+      return diagnostic;
     } catch {
       // Missing log permission or a transient outage is not proof of Pod failure.
-      return failure;
+      return diagnostic;
     } finally {
       clearTimeout(timer);
       controller.abort();

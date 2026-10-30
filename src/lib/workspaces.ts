@@ -17,7 +17,7 @@ import {
 } from "./workspace-crypto";
 import { Runpod, RunpodError, podOrigin, type RunpodPod } from "./runpod";
 import { gpuCloudPrice } from "./gpu-pricing";
-import { podStartupMessage } from "./runpod-startup";
+import { podStartupMessage, podStartupProgressMessage } from "./runpod-startup";
 import {
   isTeamHub,
   hubImage,
@@ -772,6 +772,7 @@ async function syncUnlocked(w: Workspace) {
       w = meter(w, now, "terminated", 0);
       w.health = null;
       w.startupFailure = null;
+      w.startupProgress = null;
       w.error = "Pod không còn tồn tại trên Runpod.";
     } else {
       if (w.status !== "failed")
@@ -821,30 +822,41 @@ async function syncUnlocked(w: Workspace) {
           jupyter: health.jupyter && jupyter,
         };
         w.startupFailure = null;
+        w.startupProgress = null;
         w.startupCheckedAt = null;
       } catch {
         w.health = null;
         if (pod.runtime) {
           w.startupFailure = null;
+          w.startupProgress = null;
           w.error = "Container đang chạy; chưa kết nối được dịch vụ trên Pod.";
         } else {
           // desiredStatus=RUNNING means requested state, not a running container.
           // Keep the allocation and its billing estimate; never auto-create a
           // replacement for a host failure (the original may still be billable).
           if (!w.startupCheckedAt || now - w.startupCheckedAt >= 60000) {
-            w.startupFailure =
-              (await rp.startupFailure(pod.id)) ?? w.startupFailure;
+            const diagnostic = await rp.startupDiagnostic(pod.id);
+            if (diagnostic.failure) {
+              w.startupFailure = diagnostic.failure;
+              w.startupProgress = null;
+            } else if (diagnostic.progress) {
+              w.startupFailure = null;
+              w.startupProgress = diagnostic.progress;
+            }
             w.startupCheckedAt = now;
           }
           w.status = w.startupFailure ? "failed" : "provisioning";
           w.error = w.startupFailure
             ? podStartupMessage(w.startupFailure)
-            : "Runpod đã nhận Pod; chưa xác nhận container khởi động. Kiểm tra System Logs trên Runpod nếu tình trạng kéo dài.";
+            : w.startupProgress
+              ? podStartupProgressMessage(w.startupProgress)
+              : "Runpod đã nhận Pod; chưa xác nhận container khởi động. Kiểm tra System Logs trên Runpod nếu tình trạng kéo dài.";
         }
       }
     } else {
       w.health = null;
       w.startupFailure = null;
+      w.startupProgress = null;
       w.startupCheckedAt = null;
     }
   }

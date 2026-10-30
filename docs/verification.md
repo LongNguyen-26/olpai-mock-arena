@@ -1,3 +1,10 @@
+# Phân biệt tải/giải nén image khi Pod chưa chạy — 30/10/2026
+
+- Thêm chẩn đoán không gây lỗi cho pull/extract từ System Logs; hiển thị trạng thái riêng trên thẻ Pod. Giữ phân loại GPU reset/container error, giới hạn SSE, cache và loại bỏ raw log/credential. Health hoặc telemetry thật xóa tiến trình cũ; chưa chạy container không mở Jupyter/Chatbot.
+- Typecheck, 80 test TypeScript và build đạt. Redis QA namespace riêng xác nhận pulling/extracting giữ provisioning, chi phí/reservation và cùng Pod, cache chẩn đoán, lỗi host và phục hồi không cấp lại. Provider/model được giả lập; không thuê GPU để QA.
+- Playwright `qa-pod-startup-ui.js` đạt với auth/Redis QA thật: lỗi host, trạng thái chờ chung/pull/extract, hồi phục, khóa truy cập khi chưa sẵn sàng, điều khiển an toàn, desktop/mobile; 0 pageerror, 0 control call. Đã xem ảnh `output/playwright/image-pull-{desktop,mobile}.png`, `image-extract-desktop.png`; đăng xuất/đóng browser và dọn đúng 78 key QA cùng fixture.
+- Sự cố Pod thật nằm trước startup JupyterHub: runtime null, agent 404, system log chờ image. Xem [RUNPOD_TROUBLESHOOTING.md](RUNPOD_TROUBLESHOOTING.md). Không diễn đạt sửa web thành khôi phục được mạng/Docker daemon của host Runpod.
+
 # JupyterHub: nhiều team trên một Pod — 30/10/2026
 
 - Thêm chế độ Jupyter-only `team-hub`, workspace theo team, cấp quyền động, SSO ticket dùng một lần và bảng lượt GPU tự quản. Pod vật lý giữ một ledger; Chatbot và chế độ `single` cũ tiếp tục độc lập. Có luồng chuẩn bị/kiểm tra/gắn/gỡ Pod thủ công, xác minh tài khoản Runpod, image digest và runtime identity trước khi cấp manifest.

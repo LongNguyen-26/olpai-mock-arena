@@ -341,7 +341,20 @@ async function main() {
     const starting = await forceSync();
     assert.equal(starting.status, "provisioning");
     assert.equal(starting.health, null);
-    assert.match(starting.error!, /chưa xác nhận container/);
+    assert.equal(starting.startupProgress, "pulling");
+    assert.match(starting.error!, /đang tải image Docker/);
+    systemLog =
+      "create container: still fetching image registry/private-secret";
+    const pulling = await forceSync();
+    assert.equal(pulling.status, "provisioning");
+    assert.equal(pulling.startupProgress, "pulling");
+    assert.equal(pulling.startupFailure, null);
+    assert.match(pulling.error!, /đang tải image Docker/);
+    assert.ok(!JSON.stringify(pulling).includes("private-secret"));
+    systemLog = "4d3f7d58a3f0 Extracting 1MB/9000MB";
+    const extracting = await forceSync();
+    assert.equal(extracting.startupProgress, "extracting");
+    assert.match(extracting.error!, /đang giải nén image Docker/);
     systemLog =
       "error creating container: nvidia-smi: failed to parse ([GPU requires reset]) secret-not-for-client";
     const broken = await forceSync();
@@ -364,6 +377,7 @@ async function main() {
     assert.equal(recovered.status, "running");
     assert.equal(recovered.health?.llm, true);
     assert.equal(recovered.startupFailure, null);
+    assert.equal(recovered.startupProgress, null);
     assert.equal(recovered.error, null);
     assert.equal(recovered.podId, broken.podId);
     console.log(

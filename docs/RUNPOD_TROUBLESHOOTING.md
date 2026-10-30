@@ -66,6 +66,15 @@ Pod cũ mặc định `scope=team`, `services=both`. Pod chung là một allocat
 
 Nguồn API: [System Logs SSE](https://docs.runpod.io/api-reference-v2/pods/stream-pod-logs), [vòng đời Pod và host](https://docs.runpod.io/pods/troubleshooting/zero-gpus).
 
+## 10. Connect kẹt `still fetching image`, số layer thay đổi — 30/10/2026
+
+- Sự cố thực tế: System Logs lặp `create container: still fetching image` hơn 20 phút; GraphQL yêu cầu RUNNING nhưng `runtime=null`, agent port 8000 trả 404, chưa có server team/kernel. Đây là bước pull image trên host, trước khi mã JupyterHub chạy. Chưa có log `no space left`, lỗi entrypoint hoặc lỗi CUDA; không tự kết luận container disk 30 GB bị đầy.
+- Image Hub `179b5581…` có 26 layer, tổng khoảng 10,19 GiB nén. PyTorch chiếm khoảng 3,72 GiB và TensorFlow 2,49 GiB. Registry manifest hợp lệ và ba blob lớn trả HTTP 206 cho byte-range nhỏ; phép thử này chỉ chứng minh registry truy cập được từ máy kiểm tra, không chứng minh đường tải hay đĩa của host Runpod bình thường.
+- Counter Connect từ `0/15` sang `0/8` không đủ để kết luận image đổi hoặc ứng dụng restart. Đối chiếu digest, System Logs, runtime và health có xác thực. Không lấy số layer hay trạng thái yêu cầu RUNNING làm readiness của Hub/Lab.
+- Arena phân biệt trạng thái **Đang tải image Docker**, **Đang giải nén image Docker** và lỗi tạo container. Chỉ lưu enum chẩn đoán; không đưa raw log, tên registry riêng hay credential ra response. Chẩn đoán vẫn có giới hạn thời gian/byte và cache 60 giây; lỗi GPU reset/container được ưu tiên hơn tiến trình pull.
+- Một lần restart và một lần stop/start cùng Pod đã được thực hiện trong sự cố này; mount `/workspace` 100 GB được kiểm tra giữ nguyên tại các thao tác đó. Stop/start chỉ thực hiện sau khi người dùng chấp nhận khả năng nhả GPU. Không tự tạo Pod khác hoặc terminate để thử. Sau đó audit có sự kiện delete và một allocation mới được tạo; phải đối soát lại ID hiện tại, không tiếp tục điều khiển ID cũ.
+- Nếu host tiếp tục chỉ báo chờ pull mà không có tiến độ, cần Runpod kiểm tra image pull/Docker daemon/mạng/đĩa host. Chuẩn bị Pod ID, digest, thời điểm và log đã bỏ secret cho hỗ trợ. Sửa UI không sửa được hạ tầng pull image của nhà cung cấp.
+
 ## Mốc kiểm chứng và giới hạn
 
 - Pod thật dùng để nghiệm thu ban đầu: `0fb95yqf1t0bka`. Không suy trạng thái hiện tại từ ghi chép này; luôn truy vấn lại trước thao tác.
