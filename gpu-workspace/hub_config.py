@@ -13,7 +13,7 @@ sys.path.insert(0, "/opt/arena")
 
 from jupyterhub.spawner import LocalProcessSpawner
 from hub_auth import ArenaAuthenticator
-from hub_runtime import resources, username
+from hub_runtime import resources, username, runtime_directory
 
 root = Path(os.getenv("ARENA_WORKSPACE_ROOT", "/workspace"))
 control = root / ".arena" / "hub"
@@ -71,7 +71,7 @@ c.ConfigurableHTTPProxy.auth_token = (control / "proxy-token").read_text().strip
 c.ConfigurableHTTPProxy.extra_routes = {"/api/status": "http://127.0.0.1:8000"}
 c.ConfigurableHTTPProxy.command = ["configurable-http-proxy", "--log-level=error"]
 c.JupyterHub.db_url = "sqlite:///" + str(control / "hub.sqlite")
-c.JupyterHub.cookie_secret_file = str(control / "cookie-secret")
+c.JupyterHub.cookie_secret_file = str(runtime_directory() / "cookie-secret")
 c.JupyterHub.authenticator_class = ArenaAuthenticator
 c.JupyterHub.spawner_class = TeamSpawner
 c.JupyterHub.active_server_limit = int(os.getenv("ARENA_MAX_TEAM_SERVERS", "7"))

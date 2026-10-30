@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,57 @@ def private_directory(path):
         raise ValueError("Unsafe control directory")
     os.chown(path, 0, 0)
     path.chmod(0o700)
+    info = path.stat()
+    if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+        raise RuntimeError("Control directory must be owned by root with mode 0700")
+
+
+def runtime_directory():
+    return Path(os.getenv("ARENA_HUB_RUNTIME_ROOT", "/run/arena-hub"))
+
+
+def persisted_secret(path):
+    # Create restrictive modes in the initial NFS CREATE, rather than relying
+    # on a later chmod. The enclosing control directory must remain 0700.
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        with os.fdopen(fd, "w") as output:
+            output.write(secrets.token_hex(32))
+            output.flush()
+            os.fsync(output.fileno())
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "r") as incoming:
+        info = os.fstat(incoming.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+            raise ValueError("Unsafe persisted Hub secret")
+        value = incoming.read(256).strip()
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", value):
+        raise ValueError("Invalid persisted Hub secret; refusing to rotate it")
+    path.chmod(0o600)
+    return value
+
+
+def mirror_cookie_secret(path, value):
+    # JupyterHub retains its strict file-mode check on a local POSIX file.
+    # The NFS source remains persistent below root-only control, even when
+    # that filesystem reports broader modes for individual files.
+    private_directory(path.parent)
+    fd, temp = tempfile.mkstemp(prefix="cookie-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as output:
+            output.write(value)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+    info = path.stat()
+    if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
+        raise RuntimeError("Runtime cookie secret must be owned by root with mode 0600")
 
 
 def link_or_copy(source, target):
@@ -173,11 +225,11 @@ class HubManager:
         self.guard = threading.RLock()
         self.users = self._read("users.json", {})
         self.published = self._read("assets.json", {})
+        self.runtime = runtime_directory()
         for name in ("service-token", "cookie-secret", "proxy-token"):
-            path = self.control / name
-            if not path.exists():
-                path.write_text(secrets.token_hex(32))
-            path.chmod(0o600)
+            value = persisted_secret(self.control / name)
+            if name == "cookie-secret":
+                mirror_cookie_secret(self.runtime / name, value)
 
     def _read(self, name, default):
         path = self.control / name

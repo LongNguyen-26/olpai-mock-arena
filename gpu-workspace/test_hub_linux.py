@@ -28,6 +28,9 @@ class LinuxHubTests(unittest.TestCase):
         cls.root = Path(cls.temp.name) / "workspace"
         cls.root.mkdir()
         cls.manager = HubManager(cls.root)
+        # Reproduce the provider failure at initial Hub startup: the NFS
+        # source may report broad file modes inside a private control folder.
+        (cls.manager.control / "cookie-secret").chmod(0o666)
         cls.manager.check_privileges()
         cls.team_ids = [str(uuid.uuid4()) for _ in range(4)]
         cls.teams = [{"teamId": i, "teamName": "QA " + str(n), "enabled": True, "desiredState": "running", "revision": str(uuid.uuid4())} for n, i in enumerate(cls.team_ids)]
@@ -396,6 +399,38 @@ class LinuxHubTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "files preserved"):
             self.manager.ensure_user(blocked)
         self.assertEqual((blocked_home / "keep.txt").read_text(), "existing work")
+
+    def test_09_cookie_secret_uses_strict_local_copy_and_preserves_persisted_key(self):
+        source = self.manager.control / "cookie-secret"
+        value = source.read_text()
+        source.chmod(0o666)
+        original_chmod = Path.chmod
+        def nfs_chmod(path, mode, *args, **kwargs):
+            if path == source:
+                return  # Simulate NFS ignoring the requested leaf mode.
+            return original_chmod(path, mode, *args, **kwargs)
+        with patch.object(Path, "chmod", nfs_chmod):
+            restored = HubManager(self.root)
+        local = restored.runtime / "cookie-secret"
+        self.assertEqual(source.stat().st_mode & 0o777, 0o666)
+        self.assertEqual(local.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(local.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(local.read_text(), value)
+        self.assertEqual(source.read_text(), value)
+        for team in self.team_ids[:2]:
+            self.assertNotEqual(self.run_team(team, f"open({str(source)!r}).read()").returncode, 0)
+            self.assertNotEqual(self.run_team(team, f"open({str(local)!r}).read()").returncode, 0)
+        source.chmod(0o600)
+        # Reject a corrupt persisted key, rather than silently logging users
+        # out by rotating it during a restart.
+        source.write_text("corrupt")
+        try:
+            with self.assertRaisesRegex(ValueError, "refusing to rotate"):
+                HubManager(self.root)
+            self.assertEqual(source.read_text(), "corrupt")
+        finally:
+            source.write_text(value)
+            HubManager(self.root)
 
 
 if __name__ == "__main__":
