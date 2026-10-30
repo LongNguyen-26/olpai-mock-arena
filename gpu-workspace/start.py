@@ -69,7 +69,7 @@ if pod_id:
 
 def main():
     root = Path(os.getenv("ARENA_WORKSPACE_ROOT", "/workspace"))
-    (root / ".arena").mkdir(parents=True, exist_ok=True)
+    prepare_root(root)
     commands = launch_plan(root, os.getenv("ARENA_WORKSPACE_SERVICES", "both"))
     processes = [subprocess.Popen(command) for command in commands]
 
@@ -91,6 +91,12 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+
+
+def prepare_root(root):
+    # launch_plan and HubManager must never inherit a public directory created
+    # here: some NFS implementations do not apply chmod after mkdir.
+    (root / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":

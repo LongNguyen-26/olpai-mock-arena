@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from hub_runtime import HubManager, TeamFiles, username
+import start as startup
 
 
 @unittest.skipUnless(os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() == 0,
@@ -431,6 +432,46 @@ class LinuxHubTests(unittest.TestCase):
         finally:
             source.write_text(value)
             HubManager(self.root)
+
+    def test_10_cold_start_creates_private_control_when_nfs_ignores_chmod(self):
+        cold_root = Path(self.temp.name) / "cold-workspace"
+        cold_root.mkdir()
+        control = cold_root / ".arena"
+        original_chmod = Path.chmod
+        def nfs_chmod(path, mode, *args, **kwargs):
+            if path == control or control in path.parents:
+                return  # Keep the CREATE permissions, as observed on NFS.
+            return original_chmod(path, mode, *args, **kwargs)
+        with patch.object(Path, "chmod", nfs_chmod), patch.dict(os.environ, {
+            "ARENA_JUPYTER_MODE": "team-hub",
+            "ARENA_HUB_RUNTIME_ROOT": str(Path(self.temp.name) / "cold-runtime"),
+        }):
+            # Exercise the same pre-creation and plan used by start.main,
+            # rather than constructing HubManager in isolation.
+            startup.prepare_root(cold_root)
+            plan = startup.launch_plan(cold_root, "jupyter")
+            self.assertIn("jupyterhub", plan[0][0])
+            self.assertEqual(plan[1][0], "uvicorn")
+            for path in (control, control / "hub"):
+                self.assertEqual(path.stat().st_uid, 0)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+                for team in self.team_ids[:2]:
+                    self.assertNotEqual(self.run_team(team, f"__import__('os').listdir({str(path)!r})").returncode, 0)
+            self.assertEqual((control / "hub/cookie-secret").stat().st_mode & 0o777, 0o600)
+            # A genuinely public existing directory remains a hard failure;
+            # never disable the access check to get Hub to start.
+            original_chmod(control, 0o755)
+            with self.assertRaisesRegex(RuntimeError, r"name=\.arena uid=0 gid=\d+ mode=0o755"):
+                HubManager(cold_root)
+        # A setgid directory is still private when all group/other access is
+        # zero; special filesystem bits must not cause a false rejection.
+        original_chmod(control, 0o2700)
+        def retain_setgid(path, mode, *args, **kwargs):
+            if path == control:
+                return
+            return original_chmod(path, mode, *args, **kwargs)
+        with patch.object(Path, "chmod", retain_setgid), patch.dict(os.environ, {"ARENA_HUB_RUNTIME_ROOT": str(Path(self.temp.name) / "cold-runtime")}):
+            HubManager(cold_root)
 
 
 if __name__ == "__main__":

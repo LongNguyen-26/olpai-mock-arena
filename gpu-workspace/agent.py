@@ -285,7 +285,7 @@ def hub_loop():
 @asynccontextmanager
 async def lifespan(_app):
     global HUB_MANAGER
-    (ROOT / ".arena").mkdir(parents=True, exist_ok=True)
+    (ROOT / ".arena").mkdir(mode=0o700, parents=True, exist_ok=True)
     if HUB_MODE:
         if SERVICES != "jupyter":
             raise ValueError("Hub requires Jupyter-only")

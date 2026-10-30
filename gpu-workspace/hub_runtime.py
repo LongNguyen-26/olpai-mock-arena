@@ -53,14 +53,31 @@ def resources(root):
 
 
 def private_directory(path):
-    path.mkdir(parents=True, exist_ok=True)
+    # NFS can retain the CREATE mode even when a later chmod succeeds.
+    # Set confidentiality in the initial mkdir instead of creating 0755 first.
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
     if path.is_symlink():
         raise ValueError("Unsafe control directory")
-    os.chown(path, 0, 0)
-    path.chmod(0o700)
+    # Do not issue needless SETATTR calls for already-correct NFS metadata.
+    # Preserve benign setgid/sticky bits while enforcing all access bits.
+    before = path.stat()
+    try:
+        if before.st_uid != 0:
+            os.chown(path, 0, 0)
+        if stat.S_IMODE(before.st_mode) & 0o777 != 0o700:
+            path.chmod(0o700)
+    except OSError as error:
+        raise RuntimeError(
+            "Cannot secure control directory: "
+            f"name={path.name} uid={before.st_uid} gid={before.st_gid} "
+            f"mode={oct(stat.S_IMODE(before.st_mode))} errno={error.errno}"
+        ) from None
     info = path.stat()
-    if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
-        raise RuntimeError("Control directory must be owned by root with mode 0700")
+    if info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o777 != 0o700:
+        raise RuntimeError(
+            "Control directory must be owned by root with mode 0700: "
+            f"name={path.name} uid={info.st_uid} gid={info.st_gid} mode={oct(stat.S_IMODE(info.st_mode))}"
+        )
 
 
 def runtime_directory():
@@ -87,7 +104,8 @@ def persisted_secret(path):
         value = incoming.read(256).strip()
     if not re.fullmatch(r"[a-fA-F0-9]{64}", value):
         raise ValueError("Invalid persisted Hub secret; refusing to rotate it")
-    path.chmod(0o600)
+    if stat.S_IMODE(info.st_mode) & 0o777 != 0o600:
+        path.chmod(0o600)
     return value
 
 
