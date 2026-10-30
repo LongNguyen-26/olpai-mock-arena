@@ -622,6 +622,8 @@ safe_extract(Path(sys.argv[2]), source, task_root=True)
                 self.manager.cache_asset(asset, None, lambda: policy)
             self.assertEqual(len(calls), 1)
             self.assertFalse((self.manager.volume_cache / digest).exists())
+            self.assertEqual((self.manager.volume_cache / "worker-home").stat().st_uid, DATA_UID)
+            self.assertEqual((self.manager.volume_cache / "worker-home").stat().st_mode & 0o777, 0o700)
             target = self.manager.shared / digest / "Tac_vu_3/dataset/train/y.csv"
             self.assertEqual(target.stat().st_uid, DATA_UID)
             self.assertEqual(target.stat().st_mode & 0o777, 0o444)

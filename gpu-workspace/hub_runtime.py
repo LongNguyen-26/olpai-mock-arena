@@ -252,7 +252,7 @@ def data_request(root, action, want_fd=False, **values):
     """Run volume operations as a separate UID, without control credentials."""
     parent, child = socket.socketpair()
     try:
-        env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "PYTHONNOUSERSITE": "1"}
+        env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "USER": "arena-data", "LOGNAME": "arena-data", "PYTHONNOUSERSITE": "1"}
         if os.environ.get("SSL_CERT_FILE"):
             env["SSL_CERT_FILE"] = os.environ["SSL_CERT_FILE"]
         interpreter = "/opt/arena/venv/bin/python" if action == "load" else "/opt/arena/hub-venv/bin/python"
@@ -747,6 +747,14 @@ def data_worker(request):
             raise ValueError("Unsafe published data")
         if action == "load":
             from agent import load_asset
+            # gdown stores anonymous Drive cookies under HOME. Give the data
+            # worker its own private cache, never root's home or credentials.
+            home = cache / "worker-home"
+            if home.is_symlink(): raise ValueError("Unsafe download home")
+            home.mkdir(mode=0o700, exist_ok=True)
+            if home.stat().st_uid != DATA_UID or home.stat().st_mode & 0o777 != 0o700:
+                raise ValueError("Download home is not private")
+            os.environ["HOME"] = str(home)
             source = cache / digest
             if source.is_symlink(): raise ValueError("Unsafe download cache")
             source.mkdir(mode=0o700, exist_ok=True)
