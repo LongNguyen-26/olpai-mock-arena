@@ -1,5 +1,13 @@
 # Runpod: các lỗi đã gặp và cách tránh lặp lại
 
+## Kiểm tra quyền thư mục dừng cold-start — 30/10/2026
+
+- Log mới xác nhận container dừng tại kiểm tra `.arena` trong `private_directory`, trước khi Hub/agent chạy. Log cũ chưa có UID/mode nên chưa phân biệt được owner không đúng, quyền rộng hay bit đặc biệt. Web Terminal báo stopped, chưa lấy được metadata thực tế của Pod đó.
+- Tìm thấy luồng tạo `.arena` ở `start.py`/agent dùng mode mặc định rồi mới chmod. Runtime mới tạo `.arena` và thư mục Hub với mode `0700` ngay trong `mkdir`; không phụ thuộc việc NFS áp dụng chmod sau CREATE. Không gọi chown/chmod lại khi metadata đã đúng.
+- Kiểm tra quyền dùng chín bit đọc/ghi/thực thi, cho phép setgid/sticky khi quyền vẫn `0700`. UID chủ vẫn phải là root; group/other không được truy cập. Thư mục tồn tại có quyền quá rộng và không sửa được vẫn bị chặn; không xóa dữ liệu để ép startup thành công.
+- Lỗi thư mục hiện ghi basename, UID, GID, mode và errno khi có; không ghi env hoặc nội dung secret. Nếu Pod mới vẫn lỗi, log đã đủ metadata để xác định nhánh kiểm tra mà không cần Web Terminal.
+- Linux cold-start regression đi qua cùng bước tạo thư mục của `start.main` và `launch_plan`, mô phỏng NFS giữ mode lúc CREATE dù chmod không có tác dụng; kiểm tra các team không đọc được control, mode secret mới là `0600`, từ chối control `0755` và chấp nhận control riêng có setgid.
+
 ## JupyterHub từ chối cookie secret trên NFS — 30/10/2026
 
 - **Đã xác nhận từ log mới:** image `5141126f…` đã tải và khởi động container, nhưng Hub thoát với `cookie_secret_file can be read or written by anybody`. Agent dừng theo Hub, Runpod khởi động lại container. Chưa có Lab team; đây không phải lỗi cache trình duyệt hoặc tải image.

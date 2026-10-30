@@ -1,3 +1,11 @@
+# Sửa cold-start tạo thư mục điều khiển — 30/10/2026
+
+- Log `(19)` xác nhận startup dừng tại kiểm tra `.arena`, trước Hub/agent. Không có UID/mode trong log cũ; Web Terminal báo stopped nên chưa đo được owner/mode thực tế của Pod. Không xác nhận một nguyên nhân metadata cụ thể khi thiếu phép đo này.
+- Sửa điểm tạo `.arena` đầu tiên trong `start.py` và agent thành `mkdir(mode=0700)`; thư mục Hub cũng được tạo riêng ngay từ đầu. Không tạo bằng mode mặc định rồi phụ thuộc chmod. Bỏ SETATTR/chown thừa khi metadata đúng; kiểm tra chín bit quyền truy cập thay vì từ chối cả setgid/sticky vô hại. Owner root và việc chặn group/other vẫn được giữ. Lỗi kiểm tra có basename, UID/GID/mode/errno, không có nội dung khóa hoặc env.
+- [CI 40997124372](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40997124372) đạt typecheck, 82 test TypeScript, build, 28 test Python 3.10 và 10 test Linux. Ca mới đi qua bước chuẩn bị root của startup rồi `launch_plan` với Hub thật, mô phỏng chmod không đổi mode, kiểm tra mode CREATE đúng, chặn team khác, từ chối control hiện hữu `0755` và chấp nhận control riêng có setgid. Chín ca UID/NFS/cookie/kernel/RTC/khôi phục trước tiếp tục đạt.
+- Không bật, restart hoặc thay image Pod hiện tại. Bản này được chuẩn bị cho Pod mới; kết quả CI không thay thế kiểm chứng trên host Runpod và chưa chứng minh UID/mode thực tế của volume đang lỗi.
+- Image publish đã đối chiếu giữa Docker Hub/CI: `sha256:fd54427217f45123053c33ad8ea369af9eef1c2512d076dcc72db834b08b8df1`, mã runtime `0569a7ea698ccdda96a199577f70346e1bd1ccfd`.
+
 # Sửa cookie secret khi Hub chạy trên NFS — 30/10/2026
 
 - Log người dùng xác nhận image `5141126f…` tải xong nhưng Hub thoát với `cookie_secret_file can be read or written by anybody`; container lặp lại trước khi có Lab team. Không coi trạng thái này là lỗi trình duyệt hoặc chờ image.
