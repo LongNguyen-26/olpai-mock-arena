@@ -62,10 +62,20 @@ export async function hubView(
         : null,
     teams: Object.values(w.hubTeams ?? {})
       .filter((t) => user.admin || t.teamId === user.teamId)
-      .map((t) => ({
-        ...t,
-        server: notebookReport(w, report, t.teamId, w.runId, now),
-      })),
+      .map((t) => {
+        const server = notebookReport(w, report, t.teamId, w.runId, now);
+        return {
+          ...t,
+          server:
+            server && !user.admin && server.error
+              ? {
+                  ...server,
+                  error:
+                    "JupyterLab cần được kiểm tra. Vui lòng báo quản trị viên.",
+                }
+              : server,
+        };
+      }),
     turns: turns.filter((t) => w.hubTeams?.[t.teamId]?.enabled),
   };
 }

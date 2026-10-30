@@ -43,7 +43,9 @@ Không nhận Pod PyTorch bất kỳ hoặc Pod có Chatbot. Không sửa image/
 ## Thêm team và sử dụng hằng ngày
 
 - Admin thêm team đã được duyệt ngay trên thẻ Hub, không deploy hoặc restart Pod.
-- Thành viên đăng nhập Arena, mở workspace của đội. Server chỉ khởi động khi có yêu cầu; máy thứ hai vào cùng server.
+- Admin bấm **Khởi động** cho team. Thành viên thấy nút **Mở JupyterLab** trên thẻ GPU khi server sẵn sàng và lịch vòng cho phép; máy thứ hai vào cùng server. Mở Lab không thay đổi trạng thái server. Chỉ admin sở hữu Pod được khởi động/dừng workspace, kể cả qua API.
+- Giao diện thí sinh không hiển thị danh sách quản trị server hoặc chẩn đoán pull/extract image của Runpod. Admin vẫn xem được thông tin chi tiết để xử lý sự cố.
+- Bảng **Đăng ký GPU** có hai nhóm **Đang dùng / Đang chờ**, giữ thứ tự yêu cầu của server. Team chưa đăng ký có nút **Xin lượt**; đang chờ có **Bắt đầu dùng / Hủy đăng ký**; đang dùng có **Trả lượt**. Đây là bảng tự khai báo, không cấp GPU độc quyền hay ngắt kernel.
 - Mở notebook từ file browser của Hub để hai máy vào cùng tài liệu cộng tác. Đường dẫn notebook tự ghép theo kiểu cũ có thể mở chế độ không cộng tác.
 - Nếu thiếu 4 GiB RAM khả dụng, thiếu 2 GiB đĩa trống hoặc hết chỗ hoạt động, workspace mới chờ và thử lại. Các server đang chạy được giữ. Đây là admission check, không phải quota bảo đảm.
 - **Dừng workspace** ngắt server/kernel và tiến trình của UID team đó, giữ home/venv. **Thu hồi quyền** ngăn đăng nhập mới và yêu cầu dừng server của team.

@@ -1012,7 +1012,85 @@
   margin-top: 20px;
   padding-top: 16px;
 }
+.hub-participant .hub-gpu-turns {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.gpu-turn-own {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  margin: 20px 0;
+  border-radius: 12px;
+  background: #f4f7fa;
+}
+.gpu-turn-own > div:first-child {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.gpu-turn-own .hub-actions {
+  margin: 0;
+}
+.gpu-turn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.gpu-turn-group {
+  min-width: 0;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  padding: 16px;
+}
+.gpu-turn-group h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.gpu-turn-group h5 > span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.gpu-turn-group p,
+.gpu-turn-group small {
+  color: var(--muted);
+}
+.gpu-turn-group p {
+  margin: 0;
+  font-size: 14px;
+}
+.gpu-turn-group ol {
+  margin: 0;
+  padding-left: 24px;
+}
+.gpu-turn-group li {
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+.gpu-turn-group .is-own-team {
+  font-weight: 600;
+}
+.gpu-turn-note {
+  margin-top: 16px;
+}
 @media (max-width: 640px) {
+  .gpu-turn-grid {
+    grid-template-columns: 1fr;
+  }
+  .gpu-turn-own {
+    align-items: stretch;
+  }
+  .gpu-turn-own .hub-actions {
+    width: 100%;
+  }
   .hub-panel {
     padding: 16px;
   }

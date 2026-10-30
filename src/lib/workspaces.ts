@@ -262,13 +262,26 @@ export async function workspaceState(user: SafeUser) {
               ? await db().get<ChatWorker>(workerKey(w.id))
               : null;
             const access = workspaceAccess(w, c, now, user.admin, registered);
+            const hub = isTeamHub(w)
+              ? await hubView(w, user, now, c.chatEpoch ?? 0)
+              : undefined;
+            const notebook = hub?.teams.find((t) => t.teamId === user.teamId);
             return {
               ...workspaceView(await withChatPolicy(w), now, user.admin),
               ...access,
               ...(isTeamHub(w)
                 ? {
-                    hub: await hubView(w, user, now, c.chatEpoch ?? 0),
-                    notebookEnabled: access.notebookEnabled && hubBound(w),
+                    hub,
+                    notebookEnabled:
+                      access.notebookEnabled &&
+                      hubBound(w) &&
+                      (user.admin ||
+                        !!(
+                          hub?.hubReady &&
+                          notebook?.enabled &&
+                          notebook.desiredState === "running" &&
+                          notebook.server?.state === "ready"
+                        )),
                   }
                 : {}),
               chatbotEnabled:
@@ -1139,6 +1152,11 @@ export async function launchNotebook(
       throw new ApiError("Pod chưa chạy.", 409);
     if (!user.admin && !notebookAllowed(c, now))
       throw new ApiError("Quyền mở JupyterLab đang khóa.", 403);
+    if (w.hubTeams[teamId].desiredState === "stopped")
+      throw new ApiError(
+        "JupyterLab của đội chưa mở. Vui lòng nhờ quản trị viên khởi động.",
+        409,
+      );
     const allowed = hubLoginOrigins(
       process.env.GPU_WORKSPACE_PUBLIC_URL!,
       process.env.GPU_WORKSPACE_LOGIN_ORIGINS,

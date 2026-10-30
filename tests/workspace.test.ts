@@ -24,6 +24,44 @@ import {
 import { podOrigin, Runpod, RunpodError } from "../src/lib/runpod";
 import type { Contest } from "../src/lib/types";
 import { hasService, servicesOverlap } from "../src/lib/workspace-options";
+
+test("contestant views redact provider diagnostics without changing the admin record", () => {
+  const diagnostic =
+    "Runpod đang giải nén image Docker trên host; still fetching image";
+  const w = {
+    id: "pod",
+    podId: "pod123",
+    status: "provisioning",
+    error: diagnostic,
+    startupFailure: "container",
+    startupProgress: "extracting",
+    startupCheckedAt: 1,
+    accruedUsd: 0,
+    meterAt: 1,
+    meterRate: 0.5,
+    health: {
+      jupyter: false,
+      llm: false,
+      publicReady: false,
+      privateReady: false,
+      stage: diagnostic,
+      error: diagnostic,
+      gpu: "A40, 0, 48000, 0, 30",
+    },
+  } as Workspace;
+  for (const metricsVisible of [true, false]) {
+    const view = workspaceView({ ...w, metricsVisible }, 1, false);
+    assert.equal(JSON.stringify(view).includes(diagnostic), false);
+    assert.equal(view.startupProgress, undefined);
+    assert.equal(view.startupFailure, undefined);
+    assert.equal(view.health?.stage, "");
+    assert.match(view.error!, /quản trị viên/);
+    assert.equal(view.health?.gpu !== undefined, metricsVisible);
+  }
+  assert.equal(workspaceView(w, 1, true).health?.stage, diagnostic);
+  assert.equal(workspaceView(w, 1, true).error, diagnostic);
+  assert.equal(w.health?.error, diagnostic);
+});
 test("chatbot closes at private boundary, early private, end and round reset", () => {
   const c: Contest = {
     id: "run",

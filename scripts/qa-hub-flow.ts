@@ -216,15 +216,32 @@ async function main() {
     assert.equal((await workspaceState(members[3])).workspaces.length, 0);
     await assert.rejects(launchNotebook(members[3], id));
     await changeHubTeam(admin, id, teams[3].id, "grant", randomUUID());
+    const unchanged = (await getWorkspace(id)).hubTeams![teams[0].id].revision;
+    for (const action of ["start", "stop"] as const) {
+      for (const target of [undefined, teams[0].id, teams[1].id]) {
+        await assert.rejects(
+          changeHubServer(members[0], id, action, randomUUID(), target),
+          (e: unknown) => (e as { status: number }).status === 403,
+        );
+      }
+    }
+    assert.equal(
+      (await getWorkspace(id)).hubTeams![teams[0].id].revision,
+      unchanged,
+    );
+    await assert.rejects(launchNotebook(members[0], id), /quản trị viên/);
     const starts = await Promise.all(
       Array.from({ length: 4 }, () =>
-        changeHubServer(members[0], id, "start", randomUUID()),
+        changeHubServer(admin, id, "start", randomUUID(), teams[0].id),
       ),
     );
     assert.equal(new Set(starts.map((v) => v.revision)).size, 1);
     assert.equal(creates, 1);
-    await assert.rejects(authorizeHub(members[1], id, randomBytes(32).toString("base64url")), /đã dừng/);
-    await changeHubServer(members[1], id, "start", randomUUID());
+    await assert.rejects(
+      authorizeHub(members[1], id, randomBytes(32).toString("base64url")),
+      /đã dừng/,
+    );
+    await changeHubServer(admin, id, "start", randomUUID(), teams[1].id);
     let w = await getWorkspace(id);
     const auth = "Bearer " + decryptSecret(w.secret);
     const report = {
@@ -241,16 +258,50 @@ async function main() {
     };
     await receiveHubReport(id, auth, {
       ...report,
-      notebooks: report.notebooks.map(n => ({ ...n, state: "error" as const, error: "Workspace preparation failed" })),
+      notebooks: report.notebooks.map((n) => ({
+        ...n,
+        state: "error" as const,
+        error: "Workspace preparation failed",
+      })),
     });
-    await assert.rejects(authorizeHub(members[0], id, randomBytes(32).toString("base64url")), /Workspace preparation failed/);
+    await assert.rejects(
+      authorizeHub(members[0], id, randomBytes(32).toString("base64url")),
+      /Workspace preparation failed/,
+    );
     await receiveHubReport(id, auth, {
       ...report,
-      notebooks: report.notebooks.map(n => ({ ...n, state: "waiting-resource" as const })),
+      notebooks: report.notebooks.map((n) => ({
+        ...n,
+        state: "waiting-resource" as const,
+      })),
     });
-    assert.deepEqual(await authorizeHub(members[0], id, randomBytes(32).toString("base64url")), { pending: true, state: "waiting-resource" });
+    assert.deepEqual(
+      await authorizeHub(members[0], id, randomBytes(32).toString("base64url")),
+      { pending: true, state: "waiting-resource" },
+    );
     await receiveHubReport(id, auth, report);
+    const revisionBeforeOpen = (await getWorkspace(id)).hubTeams![teams[0].id]
+      .revision;
+    await launchNotebook(members[0], id);
+    await launchNotebook(members[0], id);
+    assert.equal(
+      (await getWorkspace(id)).hubTeams![teams[0].id].revision,
+      revisionBeforeOpen,
+    );
     const studentState = await workspaceState(members[0]);
+    assert.equal(studentState.workspaces[0].notebookEnabled, true);
+    await receiveHubReport(id, auth, {
+      ...report,
+      notebooks: report.notebooks.map((n) => ({
+        ...n,
+        state: "starting" as const,
+      })),
+    });
+    assert.equal(
+      (await workspaceState(members[0])).workspaces[0].notebookEnabled,
+      false,
+    );
+    await receiveHubReport(id, auth, report);
     assert.equal(studentState.workspaces[0].hub?.teams.length, 1);
     assert.equal(
       studentState.workspaces[0].hub?.teams[0].server?.state,

@@ -206,7 +206,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
       } catch (e) {
         if (active)
           setSyncWarning(
-            `Chưa cập nhật được trạng thái Pod: ${(e as Error).message} Thời điểm đối soát cuối vẫn được hiển thị bên dưới.`,
+            data.user.admin
+              ? `Chưa cập nhật được trạng thái Pod: ${(e as Error).message} Thời điểm đối soát cuối vẫn được hiển thị bên dưới.`
+              : "Trạng thái GPU chưa được cập nhật. Vui lòng thử lại sau.",
           );
       }
     };
@@ -216,7 +218,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       active = false;
       clearInterval(timer);
     };
-  }, [syncIds, load]);
+  }, [syncIds, load, data.user.admin]);
   async function run(fn: () => Promise<unknown>, message: string) {
     setBusy(true);
     setError("");
@@ -549,7 +551,9 @@ export default function GpuWorkspace({ data }: ViewProps) {
       </div>
       {error && (
         <div className="alert error" role="alert">
-          {error}
+          {data.user.admin
+            ? error
+            : "Chưa hoàn tất thao tác. Vui lòng thử lại hoặc báo quản trị viên."}
         </div>
       )}
       {syncWarning && (
@@ -1140,6 +1144,35 @@ function WorkspaceCard({
   const active = w.status !== "terminated";
   const running = w.status === "running";
   const telemetry = gpuTelemetry(w.health?.gpu);
+  const teamHub = isTeamHub(w) && !admin;
+  const notebook = teamHub ? w.hub?.teams[0] : undefined;
+  const notebookState = notebook?.server?.state;
+  const notebookStatus = !teamHub
+    ? undefined
+    : w.notebookEnabled
+      ? "Sẵn sàng"
+      : !running || notebook?.desiredState === "stopped"
+        ? "Chưa mở"
+        : notebookState === "error"
+          ? "Cần hỗ trợ"
+          : notebookState === "waiting-resource"
+            ? "Chờ tài nguyên"
+            : notebookState === "ready"
+              ? "Đang khóa truy cập"
+              : "Đang chuẩn bị";
+  const notebookDetail =
+    !teamHub || w.notebookEnabled
+      ? undefined
+      : notebook?.desiredState === "stopped" || !running
+        ? "Đang chờ quản trị viên khởi động JupyterLab."
+        : notebookState === "error"
+          ? "Vui lòng báo quản trị viên kiểm tra JupyterLab."
+          : notebookState === "waiting-resource"
+            ? "Đang chờ tài nguyên để mở JupyterLab."
+            : notebookState === "ready"
+              ? "Quản trị viên chưa mở quyền truy cập cho vòng này."
+              : "Đang chuẩn bị môi trường làm bài của đội.";
+  const dataReady = teamHub ? notebook?.server : w.health;
   return (
     <article
       id={`pod-${w.id}`}
@@ -1158,26 +1191,38 @@ function WorkspaceCard({
             </span>
           )}
           <span className={`pill ${running ? "green" : "neutral"}`}>
-            {w.status === "failed" && w.podId
-              ? "Lỗi khởi động Pod"
-              : w.status === "provisioning" && w.podId
-                ? w.startupProgress === "pulling"
-                  ? "Đang tải image Docker"
-                  : w.startupProgress === "extracting"
-                    ? "Đang giải nén image Docker"
-                    : "Container chưa sẵn sàng"
-                : statusNames[w.status]}
+            {!admin && w.status === "failed"
+              ? "Cần hỗ trợ"
+              : !admin && ["provisioning", "reconciling"].includes(w.status)
+                ? "Đang chuẩn bị GPU"
+                : w.status === "failed" && w.podId
+                  ? "Lỗi khởi động Pod"
+                  : w.status === "provisioning" && w.podId
+                    ? w.startupProgress === "pulling"
+                      ? "Đang tải image Docker"
+                      : w.startupProgress === "extracting"
+                        ? "Đang giải nén image Docker"
+                        : "Container chưa sẵn sàng"
+                    : statusNames[w.status]}
           </span>
           <h3>{w.template.gpuTypeId}</h3>
-          <p>{isTeamHub(w) ? "Các team được cấp quyền" : w.teamName}</p>
+          <p>
+            {teamHub
+              ? "GPU dùng chung"
+              : isTeamHub(w)
+                ? "Các team được cấp quyền"
+                : w.teamName}
+          </p>
           <small>{w.roundTitle}</small>
           <div className="gpu-badges">
             <span className="pill neutral">
-              {isTeamHub(w)
-                ? "JupyterHub · Team được cấp quyền"
-                : w.scope === "all"
-                  ? "Dùng chung · Tất cả đội"
-                  : "Riêng cho đội"}
+              {teamHub
+                ? "Workspace của đội"
+                : isTeamHub(w)
+                  ? "JupyterHub · Team được cấp quyền"
+                  : w.scope === "all"
+                    ? "Dùng chung · Tất cả đội"
+                    : "Riêng cho đội"}
             </span>
           </div>
         </div>
@@ -1239,7 +1284,7 @@ function WorkspaceCard({
             </p>
           )}
         </div>
-        {!w.chatGroupId && (
+        {!w.chatGroupId && (!isTeamHub(w) || !admin) && (
           <div
             className={`gpu-service-grid ${w.services !== "both" ? "single-service" : ""}`}
           >
@@ -1258,13 +1303,17 @@ function WorkspaceCard({
                 href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
               />
             )}
-            {hasService(w, "jupyter") && !isTeamHub(w) && (
+            {hasService(w, "jupyter") && (!isTeamHub(w) || !admin) && (
               <ServiceCard
                 kind="jupyter"
                 provided={hasService(w, "jupyter")}
                 running={running}
-                ready={!!w.health?.jupyter}
+                ready={
+                  teamHub ? notebookState === "ready" : !!w.health?.jupyter
+                }
                 enabled={!!w.notebookEnabled}
+                statusText={notebookStatus}
+                detail={notebookDetail}
                 href={`/api/workspace/launch?id=${encodeURIComponent(w.id)}`}
               />
             )}
@@ -1275,8 +1324,9 @@ function WorkspaceCard({
         <div className="gpu-card-notes">
           {hasService(w, "jupyter") && w.loadDataset !== false && (
             <span>
-              Public: {w.health?.publicReady ? "đã nạp" : "đang chờ"} · Private:{" "}
-              {w.health?.privateReady ? "đã nạp" : "đang khóa / chưa nạp"}
+              Public: {dataReady?.publicReady ? "đã nạp" : "đang chờ"} ·
+              Private:{" "}
+              {dataReady?.privateReady ? "đã nạp" : "đang khóa / chưa nạp"}
             </span>
           )}
           {hasService(w, "jupyter") && w.loadDataset === false && (
@@ -1292,7 +1342,7 @@ function WorkspaceCard({
           {w.chatGroupId && w.health?.modelStage && (
             <span>{w.health.modelStage}</span>
           )}
-          {(w.health?.stage || w.accessMessage) && (
+          {admin && (w.health?.stage || w.accessMessage) && (
             <details className="gpu-status-detail">
               <summary>Chi tiết trạng thái</summary>
               {w.health?.stage && <span>{w.health.stage}</span>}
@@ -1300,7 +1350,11 @@ function WorkspaceCard({
             </details>
           )}
           {(w.error || w.health?.error) && (
-            <span role="status">{w.error ?? w.health?.error}</span>
+            <span role="status">
+              {admin
+                ? (w.error ?? w.health?.error)
+                : "Môi trường cần được kiểm tra. Vui lòng báo quản trị viên."}
+            </span>
           )}
         </div>
         {active && (
@@ -1395,6 +1449,7 @@ function ServiceCard({
   enabled = false,
   href,
   detail,
+  statusText,
 }: {
   kind: "chat" | "jupyter";
   provided?: boolean;
@@ -1403,6 +1458,7 @@ function ServiceCard({
   enabled?: boolean;
   href?: string;
   detail?: string;
+  statusText?: string;
 }) {
   const chat = kind === "chat";
   const title = chat ? "Chatbot" : "JupyterLab";
@@ -1434,7 +1490,7 @@ function ServiceCard({
       </p>
       <span className={`gpu-service-status ${enabled ? "is-ready" : ""}`}>
         <i aria-hidden="true" />
-        {status}
+        {statusText ?? status}
       </span>
       <small>
         {!provided

@@ -365,6 +365,23 @@ export function workspaceView(
     hubInitialTeamIds: _hi,
     ...safe
   } = w;
+  if (!admin) {
+    // Provider diagnostics belong to the administrator, including API responses.
+    delete safe.startupFailure;
+    delete safe.startupProgress;
+    delete safe.startupCheckedAt;
+    safe.error = safe.error
+      ? "Môi trường cần được kiểm tra. Vui lòng báo quản trị viên."
+      : null;
+    if (safe.health)
+      safe.health = {
+        ...safe.health,
+        stage: "",
+        error: safe.health.error
+          ? "Dịch vụ cần được kiểm tra. Vui lòng báo quản trị viên."
+          : undefined,
+      };
+  }
   if (!admin && w.metricsVisible === false) {
     if (safe.health) {
       const { gpu: _gpu, ...health } = safe.health;

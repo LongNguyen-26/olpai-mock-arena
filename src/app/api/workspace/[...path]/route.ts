@@ -174,17 +174,14 @@ async function handle(
           .parse(url.searchParams.get("teamId") ?? undefined),
       );
       if (result.url) return NextResponse.redirect(result.url, { headers });
-      return new Response(
-        hubPendingPage(url, result.state ?? "preparing"),
-        {
-          headers: {
-            ...headers,
-            "Content-Type": "text/html; charset=utf-8",
-            "Content-Security-Policy":
-              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-          },
+      return new Response(hubPendingPage(url, result.state ?? "preparing"), {
+        headers: {
+          ...headers,
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy":
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         },
-      );
+      });
     }
     if (path === "manual/config" && req.method === "GET")
       return json(await manualConfiguration(user, id()));
@@ -215,7 +212,8 @@ async function handle(
           ),
         );
       }
-      if (path === "hub/server")
+      if (path === "hub/server") {
+        await requireAdmin();
         return json(
           await changeHubServer(
             user,
@@ -226,6 +224,7 @@ async function handle(
             p.revision,
           ),
         );
+      }
       if (p.teamId && p.teamId !== user.teamId)
         throw new ApiError("Không được đăng ký thay team khác.", 403);
       const { w, c } = await hubContext(user, p.id, p.teamId);
@@ -532,7 +531,9 @@ async function handle(
   } catch (e) {
     if (
       req.method === "GET" &&
-      ["/workspace/launch", "/workspace/hub/authorize"].some(path => new URL(req.url).pathname.endsWith(path))
+      ["/workspace/launch", "/workspace/hub/authorize"].some((path) =>
+        new URL(req.url).pathname.endsWith(path),
+      )
     ) {
       const message =
         e instanceof ApiError

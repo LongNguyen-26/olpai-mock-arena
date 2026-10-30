@@ -72,15 +72,7 @@ export async function changeHubServer(
   target?: string,
   revision?: string,
 ) {
-  const { w, c, teamId } = await hubContext(user, id, target);
-  if (user.admin && w.ownerId !== user.id)
-    throw new ApiError("Pod thuộc admin khác.", 403);
-  if (
-    action === "start" &&
-    !user.admin &&
-    !notebookAllowed(c, await serverNow())
-  )
-    throw new ApiError("Quyền Jupyter của vòng đang khóa.", 403);
+  const { w, c, teamId } = await hubContext(user, id, target, true);
   if (!w.hubTeams?.[teamId]?.enabled)
     throw new ApiError("Team chưa được cấp quyền.", 403);
   if (action === "start" && w.status !== "running")
@@ -133,7 +125,10 @@ export async function authorizeHub(
   if (!user.admin && !notebookAllowed(c, await serverNow()))
     throw new ApiError("Quyền Jupyter đang khóa.", 403);
   if (w.hubTeams[teamId].desiredState === "stopped")
-    throw new ApiError("Workspace của đội đã dừng. Hãy quay lại Arena và khởi động lại.", 409);
+    throw new ApiError(
+      "Workspace của đội đã dừng. Vui lòng nhờ quản trị viên khởi động JupyterLab.",
+      409,
+    );
   const server = notebookReport(
     w,
     await readHubReport(id),
@@ -143,7 +138,8 @@ export async function authorizeHub(
   );
   if (server?.state === "error")
     throw new ApiError(
-      server.error ?? "Không khởi động được workspace của đội. Hãy báo quản trị viên kiểm tra runtime.",
+      server.error ??
+        "Không khởi động được workspace của đội. Hãy báo quản trị viên kiểm tra runtime.",
       503,
     );
   if (server?.state !== "ready")
