@@ -1,3 +1,12 @@
+# Sửa cookie secret khi Hub chạy trên NFS — 30/10/2026
+
+- Log người dùng xác nhận image `5141126f…` tải xong nhưng Hub thoát với `cookie_secret_file can be read or written by anybody`; container lặp lại trước khi có Lab team. Không coi trạng thái này là lỗi trình duyệt hoặc chờ image.
+- Giữ khóa gốc trên volume trong thư mục điều khiển root `0700`; tạo bản dùng lúc chạy trên filesystem cục bộ `/run/arena-hub/cookie-secret`, mode `0600`, cùng giá trị. JupyterHub vẫn thực thi kiểm tra quyền gốc. Secret mới tạo bằng mode `0600` ngay lúc tạo tệp, không theo symlink; thư mục sai quyền và khóa lưu bị hỏng gây lỗi rõ, không tự xoay hoặc in khóa.
+- [CI 40994198052](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40994198052) đạt typecheck, 82 test TypeScript, build, 28 test Python 3.10 và 9 test Linux. Ca mới khởi động Hub với khóa volume mode `0666`, kiểm tra bản local `0600` giữ giá trị và chặn team đọc cả hai; khóa hỏng không bị tự tạo đè. Các ca UID/NFS/khôi phục/kernel/cộng tác tiếp tục đạt.
+- Playwright trên production xác nhận lỗi authorize của Hub đã đóng trả HTML 409 có thông báo, không meta refresh, không tự điều hướng trong bảy giây và không pageerror. Đã xem ảnh `output/playwright/hub-nfs-error-page.png`, đăng xuất phiên QA, xóa auth state và đóng browser. HTTP 409 tạo console resource error đúng dự kiến; không quy thành lỗi JavaScript.
+- Theo yêu cầu mới, không bật hay thay image Pod đang tắt. Chỉ chuẩn bị image/template cho Pod mới; chưa nghiệm thu SSO/kernel/WebSocket/CUDA của image cookie mới qua proxy Runpod thật.
+- Image publish đã được đối chiếu Docker Hub/CI: `sha256:0ca70c5f5558e586f7ff232e912b58fcaeef7f68601fdeb68f17847fdd89c902`, từ mã runtime `e3acddc7a6c16858980fa9e53afd0a34ffc4ff87`.
+
 # Sửa home team trên Runpod NFS và trang chờ đăng nhập — 30/10/2026
 
 - Người dùng xác nhận `/workspace` dùng NFS4 trong container có UID remapping: root không chown được home (`EPERM`), trong khi `/tmp` chown được. Phép thử tạo tệp trực tiếp bằng UID team thành công, team khác bị chặn, root không đọc được home `0700` (`EACCES`). Đây là lỗi chuẩn bị home sau khi Hub đã chạy; khác lỗi import trước đó.

@@ -2,10 +2,10 @@
 
 Arena hỗ trợ chế độ `team-hub` cho Pod **Jupyter-only**. Mỗi team có một tài khoản Linux, home, server Lab, kernel và terminal riêng. Hai máy cùng team dùng cùng server và sửa notebook đồng thời. GPU dùng chung; không chia cứng VRAM và không chặn CUDA bằng hàng đợi.
 
-Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40984307571), từ mã runtime `5feb69b6e96a2f385094ecc9bff81920f7c7ad2c`. Dùng image bất biến sau cho Pod mới:
+Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40994198052), từ mã runtime `e3acddc7a6c16858980fa9e53afd0a34ffc4ff87`. Dùng image bất biến sau cho Pod mới:
 
 ```text
-nguyenlong26/olpai-workspace@sha256:5141126f199fe035a87f172821d14fb28bc7a2a89f9178b36ea265087f45fa95
+nguyenlong26/olpai-workspace@sha256:0ca70c5f5558e586f7ff232e912b58fcaeef7f68601fdeb68f17847fdd89c902
 ```
 
 Ghim cùng digest trong `RUNPOD_HUB_IMAGE` và `RUNPOD_WORKSPACE_IMAGE`; web từ chối image Hub không nằm trong allowlist. Tag tiện tra cứu là `2026.10.30-hub`. `Dockerfile.runtime` kế thừa image dependency đầy đủ đã xác minh; chỉ rebuild CUDA/dependency khi các dependency thay đổi.
@@ -13,6 +13,8 @@ Ghim cùng digest trong `RUNPOD_HUB_IMAGE` và `RUNPOD_WORKSPACE_IMAGE`; web t�
 Image `179b5581…` có lỗi `ModuleNotFoundError: No module named 'hub_auth'` khi Hub đọc cấu hình, làm container khởi động lại trước khi tạo server team. Bản sửa thêm đường dẫn module quản trị `/opt/arena` ngay trong cấu hình Hub. CI hiện khởi động Hub từ thư mục khác và bỏ `PYTHONPATH`, đúng điều kiện đã làm lộ lỗi trên Pod thật. Pod đang dùng image cũ cần được quản trị xử lý riêng, giữ volume và kiểm tra kernel trước khi thay image.
 
 Image `75434bdf…` sửa lỗi import nhưng vẫn tạo home bằng root rồi chown, thất bại trên volume NFS có UID remapping của Pod đã nghiệm thu. Image `5141126f…` ghi tệp trực tiếp dưới UID team, như phần lưu trữ bên dưới. Sau khi cập nhật web/template, refresh Arena và chọn lại template đã lưu trước khi cấp Pod mới.
+
+Image `5141126f…` còn gặp lỗi Hub từ chối quyền tệp cookie trên volume NFS trong log người dùng mới gửi. Bản hiện tại `0ca70c5f…` giữ khóa bền vững nhưng dùng bản cookie có quyền nghiêm ngặt trên filesystem cục bộ; không bỏ kiểm tra quyền của Hub. Chọn template **JupyterHub** dành cho dịch vụ **Chỉ JupyterLab** trước khi cấp Pod mới.
 
 Nếu Arena dùng nhiều tên miền, cấu hình `GPU_WORKSPACE_LOGIN_ORIGINS` bằng danh sách HTTPS origin chính xác, cách nhau bằng dấu phẩy. Địa chỉ của `GPU_WORKSPACE_PUBLIC_URL` được cho phép sẵn. Hub đăng nhập qua đúng tên miền người dùng đang mở để giữ phiên Arena; callback đổi ticket vẫn dùng control URL cố định.
 
@@ -53,6 +55,8 @@ Không nhận Pod PyTorch bất kỳ hoặc Pod có Chatbot. Không sửa image/
 ## Tệp, thư viện và dataset
 
 Home của team ở `/workspace/teams/<team-id>`, quyền `0700`, UID/GID ổn định được lưu trên volume. Cấu hình, database, cookie secret và mapping tài khoản Hub ở `.arena/hub`, chỉ root đọc được. Notebook không nhận token agent, token điều khiển Hub hay credential Runpod.
+
+Khóa cookie gốc được giữ trên volume qua restart; bản dùng lúc chạy nằm ở `/run/arena-hub/cookie-secret` trên đĩa cục bộ, thư mục `0700`, tệp `0600`, cùng giá trị khóa. JupyterHub vẫn kiểm tra quyền tệp như bình thường. Cách này tránh lỗi Hub từ chối tệp cookie trên một số volume NFS báo quyền file quá rộng. Runtime xác minh thư mục điều khiển do root sở hữu và có quyền `0700`, không theo symlink, không đưa khóa vào biến môi trường notebook, và từ chối tự xoay khóa nếu bản lưu bị hỏng.
 
 Runpod có thể dùng NFS với UID container được ánh xạ sang UID host. Trong trường hợp này, root trong container không đổi được chủ tệp trên volume và cũng có thể không đọc được home `0700` của team. Runtime tạo home bằng UID team trong staging kín dưới `.arena`, rồi công bố bằng rename; các thao tác tạo thư mục, chép notebook/kernel và kiểm tra venv cũng chạy bằng UID đó. Nguồn được mở bởi quản trị và chỉ truyền file descriptor đọc cho tiến trình ghi. Không nới quyền home thành thư mục dùng chung. Home root sở hữu còn trống do lỗi khởi tạo cũ được tạo lại; home sai chủ đã có tệp được giữ và báo quản trị xử lý.
 

@@ -1,5 +1,12 @@
 # Runpod: các lỗi đã gặp và cách tránh lặp lại
 
+## JupyterHub từ chối cookie secret trên NFS — 30/10/2026
+
+- **Đã xác nhận từ log mới:** image `5141126f…` đã tải và khởi động container, nhưng Hub thoát với `cookie_secret_file can be read or written by anybody`. Agent dừng theo Hub, Runpod khởi động lại container. Chưa có Lab team; đây không phải lỗi cache trình duyệt hoặc tải image.
+- **Cách sửa:** tạo secret bằng mode `0600` ngay lúc tạo tệp; giữ bản gốc trên volume dưới thư mục root `0700`, rồi tạo bản cookie phục vụ Hub trên filesystem cục bộ `/run/arena-hub` với thư mục `0700` và tệp `0600`. Giữ nguyên giá trị để phiên không bị vô hiệu sau restart. Không tắt kiểm tra quyền cookie, auth, XSRF hoặc Origin của JupyterHub.
+- Nếu thư mục điều khiển không giữ được quyền root `0700`, runtime báo lỗi và không chạy. Nếu bản khóa lưu không còn là khóa hex hợp lệ, runtime giữ nguyên và báo lỗi, không tự tạo đè khóa mới.
+- Hồi quy Linux khởi động Hub với bản secret lưu trên volume có mode `0666`, kiểm tra bản cục bộ `0600`, cùng giá trị, team không đọc được cả hai, và khóa hỏng không bị xoay ngầm. Không yêu cầu người dùng bật hoặc thay image Pod hiện tại để chạy CI.
+
 ## JupyterHub: NFS từ chối đổi UID — 30/10/2026
 
 - **Đã xác nhận trên Pod người dùng:** Hub/API đã chạy, còn đủ RAM/đĩa, nhưng `os.chown` home team trên `/workspace` trả `EPERM`. `/tmp` cho phép chown; `/workspace` là NFS4 trong container có UID remapping. Tạo thư mục/tệp trực tiếp bằng UID team thành công, team khác bị chặn; root trong container nhận `EACCES` khi đọc home `0700` của team.
