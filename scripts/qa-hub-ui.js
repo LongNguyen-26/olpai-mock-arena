@@ -131,8 +131,9 @@ async (page) => {
     const popup = await popupEvent;
     await popup.getByText("JupyterLab QA destination").waitFor();
     await popup.close();
-    await page.goto(base + "/workspace/hub?id=" + host.id);
-    await page.getByText("JupyterLab QA destination").waitFor();
+    const legacy = await page.request.get(base + "/workspace/hub?id=" + host.id, { maxRedirects: 0 });
+    check(legacy.status() === 307 && legacy.headers().location === "/api/workspace/launch?id=" + host.id,
+      "Legacy bookmark does not redirect to read-only launch");
     await page.goto(base + "/?round=" + host.roundId + "#workspace");
     await student
       .getByRole("button", { name: "Xin lượt", exact: true })
@@ -207,4 +208,4 @@ async (page) => {
     await page.context().clearCookies();
     await page.context().unrouteAll();
   }
-};
+}

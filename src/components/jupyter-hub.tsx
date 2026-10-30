@@ -74,6 +74,7 @@ export default function JupyterHubPanel({
     );
   }
   const unbound = w.manual && w.manual.state !== "bound";
+  if (!admin && unbound) return null;
   return (
     <div className={`hub-panel ${admin ? "" : "hub-participant"}`}>
       {admin && (

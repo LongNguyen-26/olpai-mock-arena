@@ -1,3 +1,11 @@
+# Giao diện JupyterLab cho thí sinh và quyền quản trị — 30/10/2026
+
+- Thí sinh mở JupyterLab từ thẻ GPU như Pod Jupyter thông thường. Không hiển thị bảng quản trị server/team; readiness xét đúng team, revision và heartbeat, cùng lịch truy cập của vòng. Server dừng/đang chuẩn bị/mất heartbeat/lỗi/khóa lịch đều có trạng thái ngắn gọn và không bật link sai.
+- Chỉ admin sở hữu Pod được start/stop server qua service/API. Đường dẫn `/workspace/hub` cũ chỉ redirect tới launch, không POST khởi động; mở Lab không đổi desired state/revision. Chẩn đoán image pull/extract và lỗi provider được lược khỏi view/API thí sinh; admin vẫn giữ chi tiết gốc.
+- Bảng đăng ký GPU tách Đang dùng/Đang chờ, thao tác theo trạng thái riêng: Xin lượt → Bắt đầu dùng hoặc Hủy → Trả lượt. Vẫn cho nhiều đội đang dùng và giữ thứ tự theo thời gian server; nhắc trả lượt không dừng kernel/job.
+- [CI web 41008569742](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/41008569742) đạt typecheck, 83 test TypeScript và build. Local chạy tuần tự 83 test đạt; lần chạy song song trước đó hết bộ nhớ Windows, không tính là đạt. QA Hub với Redis trong namespace ngẫu nhiên đạt: start/stop cùng/khác team bị 403, mở Lab giữ revision, readiness đúng team, SSO replay, nhiều lượt GPU, manual và reset. Provider hoàn toàn giả lập, namespace tự dọn.
+- Playwright dùng bản build CI và Redis QA riêng: admin thêm team/hộp xác nhận dừng; thí sinh có link Lab trên thẻ GPU, không có nút quản trị, POST start/stop trả 403; popup tới đích giả lập và bookmark cũ chỉ redirect; Xin/Bắt đầu/Trả/Hủy qua API thật của QA; các trạng thái stopped/starting/stale/error/locked và ẩn log Runpod đạt. Đã xem ảnh desktop/mobile, không tràn ngang: `output/playwright/hub-{admin,student}-{desktop,mobile}.png`. Không có page error; có request 401 trong lúc đăng xuất giữa hai vai trò. Không thao tác Pod thật hoặc thay image.
+
 # Hub storage v2 khi volume root luôn `0777` — 30/10/2026
 
 - Log `(20)` xác nhận `.arena uid=0 gid=0 mode=0o777` sau CREATE/chmod. Thay việc bảo vệ root control bằng mode trên volume: Hub dùng `/run/arena-hub/control` cục bộ `0700`, cookie/secret `0600`, DB SQLite cục bộ. Bản bền vững là checkpoint AES-GCM xác thực trên volume, ràng buộc workspace và agent credential; không chứa policy/URL pha cũ, không tự xoay key hoặc ghi đè checkpoint lỗi.
