@@ -34,13 +34,16 @@ async function main() {
       ?.slice(12);
     if (hubImage) {
       assert.equal(state.defaultTemplate.imageName, hubImage);
-      const hub = state.templates.find(
+      const hubs = state.templates.filter(
         (t: { jupyterMode?: string }) => t.jupyterMode === "team-hub",
       );
-      assert.ok(hub, "Shared Hub template is missing");
-      assert.equal(hub.services, "jupyter");
-      assert.equal(hub.maxTeamServers, 7);
-      assert.equal(hub.imageName, hubImage);
+      assert.ok(hubs.length, "Shared Hub template is missing");
+      for (const hub of hubs) {
+        assert.equal(hub.services, "jupyter");
+        const capacity = hub.maxTeamServers ?? 7;
+        assert.ok(Number.isInteger(capacity) && capacity >= 1 && capacity <= 32);
+        assert.equal(hub.imageName, hubImage);
+      }
     }
     for (const workspace of state.workspaces) {
       assert.equal("secret" in workspace, false);

@@ -1,3 +1,9 @@
+# Sửa đường dẫn module khi JupyterHub khởi động — 30/10/2026
+
+- Log Pod thật xác nhận Hub không import được `hub_auth` khi Traitlets đọc `hub_config.py`; container thoát trước khi khởi tạo JupyterLab. Cấu hình hiện thêm đường dẫn module root sở hữu `/opt/arena`, không phụ thuộc thư mục hiện hành hay biến môi trường kế thừa.
+- [CI 40979376281](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40979376281) đạt typecheck, 80 test TypeScript, build, 28 test Python 3.10 và 7 test Linux. Test Linux bỏ `PYTHONPATH` và chạy Hub từ thư mục khác trong cả khởi động đầu và phục hồi; vẫn kiểm tra UID, quyền tệp, kernel và cộng tác hai trình duyệt.
+- Image sửa đã publish ở `sha256:75434bdfad178c33e0b744582c125c7a33f31d5310ba89c7cf822f50058eaf30`, mã runtime `0c71cfcc68e15721ee4e9e6cd7e3cfcb599597e3`. Thay cho runtime `179b5581…` trong hướng dẫn cấp Pod mới. Kết quả CI không chứng minh CUDA hoặc kết nối qua proxy Runpod.
+
 # Phân biệt tải/giải nén image khi Pod chưa chạy — 30/10/2026
 
 - Thêm chẩn đoán không gây lỗi cho pull/extract từ System Logs; hiển thị trạng thái riêng trên thẻ Pod. Giữ phân loại GPU reset/container error, giới hạn SSE, cache và loại bỏ raw log/credential. Health hoặc telemetry thật xóa tiến trình cũ; chưa chạy container không mở Jupyter/Chatbot.

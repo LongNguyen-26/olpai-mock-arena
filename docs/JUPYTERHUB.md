@@ -2,13 +2,15 @@
 
 Arena hỗ trợ chế độ `team-hub` cho Pod **Jupyter-only**. Mỗi team có một tài khoản Linux, home, server Lab, kernel và terminal riêng. Hai máy cùng team dùng cùng server và sửa notebook đồng thời. GPU dùng chung; không chia cứng VRAM và không chặn CUDA bằng hàng đợi.
 
-Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40969488285), từ mã runtime `fc97a34fe490a3a4972be7c1a8e0bd2c3804b8d6`. Dùng image bất biến sau cho Pod mới:
+Image Hub đã qua [CI Linux và publish](https://github.com/LongNguyen-26/olpai-mock-arena/actions/runs/40979376281), từ mã runtime `0c71cfcc68e15721ee4e9e6cd7e3cfcb599597e3`. Dùng image bất biến sau cho Pod mới:
 
 ```text
-nguyenlong26/olpai-workspace@sha256:179b5581b07e2f4a3b51f27101bdc1bc3f71e6daedbe9f138b21ced172513951
+nguyenlong26/olpai-workspace@sha256:75434bdfad178c33e0b744582c125c7a33f31d5310ba89c7cf822f50058eaf30
 ```
 
 Ghim cùng digest trong `RUNPOD_HUB_IMAGE` và `RUNPOD_WORKSPACE_IMAGE`; web từ chối image Hub không nằm trong allowlist. Tag tiện tra cứu là `2026.10.30-hub`. `Dockerfile.runtime` kế thừa image dependency đầy đủ đã xác minh; chỉ rebuild CUDA/dependency khi các dependency thay đổi.
+
+Image `179b5581…` có lỗi `ModuleNotFoundError: No module named 'hub_auth'` khi Hub đọc cấu hình, làm container khởi động lại trước khi tạo server team. Bản sửa thêm đường dẫn module quản trị `/opt/arena` ngay trong cấu hình Hub. CI hiện khởi động Hub từ thư mục khác và bỏ `PYTHONPATH`, đúng điều kiện đã làm lộ lỗi trên Pod thật. Pod đang dùng image cũ cần được quản trị xử lý riêng, giữ volume và kiểm tra kernel trước khi thay image.
 
 Nếu Arena dùng nhiều tên miền, cấu hình `GPU_WORKSPACE_LOGIN_ORIGINS` bằng danh sách HTTPS origin chính xác, cách nhau bằng dấu phẩy. Địa chỉ của `GPU_WORKSPACE_PUBLIC_URL` được cho phép sẵn. Hub đăng nhập qua đúng tên miền người dùng đang mở để giữ phiên Arena; callback đổi ticket vẫn dùng control URL cố định.
 
