@@ -208,7 +208,7 @@ def dataset_loop():
             for asset in policy["assets"]:
                 STATE["stage"] = "Đang nạp " + asset["name"]
                 if HUB_MODE:
-                    HUB_MANAGER.cache_asset(asset, load_asset, manifest)
+                    HUB_MANAGER.cache_asset(asset, None, manifest)
                 else:
                     load_asset(asset)
             STATE["publicReady"] = True

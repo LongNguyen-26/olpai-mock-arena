@@ -11,6 +11,11 @@ import time
 import unittest
 import uuid
 import zipfile
+import datetime
+import hashlib
+import io
+import ipaddress
+import ssl
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -573,6 +578,59 @@ safe_extract(Path(sys.argv[2]), source, task_root=True)
         self.assertEqual(home.stat().st_mode & 0o777, 0o700)
         self.assertFalse(data_request(self.root, "home-status", team_id=team_id, uid=owner["uid"])["activated"])
         self.assertTrue((home / "injected.py").exists())
+
+    def test_14_unprivileged_https_download_checksum_readonly_publish_and_cache_cleanup(self):
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            bundle.writestr("Tac_vu_3/dataset/train/y.csv", "id\n3\n")
+            bundle.writestr("Tac_vu_3/baseline.ipynb", "{}")
+        body = stream.getvalue()
+        private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Arena local QA")])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        certificate = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(private.public_key())
+                       .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(days=1))
+                       .not_valid_after(now + datetime.timedelta(days=1))
+                       .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+                       .sign(private, hashes.SHA256()))
+        cert, key = Path(self.temp.name) / "qa-ca.pem", Path(self.temp.name) / "qa-tls-key.pem"
+        cert.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+        key.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+        cert.chmod(0o644); key.chmod(0o600)
+        calls = []
+        class Archive(BaseHTTPRequestHandler):
+            def log_message(self, *_): pass
+            def do_GET(self):
+                calls.append(1)
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Archive)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        digest = hashlib.sha256(body).hexdigest()
+        asset = {"sha256": digest, "phase": "public", "workspaceLayout": "task-root", "bytes": len(body), "name": "tls-fixture.zip",
+                 "url": "https://127.0.0.1:" + str(server.server_address[1]) + "/dataset.zip"}
+        policy = {**self.policy, "assets": [asset]}
+        try:
+            with patch.dict(os.environ, {"SSL_CERT_FILE": str(cert)}):
+                self.manager.cache_asset(asset, None, lambda: policy)
+                self.manager.cache_asset(asset, None, lambda: policy)
+            self.assertEqual(len(calls), 1)
+            self.assertFalse((self.manager.volume_cache / digest).exists())
+            target = self.manager.shared / digest / "Tac_vu_3/dataset/train/y.csv"
+            self.assertEqual(target.stat().st_uid, DATA_UID)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o444)
+            self.manager.install_assets(self.team_ids[0], policy)
+            self.assertEqual(self.run_team(self.team_ids[0], "from pathlib import Path; assert Path('Tac_vu_3/dataset/train/y.csv').read_text()=='id\\n3\\n'").returncode, 0)
+            self.assertNotEqual(self.run_team(self.team_ids[0], "open('Tac_vu_3/dataset/train/y.csv','w').write('bad')").returncode, 0)
+        finally:
+            server.shutdown(); server.server_close()
+            key.unlink(missing_ok=True); cert.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -252,12 +252,16 @@ def data_request(root, action, want_fd=False, **values):
     """Run volume operations as a separate UID, without control credentials."""
     parent, child = socket.socketpair()
     try:
+        env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "PYTHONNOUSERSITE": "1"}
+        if os.environ.get("SSL_CERT_FILE"):
+            env["SSL_CERT_FILE"] = os.environ["SSL_CERT_FILE"]
+        interpreter = "/opt/arena/venv/bin/python" if action == "load" else "/opt/arena/hub-venv/bin/python"
         result = subprocess.run(
-            ["/opt/arena/hub-venv/bin/python", "/opt/arena/hub_runtime.py", "--data-worker"],
+            [interpreter, "/opt/arena/hub_runtime.py", "--data-worker"],
             input=json.dumps({"root": str(root), "action": action, "socket": child.fileno(), **values}),
             user=DATA_UID, group=DATA_UID, extra_groups=[], pass_fds=(child.fileno(),),
-            cwd="/tmp", env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "PYTHONNOUSERSITE": "1"}, capture_output=True, text=True,
-            timeout=600 if action == "publish" else 30,
+            cwd="/tmp", env=env, capture_output=True, text=True,
+            timeout=1800 if action == "load" else 600 if action == "publish" else 30,
         )
         if result.returncode:
             try: metadata = json.loads(result.stdout).get("metadata", [])
@@ -317,6 +321,8 @@ def open_published(root_fd, relative):
 
 
 def link_or_copy(source, target):
+    if Path(source).stat().st_uid != os.geteuid():
+        return shutil.copy2(source, target)
     try:
         os.link(source, target)
         return target
@@ -531,19 +537,22 @@ class HubManager:
         if digest in self.published:
             return
         if not data_request(self.root, "exists", digest=digest)["exists"]:
-            _, fd = data_request(self.root, "cache", want_fd=True, digest=digest)
-            try:
-                # Descriptor access bypasses only the private cache's ancestors.
-                # Keep the existing checksum/ZIP checks; no control paths here.
-                source = Path("/proc/self/fd") / str(fd)
-                load(asset, source)
-                for item in source.rglob("*"):
-                    if item.is_symlink():
-                        raise ValueError("Unsafe cached asset")
-                    if item.stat().st_uid == 0:
-                        item.chmod(0o755 if item.is_dir() else 0o444)
-            finally:
-                os.close(fd)
+            if load is None:
+                data_request(self.root, "load", asset=asset)
+            else:
+                _, fd = data_request(self.root, "cache", want_fd=True, digest=digest)
+                try:
+                    # Descriptor access bypasses only private cache ancestors.
+                    # Keep the existing checksum/ZIP checks; no control paths.
+                    source = Path("/proc/self/fd") / str(fd)
+                    load(asset, source)
+                    for item in source.rglob("*"):
+                        if item.is_symlink():
+                            raise ValueError("Unsafe cached asset")
+                        if item.stat().st_uid == 0:
+                            item.chmod(0o755 if item.is_dir() else 0o444)
+                finally:
+                    os.close(fd)
         # Recheck the live gate after potentially long downloads.
         latest = current_policy()
         if not latest.get("active") or not any(a.get("sha256") == digest for a in latest.get("assets", [])):
@@ -552,6 +561,10 @@ class HubManager:
         with self.guard:
             self.published[digest] = {"phase": asset["phase"], "taskRoot": asset.get("workspaceLayout") == "task-root"}
             atomic_json(self.control / "assets.json", self.published)
+        if load is None:
+            try: data_request(self.root, "clean-cache", digest=digest)
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                logging.getLogger("arena.hub").warning("Verified asset cache cleanup deferred")
 
     def install_assets(self, team_id, policy):
         user = self.ensure_user(team_id)
@@ -725,13 +738,24 @@ def data_worker(request):
         finally:
             os.close(fd)
         if action == "stage-clean": parent.rmdir()
-    elif action in ("publish", "catalog", "exists"):
+    elif action in ("publish", "catalog", "exists", "load", "clean-cache"):
+        if action == "load": request["digest"] = request["asset"]["sha256"]
         digest = request["digest"]
         if not re.fullmatch(r"[a-f0-9]{64}", digest): raise ValueError("Invalid checksum")
         target = shared / digest
         if target.is_symlink() or (target.exists() and target.stat().st_uid != DATA_UID):
             raise ValueError("Unsafe published data")
-        if action == "exists":
+        if action == "load":
+            from agent import load_asset
+            source = cache / digest
+            if source.is_symlink(): raise ValueError("Unsafe download cache")
+            source.mkdir(mode=0o700, exist_ok=True)
+            load_asset(request["asset"], source)
+        elif action == "clean-cache":
+            source = cache / digest
+            if source.is_symlink(): raise ValueError("Unsafe download cache")
+            if source.exists(): shutil.rmtree(source)
+        elif action == "exists":
             result = {"exists": target.is_dir()}
         elif action == "publish":
             if not target.exists():
@@ -741,11 +765,11 @@ def data_worker(request):
                     if request["task_root"]:
                         for task in source.glob("Tac_vu_*"):
                             if task.is_symlink(): raise ValueError("Unsafe cached task")
-                            shutil.copytree(task, stage / task.name, copy_function=shutil.copyfile)
+                            shutil.copytree(task, stage / task.name, copy_function=link_or_copy)
                     else:
                         phase = request["phase"]
                         if phase not in ("public", "private"): raise ValueError("Invalid phase")
-                        shutil.copytree(source / "data" / phase, stage / "data" / phase, copy_function=shutil.copyfile)
+                        shutil.copytree(source / "data" / phase, stage / "data" / phase, copy_function=link_or_copy)
                     for item in stage.rglob("*"):
                         if item.is_symlink(): raise ValueError("Unsafe published dataset")
                         mode = 0o755 if item.is_dir() else 0o444
@@ -802,7 +826,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["--data-worker"]:
     try:
         request = json.loads(sys.stdin.read(1024 * 1024))
         print(json.dumps(data_worker(request)))
-    except (OSError, ValueError, RuntimeError) as error:
+    except Exception as error:
         metadata = []
         for name in ("teams", "datasets", ".arena-assets-v2"):
             try:
