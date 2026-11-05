@@ -1,5 +1,6 @@
 # Thẻ tác vụ nổi bật trên danh sách vòng luyện — 05/11/2026
 
+- Application commit `0367c34a747080337ca41b54b9944b7d6c554b2b`; Render deploy `dep-dbm5nirm8hqs73eqgp40` live và health khớp full SHA. Smoke trên `https://olpaiarena.cyou` qua: catalogue/nhãn/tên tác vụ và CSS production có ô tác vụ cùng grid hai cột. Chỉ đọc dữ liệu, không đổi vòng thật.
 - Hai tác vụ đặt cạnh nhau thành hai ô nền xanh nhạt, nhãn số riêng, tên đậm 18px (17px ở tablet); màn hình dưới 560px xếp dọc để giữ chữ lớn. Vòng ba tác vụ dùng ba cột trên desktop, hai cột ở tablet và một cột trên điện thoại. Giữ đầy đủ tên, không cắt bằng ellipsis.
 - Typecheck, 100 unit test và production build qua. Playwright kiểm tra component RoundCard/CSS thật với dữ liệu giả ở 1600/1280/1024/820/768/390px: cùng hàng khi đủ rộng, không tràn ngang/cắt chữ, không page error. Đã xem ảnh desktop/tablet/mobile trong `output/playwright/round-task-tiles-*.png`. Đây là QA bố cục bằng component render, không giả lập thành kết quả kiểm tra API/backend; không sửa dữ liệu hay tạo GPU.
 
