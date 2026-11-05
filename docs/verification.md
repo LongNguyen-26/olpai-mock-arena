@@ -277,3 +277,8 @@
 - Production Node local trong namespace QA rỗng: instrumentation khởi tạo Groq scheduler; health có startedAt, lastPollAt và lastSuccessfulPollAt. Health không thực hiện DB/provider call.
 - Migration additive `20261105110732_chatbot_api_credentials` đã áp dụng Supabase; advisor security không có lint mới. Khóa mã hóa/credential Runpod và dữ liệu vòng thật giữ nguyên.
 - Chưa nghiệm thu inference thật/tốc độ/chi phí Groq khi admin chưa nhập API key thật trên web.
+
+- Phát hành Render `dep-dbm6nmgu01pc738i84gg`: **live**, commit ứng dụng `10c0b90c9ce24dda2922a8d4697ea07631fca7f5`, lúc 18:44 ngày 05/11/2026 (giờ Việt Nam). Push không tạo auto deploy; đã xác minh không có deploy mới/đang chạy rồi trigger một lần Manual Deploy.
+- Smoke `https://olpaiarena.cyou` PASS: health đúng SHA/postgres, scheduler Groq đã khởi tạo và poll SQL thành công; API Groq chặn anonymous, CSRF và payload cấp phát thiếu; metadata credential không lộ ciphertext/key/revision. Admin hiện chưa cấu hình khóa Groq thật.
+- Smoke Render chung PASS: đăng nhập/đăng xuất, đọc 5 vòng/đề, 98 Workspace lịch sử, 0 Workspace active; credential Runpod cũ vẫn giải mã và đọc giá GPU được. Không có mutation Pod/vòng.
+- Smoke browser production desktop/mobile PASS: chọn Groq, form key/model/quota hiện đúng, không tràn ngang mobile, không có lỗi JS trong luồng kiểm tra; đối chiếu đúng SHA và scheduler. Chỉ đọc, không lưu khóa hoặc cấp chatbot thật; phiên QA đã đăng xuất và auth state đã dọn.
