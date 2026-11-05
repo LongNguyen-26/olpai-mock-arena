@@ -95,7 +95,12 @@ export default function RoundCard({
         <h2>{r.title}</h2>
         {admin && r.packageTitle && <p className="round-source"><b>Bộ đề nguồn:</b> {r.packageTitle}</p>}
         {!!r.taskTitles?.length && <ul className="round-task-titles" aria-label="Các tác vụ">
-          {r.taskTitles.map(t => <li key={t.id}><span>Tác vụ {t.id}</span>{t.title.replace(/^Tác vụ\s*\d+\s*[-–—:·]?\s*/i, "")}</li>)}
+          {r.taskTitles.map(t => (
+            <li key={t.id}>
+              <span className="round-task-label">Tác vụ {t.id.padStart(2, "0")}</span>
+              <strong>{t.title.replace(/^Tác vụ\s*\d+\s*[-–—:·]?\s*/i, "")}</strong>
+            </li>
+          ))}
         </ul>}
         <div className="round-meta">
           <span>
