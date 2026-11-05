@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import GroqAdmin from "./groq-admin";
 import WorkspaceTemplateForm from "./workspace-template-form";
 import JupyterHubPanel from "./jupyter-hub";
+import { WorkspaceSkeleton } from "./arena-loading";
 import { isTeamHub } from "@/lib/hub-domain";
 import ChatGroups, { ChatWorkerOperations, GpuBoard } from "./chat-groups";
 import { gpuTelemetry } from "@/lib/gpu-telemetry";
@@ -48,13 +49,39 @@ const statusNames = {
   terminated: "Đã thu hồi",
   failed: "Cấp phát bị từ chối",
 };
-export default function GpuWorkspace({ data }: ViewProps) {
+export default function GpuWorkspace({
+  data,
+  active = true,
+}: ViewProps & { active?: boolean }) {
+  const activeRef = useRef(active);
+  const flight = useRef<{
+    controller: AbortController;
+    promise: Promise<void>;
+  } | null>(null);
+  const historyFlight = useRef<{
+    controller: AbortController;
+    promise: Promise<void>;
+  } | null>(null);
+  const priceFlight = useRef<{
+    controller: AbortController;
+    promise: Promise<void>;
+  } | null>(null);
+  const [refreshing, setRefreshing] = useState(false),
+    [verified, setVerified] = useState(false);
+  const [loadError, setLoadError] = useState(""),
+    [slow, setSlow] = useState(false);
+  const [archived, setArchived] = useState<WorkspaceView[] | null>(null);
+  const [historyError, setHistoryError] = useState(""),
+    [historyBusy, setHistoryBusy] = useState(false);
+  const [pricesBusy, setPricesBusy] = useState(false),
+    [priceError, setPriceError] = useState("");
   const [chatProvider, setChatProvider] = useState<"runpod" | "groq">("runpod");
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [syncWarning, setSyncWarning] = useState(""),
-    [busy, setBusy] = useState(false);
+    [mutating, setBusy] = useState(false);
+  const busy = mutating || !verified;
   const [apiKey, setApiKey] = useState(""),
     [template, setTemplate] = useState<WorkspaceTemplate | null>(null),
     [teamId, setTeamId] = useState(""),
@@ -99,85 +126,213 @@ export default function GpuWorkspace({ data }: ViewProps) {
     const timer = setTimeout(() => setNotice(""), 5000);
     return () => clearTimeout(timer);
   }, [notice]);
-  const load = useCallback(async () => {
-    try {
-      const next: State = await api("workspace/state");
-      const previous = templateBaseline.current;
-      templateBaseline.current = next.templates;
-      setState(next);
-      setTemplate((t) => {
-        if (!t)
-          return (
-            next.templates.find((t) => !t.services || t.services === "both") ??
-            next.defaultTemplate
-          );
-        const old = previous.find((s) => s.id === t.id);
-        const unchanged =
-          old &&
-          Object.entries(t).every(
-            ([field, value]) => Reflect.get(old, field) === value,
-          );
-        return unchanged ? (next.templates.find((s) => s.id === t.id) ?? t) : t;
-      });
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const load = useCallback((): Promise<void> => {
+    if (!activeRef.current) return Promise.resolve();
+    if (flight.current && !flight.current.controller.signal.aborted)
+      return flight.current.promise;
+    const controller = new AbortController();
+    setRefreshing(true);
+    setLoadError("");
+    const promise = (async () => {
+      try {
+        const next: State = await api(
+          "workspace/state?view=current",
+          undefined,
+          "",
+          AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+        );
+        if (controller.signal.aborted || !activeRef.current) return;
+        const previous = templateBaseline.current;
+        templateBaseline.current = next.templates;
+        setState(next);
+        setVerified(true);
+        setTemplate((t) => {
+          if (!t)
+            return (
+              next.templates.find(
+                (t) => !t.services || t.services === "both",
+              ) ?? next.defaultTemplate
+            );
+          const old = previous.find((s) => s.id === t.id);
+          const unchanged =
+            old &&
+            Object.entries(t).every(
+              ([field, value]) => Reflect.get(old, field) === value,
+            );
+          return unchanged
+            ? (next.templates.find((s) => s.id === t.id) ?? t)
+            : t;
+        });
+      } catch {
+        if (!controller.signal.aborted && activeRef.current) {
+          setLoadError("Chưa tải được trạng thái Workspace. Hãy thử lại.");
+          setVerified(false);
+        }
+      } finally {
+        if (flight.current?.controller === controller) {
+          flight.current = null;
+          setRefreshing(false);
+        }
+      }
+    })();
+    flight.current = { controller, promise };
+    return promise;
+  }, []);
+  const loadHistory = useCallback((): Promise<void> => {
+    if (!activeRef.current) return Promise.resolve();
+    if (
+      historyFlight.current &&
+      !historyFlight.current.controller.signal.aborted
+    )
+      return historyFlight.current.promise;
+    const controller = new AbortController();
+    setHistoryBusy(true);
+    setHistoryError("");
+    const promise = (async () => {
+      try {
+        const next: State = await api(
+          "workspace/state?view=history",
+          undefined,
+          "",
+          AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+        );
+        if (!controller.signal.aborted && activeRef.current)
+          setArchived(next.workspaces.filter((w) => w.status === "terminated"));
+      } catch {
+        if (!controller.signal.aborted && activeRef.current)
+          setHistoryError("Chưa tải được GPU đã thu hồi. Hãy thử lại.");
+      } finally {
+        if (historyFlight.current?.controller === controller) {
+          historyFlight.current = null;
+          setHistoryBusy(false);
+        }
+      }
+    })();
+    historyFlight.current = { controller, promise };
+    return promise;
   }, []);
   useEffect(() => {
+    activeRef.current = active;
+    if (!active) {
+      setVerified(false);
+      setApiKey("");
+      return;
+    }
     void load();
     const timer = setInterval(
       () => void load(),
       data.user.admin ? 10000 : 30000,
     );
-    return () => clearInterval(timer);
-  }, [load, data.user.admin]);
+    const focus = () => void load();
+    window.addEventListener("focus", focus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", focus);
+      activeRef.current = false;
+      flight.current?.controller.abort();
+      historyFlight.current?.controller.abort();
+      priceFlight.current?.controller.abort();
+    };
+  }, [load, data.user.admin, active]);
   useEffect(() => {
-    if (!data.user.admin || !roundId) return;
-    let active = true;
+    if (!refreshing) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(timer);
+  }, [refreshing]);
+  useEffect(() => {
+    if (active && allocationTab === "history") void loadHistory();
+  }, [active, allocationTab, loadHistory, state?.counts?.history]);
+  useEffect(() => {
+    if (!active || !data.user.admin || !roundId) return;
+    let current = true;
+    const controller = new AbortController();
     setTeamOptions((previous) => ({
       roundId,
       teams: previous.roundId === roundId ? previous.teams : [],
       loading: previous.roundId !== roundId || !previous.teams.length,
     }));
-    void api("workspace/teams", undefined, roundId)
+    void api(
+      "workspace/teams",
+      undefined,
+      roundId,
+      AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+    )
       .then((result: Awaited<ReturnType<typeof workspaceTeams>>) => {
-        if (!active) return;
+        if (!current) return;
         setTeamOptions(result);
         setTeamId((selected) =>
           result.teams.some((t) => t.id === selected) ? selected : "",
         );
       })
       .catch((e: Error) => {
-        if (active) setTeamOptions({ roundId, teams: [], error: e.message });
+        if (current) setTeamOptions({ roundId, teams: [], error: e.message });
       });
     return () => {
-      active = false;
+      current = false;
+      controller.abort();
     };
-  }, [data.user.admin, roundId, state?.serverNow]);
+  }, [active, data.user.admin, roundId, data.serverNow]);
   const eligibleTeams =
     teamOptions.roundId === roundId ? teamOptions.teams : [];
   useEffect(() => {
     if (services === "jupyter" && template?.jupyterMode === "team-hub")
       setScope("all");
   }, [services, template?.jupyterMode]);
-  useEffect(() => {
-    if (!data.user.admin || !state?.hasCredential || chatProvider !== "runpod") return;
-    let active = true;
-    const refreshPrices = async () => {
+  const refreshPrices = useCallback((): Promise<void> => {
+    if (!activeRef.current) return Promise.resolve();
+    if (priceFlight.current && !priceFlight.current.controller.signal.aborted)
+      return priceFlight.current.promise;
+    const controller = new AbortController();
+    setPricesBusy(true);
+    setPriceError("");
+    const promise = (async () => {
       try {
-        const next = await api("workspace/prices");
-        if (active) setPrices(next);
+        const next = await api(
+          "workspace/prices",
+          undefined,
+          "",
+          AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+        );
+        if (!controller.signal.aborted && activeRef.current) setPrices(next);
       } catch {
-        /* Keep the timestamp of the last successful quote; manual refresh reports errors. */
+        if (!controller.signal.aborted && activeRef.current)
+          setPriceError(
+            "Chưa cập nhật được giá GPU. Bạn vẫn có thể sử dụng các dịch vụ đã cấp.",
+          );
+      } finally {
+        if (priceFlight.current?.controller === controller) {
+          priceFlight.current = null;
+          setPricesBusy(false);
+        }
       }
-    };
+    })();
+    priceFlight.current = { controller, promise };
+    return promise;
+  }, []);
+  useEffect(() => {
+    if (
+      !active ||
+      !data.user.admin ||
+      !state?.hasCredential ||
+      chatProvider !== "runpod"
+    )
+      return;
     void refreshPrices();
     const timer = setInterval(() => void refreshPrices(), 60000);
     return () => {
-      active = false;
       clearInterval(timer);
+      priceFlight.current?.controller.abort();
     };
-  }, [data.user.admin, state?.hasCredential, chatProvider]);
+  }, [
+    active,
+    data.user.admin,
+    state?.hasCredential,
+    chatProvider,
+    refreshPrices,
+  ]);
   useEffect(() => {
     if (data.contest?.roundId) setRoundId(data.contest.roundId);
   }, [data.contest?.roundId]);
@@ -192,36 +347,42 @@ export default function GpuWorkspace({ data }: ViewProps) {
   // Refresh shared and private Pods, not just the first allocation.
   useEffect(() => {
     const ids = syncIds ? syncIds.split(",") : [];
-    if (!ids.length) return;
-    let active = true;
+    if (!active || !ids.length) return;
+    let current = true;
+    let running = false;
     const refresh = async () => {
+      if (running) return;
+      running = true;
       try {
         const results = await Promise.allSettled(
           ids.map((id) => api("workspace/sync", { id })),
         );
         const failed = results.find((r) => r.status === "rejected");
         if (failed?.status === "rejected") throw failed.reason;
-        if (active) {
+        if (current) {
           setSyncWarning("");
           await load();
         }
       } catch (e) {
-        if (active)
+        if (current)
           setSyncWarning(
             data.user.admin
               ? `Chưa cập nhật được trạng thái Pod: ${(e as Error).message} Thời điểm đối soát cuối vẫn được hiển thị bên dưới.`
               : "Trạng thái GPU chưa được cập nhật. Vui lòng thử lại sau.",
           );
+      } finally {
+        running = false;
       }
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 30000);
     return () => {
-      active = false;
+      current = false;
       clearInterval(timer);
     };
-  }, [syncIds, load, data.user.admin]);
+  }, [active, syncIds, load, data.user.admin]);
   async function run(fn: () => Promise<unknown>, message: string) {
+    if (mutating || !verified) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -391,8 +552,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
     );
   const current =
     state?.workspaces.filter((w) => w.status !== "terminated") ?? [];
-  const history =
-    state?.workspaces.filter((w) => w.status === "terminated") ?? [];
+  const history = archived ?? [];
   const visibleWorkspaces =
     allocationTab === "current"
       ? current.filter(
@@ -545,12 +705,58 @@ export default function GpuWorkspace({ data }: ViewProps) {
               {notice}
             </span>
           )}
-          <button className="btn" onClick={() => void load()} disabled={busy}>
+          <button
+            className="btn"
+            onClick={() => void load()}
+            disabled={mutating || refreshing}
+          >
             <RefreshCw size={16} />
             Làm mới
           </button>
         </div>
       </div>
+      {state && (
+        <p className="workspace-freshness" role="status">
+          {refreshing && <span className="loader" aria-hidden="true" />}
+          {refreshing
+            ? "Đang cập nhật trạng thái…"
+            : !verified
+              ? "Đang hiển thị dữ liệu lần xem trước"
+              : "Đã cập nhật"}
+          <span>
+            ·{" "}
+            {new Date(state.serverNow).toLocaleTimeString("vi-VN", {
+              timeZone: "Asia/Ho_Chi_Minh",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })}
+          </span>
+        </p>
+      )}
+      {loadError && (
+        <div className="alert workspace-section-error" role="alert">
+          <p>
+            {loadError}
+            {state
+              ? " Dữ liệu lần xem trước được giữ lại; các thao tác quản trị tạm khóa."
+              : ""}
+          </p>
+          <button
+            className="btn small-btn"
+            onClick={() => void load()}
+            disabled={refreshing}
+          >
+            Thử tải Workspace
+          </button>
+        </div>
+      )}
+      {slow && refreshing && (
+        <p role="status">
+          Việc tải đang lâu hơn bình thường. Nội dung sẽ cập nhật khi có kết
+          quả.
+        </p>
+      )}
       {error && (
         <div className="alert error" role="alert">
           {data.user.admin
@@ -563,7 +769,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
           {syncWarning}
         </div>
       )}
-      {!state && <p role="status">Đang tải GPU Workspace…</p>}
+      {!state && !loadError && <WorkspaceSkeleton />}
       {state && (
         <section className="gpu-allocations">
           <div className="section-title">
@@ -583,7 +789,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 className={allocationTab === "history" ? "active" : ""}
                 onClick={() => setAllocationTab("history")}
               >
-                Đã thu hồi <span>{history.length}</span>
+                Đã thu hồi{" "}
+                <span>{state.counts?.history ?? history.length}</span>
               </button>
             </div>
           </div>
@@ -618,13 +825,35 @@ export default function GpuWorkspace({ data }: ViewProps) {
                 admin={data.user.admin}
               />
             )}
-          {allocationTab === "history" && !history.length && (
-            <div className="panel gpu-empty">
-              <Cpu size={30} />
-              <h3>Chưa có GPU đã thu hồi</h3>
-              <p>Lịch sử GPU sẽ xuất hiện tại đây.</p>
+          {allocationTab === "history" && historyError && (
+            <div className="alert workspace-section-error" role="alert">
+              <p>{historyError}</p>
+              <button
+                className="btn small-btn"
+                disabled={historyBusy}
+                onClick={() => void loadHistory()}
+              >
+                Thử tải lịch sử GPU
+              </button>
             </div>
           )}
+          {allocationTab === "history" && historyBusy && !archived && (
+            <WorkspaceSkeleton label="Đang tải GPU đã thu hồi…" />
+          )}
+          {allocationTab === "history" && historyBusy && archived && (
+            <p role="status">Đang cập nhật GPU đã thu hồi…</p>
+          )}
+          {allocationTab === "history" &&
+            archived &&
+            !historyBusy &&
+            !historyError &&
+            !history.length && (
+              <div className="panel gpu-empty">
+                <Cpu size={30} />
+                <h3>Chưa có GPU đã thu hồi</h3>
+                <p>Lịch sử GPU sẽ xuất hiện tại đây.</p>
+              </div>
+            )}
           {(["all", "team"] as const).map((group) => {
             const items = visibleWorkspaces.filter((w) => w.scope === group);
             if (!items.length) return null;
@@ -650,15 +879,38 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </section>
             );
           })}
-          {data.user.admin && <p className="gpu-hint">
-            Chi phí là ước tính theo đơn giá × thời gian quan sát, có thể khác
-            hóa đơn Runpod. Dừng Pod vẫn có phí volume; thu hồi Pod xóa dữ liệu
-            volume của Pod. Đóng tab không dừng kernel hay dừng tính phí.
-          </p>}
+          {data.user.admin && (
+            <p className="gpu-hint">
+              Chi phí là ước tính theo đơn giá × thời gian quan sát, có thể khác
+              hóa đơn Runpod. Dừng Pod vẫn có phí volume; thu hồi Pod xóa dữ
+              liệu volume của Pod. Đóng tab không dừng kernel hay dừng tính phí.
+            </p>
+          )}
         </section>
       )}
-      {data.user.admin && <section className="panel gpu-panel"><label>Nhà cung cấp khi cấp phát<select value={chatProvider} onChange={e => setChatProvider(e.target.value as "runpod" | "groq")}><option value="runpod">Runpod · GPU, JupyterLab và Chatbot</option><option value="groq">Groq · Chatbot qua API</option></select></label></section>}
-      {data.user.admin && chatProvider === "groq" && <GroqAdmin data={data} refresh={load} />}
+      {data.user.admin && (
+        <section className="panel gpu-panel">
+          <label>
+            Nhà cung cấp khi cấp phát
+            <select
+              value={chatProvider}
+              onChange={(e) =>
+                setChatProvider(e.target.value as "runpod" | "groq")
+              }
+            >
+              <option value="runpod">
+                Runpod · GPU, JupyterLab và Chatbot
+              </option>
+              <option value="groq">Groq · Chatbot qua API</option>
+            </select>
+          </label>
+        </section>
+      )}
+      {active && data.user.admin && chatProvider === "groq" && (
+        <fieldset className="gpu-config-fieldset" disabled={busy}>
+          <GroqAdmin data={data} refresh={load} />
+        </fieldset>
+      )}
       {state && data.user.admin && (
         <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
@@ -783,17 +1035,22 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </p>
               <button
                 className="btn"
-                disabled={busy || !state.hasCredential}
-                onClick={() =>
-                  void run(
-                    async () => setPrices(await api("workspace/prices")),
-                    "Đã cập nhật giá Runpod.",
-                  )
-                }
+                disabled={busy || pricesBusy || !state.hasCredential}
+                onClick={() => void refreshPrices()}
               >
                 <RefreshCw size={16} />
-                Cập nhật giá
+                {pricesBusy ? "Đang lấy giá…" : "Cập nhật giá"}
               </button>
+              {priceError && (
+                <p className="workspace-section-error" role="status">
+                  {priceError} Bấm Cập nhật giá để thử lại.
+                </p>
+              )}
+              {!prices && pricesBusy && (
+                <p role="status">
+                  Đang tải giá GPU. Chatbot và JupyterLab đã cấp vẫn dùng được.
+                </p>
+              )}
               {prices && (
                 <small className="gpu-price-time">
                   Báo giá {when(prices.fetchedAt)} · cache tối đa 60 giây
@@ -1302,7 +1559,9 @@ function WorkspaceCard({
                 detail={
                   w.health?.chatLocked
                     ? "Đã khóa theo giờ của vòng luyện"
-                    : admin ? w.health?.modelStage : "Trợ lý AI của đội"
+                    : admin
+                      ? w.health?.modelStage
+                      : "Trợ lý AI của đội"
                 }
                 href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
               />

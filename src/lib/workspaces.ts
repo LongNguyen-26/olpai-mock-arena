@@ -61,8 +61,14 @@ import {
 import { readTemplates, saveSharedTemplate } from "./workspace-templates";
 import { workspaceDeployment } from "./workspace-config";
 import { usingPostgres } from "./sql";
-import { readTeam,readTeams } from "./entity-repository";
-import { readGpuCredential,saveGpuCredential,readWorkspaceRecord,readWorkspaceRecords,putSqlTemplate } from "./gpu-repository";
+import { readTeam, readTeams, readRounds } from "./entity-repository";
+import {
+  readGpuCredential,
+  saveGpuCredential,
+  readWorkspaceRecord,
+  readWorkspaceRecords,
+  putSqlTemplate,
+} from "./gpu-repository";
 import { withReadScope } from "./read-scope";
 import {
   hasService,
@@ -164,9 +170,7 @@ export async function accessWorkspace(user: SafeUser, id: string) {
   if (!roundVisible(c, user.admin))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (!user.admin) {
-    const team = user.teamId
-      ? await readTeam(user.teamId)
-      : null;
+    const team = user.teamId ? await readTeam(user.teamId) : null;
     if (
       !team ||
       (!isShared(w) && team.id !== w.teamId) ||
@@ -190,25 +194,49 @@ export async function withChatPolicy(w: Workspace) {
     Object.assign(template, { [field]: saved[field] });
   return { ...w, contextWindowTokens, template };
 }
-export async function workspaceState(user: SafeUser) {
-  return usingPostgres()?withReadScope(()=>workspaceStateSnapshot(user)):workspaceStateSnapshot(user);
+export type WorkspaceList = "all" | "current" | "history";
+export async function workspaceState(
+  user: SafeUser,
+  view: WorkspaceList = "all",
+) {
+  return withReadScope(() => workspaceStateSnapshot(user, view));
 }
-async function workspaceStateSnapshot(user:SafeUser) {
+async function workspaceStateSnapshot(user: SafeUser, view: WorkspaceList) {
   const [all, now, templates, hasCredential] = await Promise.all([
     allWorkspaces(),
     serverNow(),
-    user.admin ? readTemplates(user.id) : null,
-    user.admin ? readGpuCredential(user.id) : false,
+    user.admin && view !== "history" ? readTemplates(user.id) : null,
+    user.admin && view !== "history" ? readGpuCredential(user.id) : false,
   ]);
-  const team =
-    !user.admin && user.teamId
-      ? await readTeam(user.teamId)
-      : null;
+  const team = !user.admin && user.teamId ? await readTeam(user.teamId) : null;
   const member = !!team?.members.includes(user.id);
-  return {
-    chatGroups: await chatGroupViews(user),
-    chatOperations: user.admin
-      ? await Promise.all(
+  const candidates = all.filter(
+    (w) =>
+      user.admin ||
+      (member &&
+        hubVisible(w, user) &&
+        (isShared(w) || w.teamId === user.teamId)),
+  );
+  // Counts need visibility, not worker telemetry or run materialization for
+  // every archived Pod. The selected rows recheck live policy below.
+  const roundIds = user.admin
+    ? []
+    : [...new Set(candidates.map((w) => w.roundId))];
+  const rounds = await readRounds(roundIds);
+  const visibleRounds = new Set(
+    roundIds.filter((_, i) => roundVisible(rounds[i])),
+  );
+  const visible = user.admin
+    ? candidates
+    : candidates.filter((w) => visibleRounds.has(w.roundId));
+  const counts = {
+    current: visible.filter((w) => w.status !== "terminated").length,
+    history: visible.filter((w) => w.status === "terminated").length,
+  };
+  const [chatGroups, chatOperations, workspaces, teams] = await Promise.all([
+    view === "history" ? [] : chatGroupViews(user),
+    user.admin && view !== "history"
+      ? Promise.all(
           all
             .filter((w) => hasService(w, "llm") && w.status !== "terminated")
             .map(async (w) => ({
@@ -227,80 +255,94 @@ async function workspaceStateSnapshot(user:SafeUser) {
             })),
         )
       : [],
-    workspaces: (
-      await Promise.all(
-        all
-          .filter(
-            (w) =>
-              user.admin ||
-              (member &&
-                hubVisible(w, user) &&
-                (isShared(w) || w.teamId === user.teamId)),
-          )
-          .map(async (record) => {
-            let c: Contest;
-            try {
-              c = await getContest(record.roundId);
-            } catch (error) {
-              if (!(error instanceof ApiError) || error.status !== 404)
-                throw error;
-              return user.admin
-                ? {
-                    ...workspaceView(record, now, user.admin),
-                    notebookEnabled: false,
-                    chatbotEnabled: false,
-                    accessMessage: "Vòng luyện đã được xóa.",
-                  }
-                : null;
-            }
-            if (!roundVisible(c, user.admin)) return null;
-            const w = await currentRun(record, c);
-            let registered = true;
-            try {
-              if (!isShared(w) || isTeamHub(w))
-                await requireRegistration(user, c);
-            } catch {
-              registered = false;
-            }
-            const worker = hasService(w, "llm")
+    Promise.all(
+      visible
+        .filter(
+          (w) =>
+            view === "all" ||
+            (view === "history"
+              ? w.status === "terminated"
+              : w.status !== "terminated"),
+        )
+        .map(async (record) => {
+          let c: Contest;
+          try {
+            c = await getContest(record.roundId);
+          } catch (error) {
+            if (!(error instanceof ApiError) || error.status !== 404)
+              throw error;
+            return user.admin
+              ? {
+                  ...workspaceView(record, now, user.admin),
+                  notebookEnabled: false,
+                  chatbotEnabled: false,
+                  accessMessage: "Vòng luyện đã được xóa.",
+                }
+              : null;
+          }
+          if (!roundVisible(c, user.admin)) return null;
+          const w = await currentRun(record, c);
+          let registered = true;
+          try {
+            if (!isShared(w) || isTeamHub(w))
+              await requireRegistration(user, c);
+          } catch {
+            registered = false;
+          }
+          const worker =
+            w.status !== "terminated" && hasService(w, "llm")
               ? await db().get<ChatWorker>(workerKey(w.id))
               : null;
-            const access = workspaceAccess(w, c, now, user.admin, registered);
-            const hub = isTeamHub(w)
-              ? await hubView(w, user, now, c.chatEpoch ?? 0)
-              : undefined;
-            const notebook = hub?.teams.find((t) => t.teamId === user.teamId);
-            return {
-              ...workspaceView(await withChatPolicy(w), now, user.admin),
-              ...access,
-              ...(isTeamHub(w)
-                ? {
-                    hub,
-                    notebookEnabled:
-                      access.notebookEnabled &&
-                      hubBound(w) &&
-                      (user.admin ||
-                        !!(
-                          hub?.hubReady &&
-                          notebook?.enabled &&
-                          notebook.desiredState === "running" &&
-                          notebook.server?.state === "ready"
-                        )),
-                  }
-                : {}),
-              chatbotEnabled:
-                access.chatbotEnabled &&
-                !!worker?.ready &&
-                supportedQueueProtocol(worker.protocol) &&
-                worker.runId === c.id &&
-                now - worker.heartbeatAt < 45000 &&
-                !worker.draining,
-            };
-          }),
-      )
-    )
+          const access = workspaceAccess(w, c, now, user.admin, registered);
+          const hub = isTeamHub(w)
+            ? await hubView(w, user, now, c.chatEpoch ?? 0)
+            : undefined;
+          const notebook = hub?.teams.find((t) => t.teamId === user.teamId);
+          return {
+            ...workspaceView(await withChatPolicy(w), now, user.admin),
+            ...access,
+            ...(isTeamHub(w)
+              ? {
+                  hub,
+                  notebookEnabled:
+                    access.notebookEnabled &&
+                    hubBound(w) &&
+                    (user.admin ||
+                      !!(
+                        hub?.hubReady &&
+                        notebook?.enabled &&
+                        notebook.desiredState === "running" &&
+                        notebook.server?.state === "ready"
+                      )),
+                }
+              : {}),
+            chatbotEnabled:
+              access.chatbotEnabled &&
+              !!worker?.ready &&
+              supportedQueueProtocol(worker.protocol) &&
+              worker.runId === c.id &&
+              now - worker.heartbeatAt < 45000 &&
+              !worker.draining,
+          };
+        }),
+    ),
+    user.admin && view !== "history"
+      ? readTeams().then((store) =>
+          Object.values(store).map((t) => ({
+            id: t.id,
+            name: t.name,
+            members: t.members.length,
+          })),
+        )
+      : [],
+  ]);
+  return {
+    chatGroups,
+    chatOperations,
+    workspaces: workspaces
       .filter((w) => w !== null)
       .sort((a, b) => b.createdAt - a.createdAt),
+    counts,
     templates: user.admin ? Object.values(templates ?? {}) : [],
     defaultTemplate: user.admin
       ? {
@@ -314,11 +356,7 @@ async function workspaceStateSnapshot(user:SafeUser) {
     encryptionReady:
       Buffer.from(process.env.GPU_WORKSPACE_ENCRYPTION_KEY ?? "", "base64")
         .length === 32,
-    teams: user.admin
-      ? Object.values(
-          await readTeams(),
-        ).map((t) => ({ id: t.id, name: t.name, members: t.members.length }))
-      : [],
+    teams,
     serverNow: now,
   };
 }
@@ -348,7 +386,10 @@ export async function saveTemplate(
 ) {
   // Internal QA/legacy setup can still initialize the shared catalogue.
   if (!owner) {
-    if(usingPostgres()) { await putSqlTemplate(t,"legacy"); return t; }
+    if (usingPostgres()) {
+      await putSqlTemplate(t, "legacy");
+      return t;
+    }
     await db().hset(key("gpu:templates"), { [t.id]: t });
     return t;
   }
@@ -440,7 +481,8 @@ export async function deployWorkspace(
     return workspaceView(existing, await serverNow());
   }
   const group = options.groupId ? await getChatGroup(options.groupId) : null;
-  if (group?.provider === "groq") throw new ApiError("Chatbot Groq không sử dụng Pod.", 409);
+  if (group?.provider === "groq")
+    throw new ApiError("Chatbot Groq không sử dụng Pod.", 409);
   if (
     group &&
     (group.ownerId !== user.id ||

@@ -10,6 +10,8 @@ Chatbot hỗ trợ [Groq API với key riêng của từng admin](docs/GROQ_CHAT
 
 Thí sinh sử dụng Trợ lý AI với [lịch sử chung của đội theo vòng luyện](docs/CHAT_HISTORY.md), token còn lại và bộ đếm ký tự. Lịch sử được giữ sau khi vòng kết thúc.
 
+[GPU Workspace tải theo từng phần](docs/WORKSPACE_LOADING.md), có khung chờ và giữ nội dung khi quay lại; danh sách đã thu hồi tải khi mở tab.
+
 GPU Workspace: admin cấp Pod riêng/chung cho JupyterLab và DeepSeek 32B Q4; nhóm nhiều Pod Chatbot có hàng đợi công bằng, template dùng chung giữa admin và trần tổng token chỉnh được. Thí sinh chỉ thấy prompt/câu trả lời, không có trạng thái hàng đợi hoặc nút hủy. Xem [hàng đợi và nhóm Chatbot](docs/CHAT_QUEUE.md), [cấu hình GPU Workspace](docs/GPU_WORKSPACE.md).
 
 Jupyter-only có thêm [JupyterHub theo team](docs/JUPYTERHUB.md): nhiều Lab riêng trên một Pod, cộng tác hai máy, cấp team động, nhận Pod manual và bảng đăng ký GPU tự quản. Pod cũ giữ chế độ một Lab.

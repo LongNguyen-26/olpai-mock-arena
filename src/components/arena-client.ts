@@ -37,15 +37,16 @@ export class ApiClientError extends Error {
     super(message);
   }
 }
-export async function api(route: string, value?: unknown, round = "") {
+export async function api(route: string, value?: unknown, round = "", signal?: AbortSignal) {
   const res = await fetch(
     endpoint(route, round),
     value === undefined
-      ? { cache: "no-store" }
+      ? { cache: "no-store", signal }
       : {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(value),
+          signal,
         },
   );
   const data = await res.json();

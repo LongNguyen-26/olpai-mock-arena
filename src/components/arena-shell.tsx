@@ -27,6 +27,7 @@ import {
 import { phaseOf } from "@/lib/domain";
 import RoundAdmin, { PublishRound } from "./round-admin";
 import GpuWorkspace from "./gpu-workspace";
+import ArenaLoading from "./arena-loading";
 import AdminRoster from "./admin-roster";
 import RoundCard from "./round-card";
 import { ProfileView, signOut, TeamView } from "./team-profile";
@@ -78,6 +79,9 @@ export const names = {
   ended: "Đã kết thúc",
 };
 export default function Arena() {
+  const [workspaceMounted, setWorkspaceMounted] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [bootAttempt, setBootAttempt] = useState(0);
   const [data, setData] = useState<ArenaData | null>(null),
     [section, setSection] = useState<Section>("rounds"),
     [error, setError] = useState(""),
@@ -92,12 +96,13 @@ export default function Arena() {
     const seq = ++sequence.current;
     controller.current?.abort();
     const abort = new AbortController();
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(20000)]);
     controller.current = abort;
     try {
       const started = Date.now();
       let response = await fetch(endpoint("arena", id), {
         cache: "no-store",
-        signal: abort.signal,
+        signal,
       });
       let next = await response.json();
       if (response.status === 404 && id && seq === sequence.current) {
@@ -113,7 +118,7 @@ export default function Arena() {
         );
         response = await fetch(endpoint("arena"), {
           cache: "no-store",
-          signal: abort.signal,
+          signal,
         });
         next = await response.json();
       }
@@ -127,7 +132,13 @@ export default function Arena() {
         !(e instanceof DOMException && e.name === "AbortError") &&
         seq === sequence.current
       )
-        setError(e instanceof Error ? e.message : "Không thể tải dữ liệu.");
+        setError(
+          e instanceof DOMException && e.name === "TimeoutError"
+            ? "Việc tải mất quá lâu. Vui lòng thử lại."
+            : e instanceof Error
+              ? e.message
+              : "Không thể tải dữ liệu.",
+        );
     }
   }, []);
   useEffect(() => {
@@ -169,6 +180,14 @@ export default function Arena() {
     const timer = setTimeout(() => setToast(""), 5000);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (section === "workspace") setWorkspaceMounted(true);
+  }, [section]);
+  useEffect(() => {
+    if (data) return;
+    const timer = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(timer);
+  }, [data, bootAttempt]);
   const c = data?.contest ?? null,
     phase = c ? phaseOf(c, clock + offset) : "waiting";
   useEffect(() => {
@@ -210,23 +229,17 @@ export default function Arena() {
   };
   if (!data)
     return (
-      <div className="loading-screen">
-        <span className="brand-symbol">
-          A<span>·</span>
-        </span>
-        <h2>Đang kết nối môi trường thi…</h2>
-        {error ? (
-          <>
-            <p role="alert">{error}</p>
-            <button className="btn" onClick={() => load()}>
-              Thử lại
-            </button>
-            <a href="/login">Đăng nhập</a>
-          </>
-        ) : (
-          <div className="loader" />
-        )}
-      </div>
+      <ArenaLoading
+        workspace={section === "workspace"}
+        error={error}
+        slow={slow}
+        onRetry={() => {
+          setSlow(false);
+          setError("");
+          setBootAttempt((n) => n + 1);
+          void load();
+        }}
+      />
     );
   const isAdmin = data.user.admin,
     transitioning = (c?.roundId ?? "") !== selected.current,
@@ -430,7 +443,7 @@ export default function Arena() {
                     admin={isAdmin}
                     busy={busy}
                     action={action}
-                    order={data.rounds.map(r => r.id)}
+                    order={data.rounds.map((r) => r.id)}
                     onVisibility={(hidden) =>
                       void action(
                         "admin/control",
@@ -516,7 +529,15 @@ export default function Arena() {
           {inside && section === "leaderboard" && <BoardView {...views} />}
           {section === "team" && !isAdmin && <TeamView {...props} />}{" "}
           {section === "settings" && <ProfileView {...props} />}{" "}
-          {section === "workspace" && <GpuWorkspace {...props} />}
+          {(section === "workspace" || workspaceMounted) && (
+            <div hidden={section !== "workspace"}>
+              <GpuWorkspace
+                key={`${data.user.id}:${data.user.admin}:${data.user.teamId ?? ""}`}
+                {...props}
+                active={section === "workspace"}
+              />
+            </div>
+          )}
           {section === "people" && isAdmin && <AdminRoster />}
           {inside && isAdmin && section === "admin" && (
             <RoundAdmin {...props} />

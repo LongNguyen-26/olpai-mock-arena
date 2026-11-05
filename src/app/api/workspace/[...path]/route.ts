@@ -308,7 +308,7 @@ async function handle(
       );
     }
     if (path === "state" && req.method === "GET")
-      return json(await workspaceState(user));
+      return json(await workspaceState(user, z.enum(["all","current","history"]).parse(url.searchParams.get("view")??"all")));
     if (path === "launch" && req.method === "GET")
       return NextResponse.redirect(
         await launchNotebook(

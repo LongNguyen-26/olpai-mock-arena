@@ -17,6 +17,7 @@ async page => {
     }
     if(path==='/api/workspace/groq/models')return route.fulfill({json:{models}});
     if(path==='/api/workspace/groq/deploy') { deployed.push(req.postDataJSON());example=true;return route.fulfill({status:201,json:{id:'00000000-0000-4000-8000-0000000000ab'}}); }
+    if(path==='/api/workspace/sync')return route.fulfill({json:{ok:true}});
     if(req.method()==='POST')return route.fulfill({status:409,json:{error:'Mutation blocked by browser QA'}});
     if(path==='/api/workspace/state') {
       const state=structuredClone(baseline);

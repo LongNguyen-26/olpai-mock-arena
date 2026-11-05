@@ -1155,3 +1155,25 @@
  .chat-content .chat-messages { padding-left:2px;padding-right:2px; }
 }
 @media(prefers-reduced-motion:reduce) { .chat-sidebar { transition:none; } }
+
+/* Loading keeps the page's shape while authenticated data streams in. */
+.skeleton { display:block;background:#e7ebef;border-radius:8px;animation:skeleton-pulse 1.8s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity:.48; } }
+.arena-loading-nav { display:grid;gap:20px;padding:32px 0; }
+.arena-loading-nav .skeleton { height:21px;width:80%;background:#33444e; }
+.workspace-loading-status { display:flex;align-items:center;gap:10px;font-size:12px; }
+.workspace-loading-status .loader { width:16px;height:16px;flex-shrink:0; }
+.workspace-skeleton-tabs { display:flex;gap:8px;margin:24px 0; }
+.workspace-skeleton-tabs i { width:130px;height:38px; }
+.workspace-skeleton-card { padding:26px;margin-bottom:24px; }
+.skeleton-heading { width:min(240px,65%);height:23px;margin-bottom:16px; }
+.skeleton-line { width:min(380px,85%);height:13px;margin-bottom:24px; }
+.workspace-skeleton-grid { display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px; }
+.workspace-skeleton-grid i { height:110px; }
+.skeleton-field { width:100%;height:46px; }
+.workspace-freshness { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 18px;font-size:11px;color:#778591; }
+.workspace-freshness .loader { width:13px;height:13px; }
+.gpu-config-fieldset { border:0;padding:0;margin:0;min-width:0; }
+.workspace-section-error { margin:18px 0; }
+@media(max-width:640px) { .workspace-skeleton-grid { grid-template-columns:1fr 1fr; }.workspace-skeleton-grid i:first-child { grid-column:1/-1; }.workspace-skeleton-card { padding:20px; } }
+@media(prefers-reduced-motion:reduce) { .skeleton { animation:none; } }
