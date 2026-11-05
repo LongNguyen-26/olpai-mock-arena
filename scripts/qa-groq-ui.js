@@ -53,7 +53,7 @@ async page => {
     if(req.method()==='POST'){s.messages.push({role:'user',content:v.content},{role:'assistant',content:'Groq QA: '+v.content});s.inputTokens+=20;s.outputTokens+=10;sessions.set(v.session,s);}
     return route.fulfill({status:req.method()==='POST'?202:200,json:{provider:'groq',model:models[0].id,session:s,template:{tokenLimitMode:'turn',sessionTokenLimit:2000,inputTokenLimit:1800,outputTokenLimit:1024},enabled:true,policyOpen:true,teamName:'QA team',roundTitle:'QA round',runId:'00000000-0000-4000-8000-0000000000ac'}});
   });
-  const chat=await page.context().newPage();await attach(chat);await chat.goto(base+'/workspace/chat?groupId='+group);
+  const chat=await page.context().newPage();await chat.setViewportSize({width:390,height:844});await attach(chat);await chat.goto(base+'/workspace/chat?groupId='+group);
   const ready=async p=>p.getByRole('textbox',{name:'Tin nhắn cho Chatbot'}).waitFor();
   await ready(chat);await chat.getByRole('textbox',{name:'Tin nhắn cho Chatbot'}).fill('tab A');await chat.getByRole('button',{name:'Gửi tin nhắn',exact:true}).click();await chat.getByText('Groq QA: tab A',{exact:true}).waitFor();
   const key='arena-chat:group:'+group,id=await chat.evaluate(k=>sessionStorage.getItem(k),key);
