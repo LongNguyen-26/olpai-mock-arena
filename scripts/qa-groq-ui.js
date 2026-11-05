@@ -48,6 +48,7 @@ async page => {
   const group='00000000-0000-4000-8000-0000000000ab',sessions=new Map();
   const attach=async p=>p.route('**/api/workspace/chat*',async route=>{
     const req=route.request(),u=new URL(req.url()),v=req.method()==='POST'?req.postDataJSON():Object.fromEntries(u.searchParams);
+    if(u.pathname==='/api/workspace/chat/history')return route.fulfill({json:{items:[],nextCursor:null,roundTitle:'QA round',runId:'00000000-0000-4000-8000-0000000000ac',admin:true}});
     const s=sessions.get(v.session)||{messages:[],inputTokens:0,outputTokens:0};
     if(req.method()==='POST'){s.messages.push({role:'user',content:v.content},{role:'assistant',content:'Groq QA: '+v.content});s.inputTokens+=20;s.outputTokens+=10;sessions.set(v.session,s);}
     return route.fulfill({status:req.method()==='POST'?202:200,json:{provider:'groq',model:models[0].id,session:s,template:{tokenLimitMode:'turn',sessionTokenLimit:2000,inputTokenLimit:1800,outputTokenLimit:1024},enabled:true,policyOpen:true,teamName:'QA team',roundTitle:'QA round',runId:'00000000-0000-4000-8000-0000000000ac'}});
@@ -61,6 +62,7 @@ async page => {
   if(await second.locator('.chat-message').count())throw new Error('Groq tabs share history');
   await chat.reload();await ready(chat);await chat.getByText('Groq QA: tab A',{exact:true}).waitFor();
   if(await chat.evaluate(k=>sessionStorage.getItem(k),key)!==id)throw new Error('Refresh changed session');
+  await chat.getByRole('button',{name:'Mở lịch sử trò chuyện'}).click();
   await chat.getByRole('button',{name:'Đoạn chat mới',exact:true}).click();
   if(await chat.evaluate(k=>sessionStorage.getItem(k),key)===id)throw new Error('New chat did not rotate session');
   await chat.screenshot({path:'output/playwright/groq-chat-mobile.png',fullPage:true});

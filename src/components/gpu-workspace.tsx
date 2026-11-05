@@ -563,8 +563,6 @@ export default function GpuWorkspace({ data }: ViewProps) {
           {syncWarning}
         </div>
       )}
-      {data.user.admin && <section className="panel gpu-panel"><label>Nhà cung cấp khi cấp phát<select value={chatProvider} onChange={e => setChatProvider(e.target.value as "runpod" | "groq")}><option value="runpod">Runpod · GPU, JupyterLab và Chatbot</option><option value="groq">Groq · Chatbot qua API</option></select></label></section>}
-      {data.user.admin && chatProvider === "groq" && <GroqAdmin data={data} refresh={load} />}
       {!state && <p role="status">Đang tải GPU Workspace…</p>}
       {state && (
         <section className="gpu-allocations">
@@ -652,13 +650,15 @@ export default function GpuWorkspace({ data }: ViewProps) {
               </section>
             );
           })}
-          <p className="gpu-hint">
+          {data.user.admin && <p className="gpu-hint">
             Chi phí là ước tính theo đơn giá × thời gian quan sát, có thể khác
             hóa đơn Runpod. Dừng Pod vẫn có phí volume; thu hồi Pod xóa dữ liệu
             volume của Pod. Đóng tab không dừng kernel hay dừng tính phí.
-          </p>
+          </p>}
         </section>
       )}
+      {data.user.admin && <section className="panel gpu-panel"><label>Nhà cung cấp khi cấp phát<select value={chatProvider} onChange={e => setChatProvider(e.target.value as "runpod" | "groq")}><option value="runpod">Runpod · GPU, JupyterLab và Chatbot</option><option value="groq">Groq · Chatbot qua API</option></select></label></section>}
+      {data.user.admin && chatProvider === "groq" && <GroqAdmin data={data} refresh={load} />}
       {state && data.user.admin && (
         <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
@@ -1302,7 +1302,7 @@ function WorkspaceCard({
                 detail={
                   w.health?.chatLocked
                     ? "Đã khóa theo giờ của vòng luyện"
-                    : w.health?.modelStage
+                    : admin ? w.health?.modelStage : "Trợ lý AI của đội"
                 }
                 href={`/workspace/chat?id=${encodeURIComponent(w.id)}`}
               />
@@ -1489,7 +1489,7 @@ function ServiceCard({
       <h4>{title}</h4>
       <p className="gpu-service-description">
         {chat
-          ? "Trợ lý DeepSeek · Hỏi đáp & lập trình"
+          ? "Trợ lý AI · Hỏi đáp & lập trình"
           : "Notebook · Dữ liệu & huấn luyện"}
       </p>
       <span className={`gpu-service-status ${enabled ? "is-ready" : ""}`}>
@@ -1508,14 +1508,14 @@ function ServiceCard({
                 ? "Chờ dịch vụ sẵn sàng và quyền truy cập"
                 : "Khả dụng sau khi GPU được bật và vòng luyện mở")}
       </small>
-      {enabled && href ? (
+      {(enabled || (chat && provided)) && href ? (
         <a
           className="btn"
           href={href}
           target="_blank"
           rel="noopener noreferrer"
         >
-          Mở {title}
+          {chat && !enabled ? "Xem lịch sử trò chuyện" : `Mở ${title}`}
           <ArrowUpRight size={17} />
         </a>
       ) : (

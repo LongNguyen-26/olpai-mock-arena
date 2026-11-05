@@ -98,7 +98,7 @@ export default function ChatGroups({
               <div>
                 <span className="chat-eyebrow">
                   <MessageSquare size={15} />
-                  {admin ? "Dịch vụ Chatbot" : "Trợ lý DeepSeek"}
+                  {admin ? "Dịch vụ Chatbot" : "Trợ lý AI"}
                 </span>
                 <h3>
                   {admin
@@ -131,13 +131,8 @@ export default function ChatGroups({
               className={`chat-group-overview ${admin ? "" : "is-contestant"}`}
             >
               <a
-                className={`chat-launch ${g.chatbotEnabled ? "is-enabled" : "is-locked"}`}
-                href={
-                  g.chatbotEnabled
-                    ? `/workspace/chat?groupId=${encodeURIComponent(g.id)}`
-                    : undefined
-                }
-                aria-disabled={!g.chatbotEnabled}
+                className={`chat-launch ${g.chatbotEnabled ? "is-enabled" : "is-history"}`}
+                href={`/workspace/chat?groupId=${encodeURIComponent(g.id)}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -145,11 +140,11 @@ export default function ChatGroups({
                   <MessageSquare size={27} />
                 </span>
                 <span>
-                  <strong>Mở Chatbot</strong>
+                  <strong>{g.chatbotEnabled ? "Mở Chatbot" : "Xem lịch sử trò chuyện"}</strong>
                   <small>
                     {g.chatbotEnabled
-                      ? `Hỏi đáp, phân tích & lập trình cùng ${g.provider === "groq" ? g.model : "DeepSeek"}`
-                      : "Chatbot sẽ mở khi dịch vụ và vòng luyện sẵn sàng"}
+                      ? (admin ? `Hỏi đáp, phân tích & lập trình cùng ${g.provider === "groq" ? g.model : "DeepSeek"}` : "Hỏi đáp, phân tích & lập trình cùng Trợ lý AI")
+                      : "Xem các cuộc trò chuyện đã lưu; gửi tin nhắn mới khi quyền Chatbot mở"}
                   </small>
                 </span>
                 <ArrowUpRight size={23} />
@@ -191,7 +186,7 @@ export default function ChatGroups({
             {admin && g.providerError && <div className="alert" role="status">{g.providerError}</div>}
             <div className="chat-group-toolbar">
               <div className="chat-group-cost">
-                {g.provider === "groq" ? <span>Groq · Tính phí theo token trên tài khoản của admin</span> : showCost ? (
+                {!admin ? <span>Chatbot do quản trị viên quản lý</span> : g.provider === "groq" ? <span>Groq · Tính phí theo token trên tài khoản của admin</span> : showCost ? (
                   <>
                     <span>Chi phí ước tính</span>
                     <strong>{usd(totalCost)}</strong>
@@ -354,7 +349,7 @@ export default function ChatGroups({
                 </div>
               </div>
             )}
-            {!members.length && g.provider !== "groq" && (
+            {!members.length && g.preparingResources && (
               <p className="chat-group-empty">
                 {admin
                   ? "Chưa có GPU hoạt động. Thêm Pod vào nhóm để cung cấp Chatbot."

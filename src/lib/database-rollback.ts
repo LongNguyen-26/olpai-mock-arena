@@ -40,12 +40,24 @@ export async function exportSqlSnapshot():Promise<DatabaseSnapshot> {
   for(const run of new Set(submissions.map(s=>s.runId)))hash(`submissions:${run}`,Object.fromEntries(submissions.filter(s=>s.runId===run).map(s=>[s.id,s])));
   for(const q of await query("select * from arena.submission_quotas where ns=$1",[ns]))string(`quota:${q.run_id}:${q.actor_id}:${q.task}:${q.split}`,String(q.used));
   const now=await sqlNow();
-  // Include durable records evicted from Redis, preserving their original TTL.
-  // Live Redis values take precedence if a runtime write is awaiting replay.
+  // Conversation retention is permanent even when a legacy Redis cache still
+  // has a TTL. Preserve newer live messages and merge durable routing metadata.
+  for(const r of records) {
+    const suffix=r.key.slice(prefix.length);
+    if(suffix.startsWith("gpu:chat:")||(suffix.startsWith("gpu:chat-group:")&&suffix.split(":").length>3))r.expiresAt=null;
+  }
   const present=new Set(records.map(r=>r.key));
   const locations:Record<string,string>={workspace:"gpu:workspace:","chat-group":"gpu:chat-group:","chat-group-session":"gpu:chat-group:","chat-session":"gpu:chat:","chat-job":"gpu:job:"};
   for(const r of await query("select kind,id,payload,expires_at from arena.runtime_history where ns=$1 and (expires_at is null or expires_at>$2)",[ns,now])) {
     const location=locations[r.kind];if(location&&!present.has(prefix+location+r.id))string(location+r.id,r.payload,r.expires_at===null?null:Number(r.expires_at));
+    else if(r.kind==="chat-session"||r.kind==="chat-group-session") {
+      const cached=records.find(record=>record.key===prefix+location+r.id);
+      if(cached) {
+        cached.expiresAt=null;
+        const value=typeof cached.value==="string"?JSON.parse(cached.value):cached.value;
+        if(!value.conversation&&r.payload.conversation)cached.value=JSON.stringify({...value,conversation:r.payload.conversation});
+      }
+    }
   }
   for(const r of await query("select * from arena.requests where ns=$1 and (expires_at is null or expires_at>$2)",[ns,now])) {
     const suffix=r.scope==="submission"?"request":r.scope==="round-control"?"round-control":r.scope==="quota-grant"?"quota-grant":null;

@@ -146,7 +146,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
       else if(k.startsWith("gpu:chat-group:")) {kind=k.split(":").length>3?"chat-group-session":"chat-group";id=k.slice(15);}
       else if(k.startsWith("gpu:chat:")) {kind="chat-session";id=k.slice(9);}
       else if(k.startsWith("gpu:job:")) {kind="chat-job";id=k.slice(8);}
-      if(kind) add("runtime_history",kind,id,raw.roundId??null,raw.runId??null,raw.ownerId??null,raw.status??null,JSON.stringify(raw),r.expiresAt,snapshot.exportedAt);
+      if(kind) add("runtime_history",kind,id,raw.conversation?.roundId??raw.roundId??null,raw.conversation?.runId??raw.runId??null,raw.ownerId??null,raw.status??null,JSON.stringify(raw),r.expiresAt,snapshot.exportedAt);
       else if(r.expiresAt===null&&!/^(user:|username:|teams$|code:|invites:|admins?$|packages$|rounds$|submission-file:|gpu:(active|workspaces$|chat-groups$|drain|templates:shared:ready|templates:version)|sql:|database:)/.test(k)) add("legacy_archive",k,r.type,JSON.stringify(r.value),r.expiresAt);
     }
   }

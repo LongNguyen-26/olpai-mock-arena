@@ -1,3 +1,4 @@
+import type { ConversationMetadata } from "./chat-conversation";
 import type { ChatPolicy } from "./chat-policy";
 import { z } from "zod";
 import { chatbotAllowed, notebookAllowed } from "./domain";
@@ -210,6 +211,7 @@ export interface ChatMessage {
   rejected?: boolean;
 }
 export interface ChatSession {
+  conversation?: ConversationMetadata;
   messages: ChatMessage[];
   inputTokens: number;
   outputTokens: number;

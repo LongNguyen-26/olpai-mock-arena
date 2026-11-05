@@ -1,3 +1,5 @@
+import { isConversationKind, jobConversation } from "./chat-conversation";
+import type { ChatSession } from "./workspace-domain";
 import { randomUUID } from "node:crypto";
 import { memoRead } from "./read-scope";
 import type { PoolClient } from "pg";
@@ -66,20 +68,22 @@ async function drainHistory(client:PoolClient,limit=20) {
     }
   }
   for(const raw of [...values.values()]) if(raw&&typeof raw==="object"&&"sessionKey" in raw&&typeof raw.sessionKey==="string") {
-    values.set(raw.sessionKey,await db().get(raw.sessionKey));
+    const session=await db().get<ChatSession>(raw.sessionKey);
+    if(session&&!session.conversation) session.conversation=jobConversation(raw as Record<string,unknown>,session,Date.now())??undefined;
+    values.set(raw.sessionKey,session);
   }
   const now=await sqlNow(client);
   for(const [k,raw] of values) {
     const kind=archiveKind(k); if(!kind||!raw||typeof raw!=="object") continue;
     const r=raw as Record<string,unknown>,ttl=await db().pttl(k);
     if(ttl===-2) continue;
-    const expiresAt=ttl<0?null:Math.floor((Date.now()+ttl)/1000)*1000;
+    const expiresAt=isConversationKind(kind[0])||ttl<0?null:Math.floor((Date.now()+ttl)/1000)*1000;
     await client.query(`insert into arena.runtime_history(ns,kind,id,round_id,run_id,owner_id,status,payload,expires_at,observed_at)
       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict(ns,kind,id) do update set
-      round_id=excluded.round_id,run_id=excluded.run_id,owner_id=excluded.owner_id,status=excluded.status,
-      payload=excluded.payload,expires_at=excluded.expires_at,observed_at=excluded.observed_at
+      round_id=coalesce(excluded.round_id,arena.runtime_history.round_id),run_id=coalesce(excluded.run_id,arena.runtime_history.run_id),owner_id=excluded.owner_id,status=excluded.status,
+      payload=case when excluded.kind in ('chat-session','chat-group-session') and excluded.payload->'conversation' is null and arena.runtime_history.payload->'conversation' is not null then excluded.payload||jsonb_build_object('conversation',arena.runtime_history.payload->'conversation') else excluded.payload end,expires_at=excluded.expires_at,observed_at=excluded.observed_at
       where arena.runtime_history.payload is distinct from excluded.payload or arena.runtime_history.expires_at is distinct from excluded.expires_at`,
-    [namespace(),kind[0],kind[1],r.roundId??null,r.runId??null,r.ownerId??null,r.status??null,JSON.stringify(raw),expiresAt,now]);
+    [namespace(),kind[0],kind[1],(r.conversation as Record<string,unknown>|undefined)?.roundId??r.roundId??null,(r.conversation as Record<string,unknown>|undefined)?.runId??r.runId??null,r.ownerId??null,r.status??null,JSON.stringify(raw),expiresAt,now]);
   }
   if(selected.length) afterSqlCommit(()=>db().eval(`for i=1,#ARGV,2 do if redis.call('HGET',KEYS[1],ARGV[i])==ARGV[i+1] then redis.call('HDEL',KEYS[1],ARGV[i]) end end;return 1`,[pendingKey()],selected.flat()));
 }
@@ -132,13 +136,24 @@ export async function readRuntimeHistory<T>(kind:string,id?:string):Promise<T[]>
   });
 }
 export async function readChatContext<T>(k:string):Promise<T|null> {
-  const cached=await db().get<T>(k);if(cached||!usingPostgres()) return cached;
+  const cached=await db().get<T>(k);
+  if(!usingPostgres()||(cached as ChatSession|null)?.conversation) return cached;
   const location=archiveKind(k);
   if(!location||!["chat-session","chat-group-session"].includes(location[0])) throw new Error("Invalid chat context key");
-  const rows=await query("select payload,expires_at from arena.runtime_history where ns=$1 and kind=$2 and id=$3 and expires_at>floor(extract(epoch from clock_timestamp())*1000)",[namespace(),...location]);
-  const row=rows[0];if(!row)return null;
-  const remaining=Number(row.expires_at)-Date.now();if(remaining<=0)return null;
-  await db().set(k,row.payload,{nx:true,px:remaining});
+  const rows=await query("select payload,expires_at from arena.runtime_history where ns=$1 and kind=$2 and id=$3 and (expires_at is null or expires_at>floor(extract(epoch from clock_timestamp())*1000))",[namespace(),...location]);
+  const row=rows[0];if(!row)return cached;
+  // A migration can enrich the durable snapshot while a legacy cache still
+  // exists. Merge only routing metadata, never overwrite live messages/usage.
+  if(cached) {
+    if(row.payload.conversation) await db().eval(`local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end
+      local s=cjson.decode(raw);if not s.conversation then s.conversation=cjson.decode(ARGV[1]);redis.call('SET',KEYS[1],cjson.encode(s)) end;return 1`,[k],[JSON.stringify(row.payload.conversation)]);
+    return await db().get<T>(k)??cached;
+  }
+  if(row.expires_at===null) await db().set(k,row.payload,{nx:true});
+  else {
+    const remaining=Number(row.expires_at)-Date.now();if(remaining<=0)return null;
+    await db().set(k,row.payload,{nx:true,px:remaining});
+  }
   return db().get<T>(k);
 }
 export async function readChatJob<T>(k:string):Promise<T|null> {

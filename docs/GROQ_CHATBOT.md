@@ -2,6 +2,8 @@
 
 Admin vào **GPU Workspace → Nhà cung cấp khi cấp phát → Groq**, nhập API key của chính mình và chọn **Kiểm tra và lưu khóa**. Thao tác kiểm tra chỉ đọc danh sách model; không gọi inference. Khóa lưu dưới dạng AES-256-GCM trong bảng riêng `arena.api_credentials`, dùng khóa mã hóa server hiện có. Không gửi khóa vào chat, Git, notebook hay biến `NEXT_PUBLIC_`.
 
+Khu vực chọn provider và kết nối Groq nằm **dưới các GPU đã cấp**, cùng khu vực cấu hình Runpod. Thí sinh chỉ thấy Trợ lý AI, không thấy tên provider/model trong giao diện dịch vụ. Chatbot Groq không có thông báo chờ quản trị viên chuẩn bị GPU. [Lịch sử chung của đội](CHAT_HISTORY.md) được giữ sau khi vòng kết thúc; thanh token hiển thị ngân sách của cuộc đang xem.
+
 Chọn model từ **Làm mới model**, tên chatbot, vòng luyện và phạm vi riêng một đội/chung tất cả đội. Đặt ngân sách token, lượt đồng thời và trần lượt/phút rồi cấp Chatbot. Mỗi cấu hình gắn cố định provider/model. Cần đổi model/provider thì tạm ngừng, chờ/đối soát request, đóng cấu hình cũ và cấp cấu hình mới; lịch sử cũ không bị chuyển sang model khác. Một dịch vụ Chatbot trên mỗi phạm vi/vòng; Pod `both` cũng giữ reservation Chatbot đó. Groq dùng song song được với Pod Jupyter-only.
 
 Mỗi admin quản lý khóa của chính mình. Admin khác có thể xem nhóm nhưng không dùng khóa, điều khiển hoặc đối soát nhóm của chủ sở hữu. Trước khi thay/xóa khóa: tạm ngừng mọi chatbot Groq của mình và chờ các job hoàn tất, kể cả job cần đối soát. Nếu chủ sở hữu mất quyền admin hoặc khóa bị xóa, chatbot ngừng nhận prompt. Khóa mới cần quyền dùng model tương ứng trên Groq.

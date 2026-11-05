@@ -2,6 +2,8 @@
 
 Thí sinh gửi prompt như tin nhắn bình thường và nhận câu trả lời khi hoàn tất. Không hiện trạng thái request, hiệu ứng suy luận, vị trí hàng, ETA hay nút hủy. Việc gửi tiếp/tạo chat mới bị khóa trong session đó cho tới khi request hoàn tất; ô nhập vẫn giữ bản nháp. Tab khác dùng UUID khác. Refresh giữ session; outbox trong sessionStorage retry cùng request ID nếu mất ACK. Đóng tab không hủy inference.
 
+[Lịch sử trò chuyện](CHAT_HISTORY.md) được chia sẻ theo đội/vòng và lưu bền sau khi kết thúc. Chọn lịch sử không hủy lượt đang chạy; kết quả đến muộn không thay nội dung cuộc đang xem. Thí sinh thấy nhãn Trợ lý AI, số token còn lại của cuộc đang chọn và số ký tự trong ô nhập.
+
 ## Điều phối
 
 - Mỗi đội tối đa bốn request chưa hoàn tất trong cùng run, cộng qua Pod riêng và nhóm. Admin dùng lane riêng theo tài khoản. Mỗi session một request; FIFO trong đội và round-robin giữa đội.

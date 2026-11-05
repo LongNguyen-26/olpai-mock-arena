@@ -228,9 +228,10 @@ export async function chatGroupViews(user: SafeUser) {
         ).length;
         return {
           id: g.id,
-          name: g.name,
-          provider: g.provider ?? "runpod",
-          model: g.groq?.id ?? "DeepSeek",
+          name: user.admin ? g.name : g.scope === "all" ? "Chatbot dùng chung" : "Chatbot của đội",
+          provider: user.admin ? g.provider ?? "runpod" : undefined,
+          model: user.admin ? g.groq?.id ?? "DeepSeek" : undefined,
+          preparingResources: g.provider !== "groq" && !members.some(w=>w.status!=="terminated"),
           roundId: g.roundId,
           scope: g.scope,
           teamId: g.teamId,

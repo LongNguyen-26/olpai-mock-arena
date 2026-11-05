@@ -1,3 +1,4 @@
+import { chatPolicyView, contestantSession, conversationTitle } from "./chat-conversation";
 import { readApiCredential } from "./api-credentials";
 import { readAdminIds } from "./entity-repository";
 import type { ChatTemplate } from "./chat-policy";
@@ -121,7 +122,7 @@ const LUA =
   `
 local p=ARGV[1]; local now=arena_now(); local ttl=tonumber(ARGV[3]);
 local function read(k) local v=redis.call('GET',k);if v then return cjson.decode(v) end end
-local function write(k,v) redis.call('SET',k,cjson.encode(v),'EX',ttl) end
+local function write(k,v) if v.messages and v.conversation then v.conversation.updatedAt=now;redis.call('SET',k,cjson.encode(v)) else redis.call('SET',k,cjson.encode(v),'EX',ttl) end end
 local function valid(j)
  if j.groupId then local g=read(p..':gpu:chat-group:'..j.groupId);if not g or g.retired then return false end end
  local c=arena_round(j.roundKey,now);if not c or c.id~=j.runId or not arena_chat(c,now) then return false end
@@ -285,11 +286,13 @@ export async function readQueuedChat(
   const policyOpen = chatbotOpen({ runId: t.c.id, services: "llm" }, t.c, now);
   const apiReady = t.provider === "groq" && (await readAdminIds()).includes(t.ownerId) && !!await readApiCredential(t.ownerId);
   return {
-    provider: t.provider ?? "runpod",
-    model: t.provider === "groq" && t.groupId ? (await getChatGroup(t.groupId)).groq?.id ?? "Groq" : "DeepSeek R1 · 32B Q4",
-    tokenAccounting: t.provider === "groq" ? "reserve-bytes" : "tokenizer",
-    session: session ?? emptySession(),
-    template: t.template,
+    admin: user.admin,
+    readOnly: false,
+    provider: user.admin ? t.provider ?? "runpod" : undefined,
+    model: !user.admin ? "Trợ lý AI" : t.provider === "groq" && t.groupId ? (await getChatGroup(t.groupId)).groq?.id ?? "Groq" : "DeepSeek R1 · 32B Q4",
+    tokenAccounting: user.admin ? (t.provider === "groq" ? "reserve-bytes" : "tokenizer") : undefined,
+    session: user.admin ? session ?? emptySession() : contestantSession(session ?? emptySession()),
+    template: user.admin ? t.template : chatPolicyView(t.template),
     contextWindowTokens: t.contextWindowTokens,
     enabled:
       policyOpen &&
@@ -305,7 +308,7 @@ export async function readQueuedChat(
     policyOpen,
     runId: t.c.id,
     serverNow: now,
-    teamName: t.teamName,
+    teamName: user.admin ? t.teamName : "Đội của bạn",
     roundTitle: t.roundTitle,
     statusMessage: "",
   };
@@ -335,13 +338,13 @@ export async function enqueueChat(
       throw new ApiError("Mã request đã được sử dụng cho nội dung khác.", 409);
     return {
       requestId,
-      session: (await readChatContext<ChatSession>(old.sessionKey)) ?? emptySession(),
-      template: t.template,
+      session: user.admin ? (await readChatContext<ChatSession>(old.sessionKey)) ?? emptySession() : contestantSession((await readChatContext<ChatSession>(old.sessionKey)) ?? emptySession()),
+      template: user.admin ? t.template : chatPolicyView(t.template),
     };
   }
   await rateLimit(`gpu:chat:${user.id}`, 20, 60);
   await reconcileChat(t.id, t.c.id);
-  if (t.provider === "groq" && (!(await readAdminIds()).includes(t.ownerId) || !await readApiCredential(t.ownerId))) throw new ApiError("Kết nối Groq chưa sẵn sàng.", 409);
+  if (t.provider === "groq" && (!(await readAdminIds()).includes(t.ownerId) || !await readApiCredential(t.ownerId))) throw new ApiError("Dịch vụ Chatbot chưa sẵn sàng.", 409);
   if (t.paused) throw new ApiError("Chatbot tạm ngừng nhận tin nhắn mới.", 409);
   if (!chatbotOpen({ runId: t.c.id, services: "llm" }, t.c, now))
     throw new ApiError("Quyền sử dụng chatbot của vòng này đang khóa.", 403);
@@ -381,13 +384,15 @@ export async function enqueueChat(
  if not valid(j) then return 'policy' end
  local s=read(j.sessionKey) or {messages={},inputTokens=0,outputTokens=0}
  if s.pending then return 'session' end
+ s.conversation=s.conversation or cjson.decode(ARGV[6]);s.conversation.policy=cjson.decode(ARGV[6]).policy
  if s.exhausted or s.inputTokens+s.outputTokens>=tonumber(ARGV[5]) then return 'tokens' end
  if tonumber(redis.call('GET',j.counterKey) or '0')>=4 then return 'team' end
  table.insert(s.messages,{role='user',content=j.content});s.pending={requestId=j.id,reserved=0};s.error=nil;s.limitNotice=nil
- write(j.sessionKey,s);write(KEYS[1],j);redis.call('INCR',j.counterKey);redis.call('EXPIRE',j.counterKey,ttl)
+ write(j.sessionKey,s);redis.call('SADD',p..':gpu:conversations:'..j.roundId..':'..j.audience,j.sessionKey);write(KEYS[1],j);redis.call('INCR',j.counterKey);redis.call('EXPIRE',j.counterKey,ttl)
  redis.call('ZADD',j.activeKey,now,j.id);redis.call('EXPIRE',j.activeKey,ttl);enqueue(j);return 'ok'`,
     [jobKey(requestId)],
-    [JSON.stringify(j), t.template.sessionTokenLimit],
+    [JSON.stringify(j), t.template.sessionTokenLimit, JSON.stringify({sessionId,roundId:t.roundId,runId:t.c.id,target:t.id,audience,teamId:user.teamId,
+      createdAt:now,updatedAt:now,title:conversationTitle(content),policy:chatPolicyView(t.template)})],
   );
   const errors: Record<string, string> = {
     duplicate: "Mã request đã được sử dụng.",
@@ -400,8 +405,8 @@ export async function enqueueChat(
     throw new ApiError(errors[result] ?? "Không thể gửi tin nhắn.", 409);
   return {
     requestId,
-    session: (await db().get<ChatSession>(j.sessionKey))!,
-    template: t.template,
+    session: user.admin ? (await db().get<ChatSession>(j.sessionKey))! : contestantSession((await db().get<ChatSession>(j.sessionKey))!),
+    template: user.admin ? t.template : chatPolicyView(t.template),
   };
 }
 
@@ -465,7 +470,7 @@ export async function workerAction(
 export async function groqQueueAction(action: string, v: WorkerRequest, groupId: string) {
   const g = await getChatGroup(groupId);
   if (g.provider !== "groq" || !g.groq || g.retired) throw new ApiError("Chatbot Groq không hoạt động.", 403);
-  if (!(await readAdminIds()).includes(g.ownerId) || !await readApiCredential(g.ownerId)) throw new ApiError("Kết nối Groq chưa sẵn sàng.", 409);
+  if (!(await readAdminIds()).includes(g.ownerId) || !await readApiCredential(g.ownerId)) throw new ApiError("Dịch vụ Chatbot chưa sẵn sàng.", 409);
   const c = await getContest(g.roundId);
   return performWorkerAction(action, v, { workerId: `groq:${g.id}`, workerCapacity: g.groq.parallel,
     c, g, target: `group:${g.id}`, template: g.template, context: g.contextWindowTokens });
@@ -623,10 +628,10 @@ async function performWorkerAction(action: string, v: WorkerRequest, binding: {
  if j.status=='running' then return 1 end;if j.status~='claimed' or now>j.leaseUntil then return 0 end
  local s=read(j.sessionKey);if not s or not s.pending or s.pending.requestId~=j.id or s.inputTokens~=tonumber(ARGV[7]) or s.outputTokens~=tonumber(ARGV[8]) then return 0 end
  j.status='running';j.promptTokens=tonumber(ARGV[5]);j.maxTokens=tonumber(ARGV[6]);j.leaseUntil=now+45000;j.updatedAt=now
- s.inputTokens=s.inputTokens+j.promptTokens;s.outputTokens=s.outputTokens+j.maxTokens;s.pending.reserved=j.promptTokens+j.maxTokens
+ s.inputTokens=s.inputTokens+j.promptTokens;s.outputTokens=s.outputTokens+j.maxTokens;s.pending.reserved=j.promptTokens+j.maxTokens;if s.conversation then s.conversation.policy=cjson.decode(ARGV[9]) end
  write(j.sessionKey,s);write(KEYS[1],j);return 1`,
       [jobKey(j.id)],
-      [v.attempt, v.promptTokens, max, s.inputTokens, s.outputTokens],
+      [v.attempt, v.promptTokens, max, s.inputTokens, s.outputTokens, JSON.stringify(chatPolicyView(template))],
     );
     return { execute: !!accepted, maxTokens: max, inputTokens: v.promptTokens };
   }

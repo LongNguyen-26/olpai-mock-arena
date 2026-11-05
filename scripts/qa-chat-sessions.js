@@ -10,6 +10,8 @@ async (page) => {
     await context.route("**/api/**", async (route) => {
       const req = route.request(),
         target = new URL(req.url());
+      if (target.pathname === "/api/workspace/chat/history")
+        return route.fulfill({json:{items:[],nextCursor:null,roundTitle:"QA",runId:"qa-run",admin:false}});
       if (target.pathname !== "/api/workspace/chat")
         return route.fulfill({ status: 409, json: { error: "QA only" } });
       const params =
@@ -68,6 +70,7 @@ async (page) => {
   };
   await attach(page.context());
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.setViewportSize({width:1440,height:1000});
   await page.goto(url);
   await ready(page);
   const first = await id(page);

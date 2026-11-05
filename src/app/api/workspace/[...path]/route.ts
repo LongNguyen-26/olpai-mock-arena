@@ -1,3 +1,4 @@
+import { chatHistory, readConversation } from "@/lib/chat-history";
 import { NextResponse } from "next/server";
 import { GroqError } from "@/lib/groq";
 import { groqCredentialState, availableGroqModels, changeGroqCredential, createGroqChatbot, groqAllocationSchema } from "@/lib/groq-service";
@@ -335,6 +336,13 @@ async function handle(
       }
       if (path === "groq/deploy" && req.method === "POST") return json(await createGroqChatbot(user, groqAllocationSchema.parse(await payload(req))), 201);
       throw new ApiError("Không tìm thấy thao tác Groq.", 404);
+    }
+    if (path === "chat/history" && req.method === "GET") {
+      const workspaceId=url.searchParams.has("id")?id():undefined;
+      const groupId=url.searchParams.has("groupId")?z.string().uuid().parse(url.searchParams.get("groupId")):undefined;
+      const conversation=url.searchParams.get("conversation");
+      return json(conversation?await readConversation(user,z.string().max(900).parse(conversation),workspaceId,groupId)
+        :await chatHistory(user,workspaceId,groupId,z.string().max(1200).optional().parse(url.searchParams.get("cursor")??undefined)));
     }
     if (path === "chat" && req.method === "GET") {
       const workspaceId = url.searchParams.has("id") ? id() : undefined,
