@@ -22,6 +22,10 @@ services:
         value: production
       - key: ARENA_NAMESPACE
         value: arena:v1
+      - key: ARENA_DATABASE_MODE
+        value: postgres
+      - key: ARENA_DATABASE_URL
+        sync: false
       - key: GPU_WORKSPACE_PUBLIC_URL
         value: https://olpaiarena.cyou
       - key: GPU_WORKSPACE_LOGIN_ORIGINS

@@ -36,6 +36,9 @@ import { SubmissionError } from "@/lib/judge";
 import type { Submission, User } from "@/lib/types";
 import { readSubmissionFile } from "@/lib/submission-storage";
 import { adminRoster, deleteRosterEntry } from "@/lib/admin-roster";
+import { usingPostgres } from "@/lib/sql";
+import { readUser,readUserId,readSubmission,createSqlUser,changeSqlPassword } from "@/lib/entity-repository";
+import { assertWritesAllowed } from "@/lib/write-control";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -76,6 +79,7 @@ async function handle(
 ) {
   try {
     const route = (await context.params).path.join("/");
+    if(req.method==="POST"&&!["auth/login","auth/logout"].includes(route)) await assertWritesAllowed();
     const selectedRound = () =>
       z.string().uuid().parse(new URL(req.url).searchParams.get("round"));
     if (req.method === "POST") sameOrigin(req);
@@ -100,7 +104,7 @@ async function handle(
         teamId: null,
         createdAt: Date.now(),
       };
-      const created = await db().eval<unknown[], number>(
+      const created = usingPostgres()?await createSqlUser(user):await db().eval<unknown[], number>(
         `if redis.call('EXISTS',KEYS[1])==1 then return 0 end;redis.call('SET',KEYS[1],ARGV[1]);redis.call('SET',KEYS[2],ARGV[2]);return 1`,
         [key(`username:${user.username}`), key(`user:${user.id}`)],
         [user.id, JSON.stringify(user)],
@@ -122,10 +126,8 @@ async function handle(
         900,
       );
       await rateLimit(`login:${value.username.toLowerCase()}`, 15, 900);
-      const id = await db().get<string>(
-        key(`username:${value.username.toLowerCase()}`),
-      );
-      const user = id ? await db().get<User>(key(`user:${id}`)) : null;
+      const id = await readUserId(value.username.toLowerCase());
+      const user = id ? await readUser(id) : null;
       // Run a password KDF for unknown users as well.
       const valid = await checkPassword(
         value.password,
@@ -207,7 +209,7 @@ async function handle(
       await requireRegistration(user, c);
       const id = new URL(req.url).searchParams.get("id");
       const s = id
-        ? await db().hget<Submission>(key(`submissions:${c.id}`), id)
+        ? await readSubmission(c.id,id)
         : null;
       if (!s || !s.path || (!user.admin && s.teamId !== user.teamId))
         throw new ApiError("Không tìm thấy bản nộp.", 404);
@@ -269,11 +271,12 @@ async function handle(
         })
         .parse(await payload(req));
       await rateLimit(`password:${user.id}`, 5, 900);
-      const record = await db().get<User>(key(`user:${user.id}`));
+      const record = await readUser(user.id);
       if (!record || !(await checkPassword(value.current, record.password)))
         throw new ApiError("Mật khẩu hiện tại không đúng.");
       const hash = await hashPassword(value.password);
-      await db().eval(
+      if(usingPostgres()) await changeSqlPassword(user.id,record.password,hash);
+      else await db().eval(
         `local u=cjson.decode(redis.call('GET',KEYS[1]));u.password=ARGV[1];redis.call('SET',KEYS[1],cjson.encode(u));return 1`,
         [key(`user:${user.id}`)],
         [hash],

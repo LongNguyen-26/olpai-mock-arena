@@ -20,6 +20,9 @@ import { taskStatements } from "./statements";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
+import { usingPostgres } from "./sql";
+import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue } from "./entity-repository";
+import { getSqlContest, createSqlRound, registerSqlRound, reviewSqlRegistration, controlSqlRound } from "./sql-rounds";
 import type {
   Contest,
   ContestPackage,
@@ -35,15 +38,16 @@ export const roundKey = (c: Contest) =>
 export const registrationKey = (c: Contest) =>
   key(`registrations:${c.roundId ?? c.id}`);
 export async function getContest(id?: string) {
-  const c = await db().get<Contest>(id ? key(`round:${id}`) : key("contest"));
+  if (usingPostgres()) return getSqlContest(id);
+  const c = await readRound(id);
   if (!c || !roundVisible(c, true))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (c.privateStartedAt == null && c.startAt != null) {
     const now = await serverNow();
     if (applyPrivateTransition(c, now) !== c) {
       const current = await db().eval<unknown[], Contest | null>(
-        MATERIALIZE_PRIVATE_SCRIPT,
-        [roundKey(c)],
+        "if redis.call('EXISTS',KEYS[2])==1 then return redis.call('GET',KEYS[1]) end;"+MATERIALIZE_PRIVATE_SCRIPT,
+        [roundKey(c),key("database:write-freeze")],
         [],
       );
       if (!current || !roundVisible(current, true))
@@ -54,22 +58,16 @@ export async function getContest(id?: string) {
   return c;
 }
 export async function getPackage(c?: Contest) {
-  return db().get<ContestPackage>(
-    key(c?.packageId ? `package:${c.packageId}` : "package"),
-  );
+  return readPackage(c?.packageId);
 }
 export async function getSubmissions(id: string) {
-  return Object.values(
-    (await db().hgetall<Record<string, Submission>>(
-      key(`submissions:${id}`),
-    )) ?? {},
-  );
+  return readSubmissions(id);
 }
 export async function requireRegistration(user: SafeUser, c: Contest) {
   if (!roundVisible(c, user.admin))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (user.admin) return;
-  const r = await db().hget<Registration>(registrationKey(c), user.id);
+  const r = await readRegistration(c,user.id);
   if (r?.status !== "approved")
     throw new ApiError(
       r?.status === "pending"
@@ -80,18 +78,18 @@ export async function requireRegistration(user: SafeUser, c: Contest) {
 }
 export async function snapshot(user: SafeUser, id?: string) {
   const [ids, now, teamsRaw, inviteIds, adminIds] = await Promise.all([
-    db().zrange<string[]>(key("rounds"), 0, -1, { rev: true }),
+    readRoundIds(),
     serverNow(),
-    db().hgetall<Record<string, Team>>(key("teams")),
-    db().smembers<string[]>(key(`invites:${user.id}`)),
+    readTeams(),
+    readInvites(user.id),
     getAdminIds(),
   ]);
   const contests = ids.length
-    ? await db().mget<(Contest | null)[]>(...ids.map((x) => key(`round:${x}`)))
+    ? await readRounds(ids)
     : [];
   const registrations = await Promise.all(
     contests.map((c) =>
-      c ? db().hgetall<Record<string, Registration>>(registrationKey(c)) : null,
+      c ? readRegistrations(c) : null,
     ),
   );
   const rounds = contests.flatMap((c, i) =>
@@ -132,7 +130,7 @@ export async function snapshot(user: SafeUser, id?: string) {
         ...rawTeam,
         members: await Promise.all(
           rawTeam.members.map(async (memberId) => {
-            const u = await db().get<User>(key(`user:${memberId}`));
+            const u = await readUser(memberId);
             return {
               id: memberId,
               name: u?.name ?? "",
@@ -146,7 +144,7 @@ export async function snapshot(user: SafeUser, id?: string) {
   if (contest && !roundVisible(contest, user.admin))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
   const registration = contest
-    ? await db().hget<Registration>(registrationKey(contest), user.id)
+    ? await readRegistration(contest, user.id)
     : null;
   const entered =
     !!contest && (user.admin || registration?.status === "approved");
@@ -165,9 +163,7 @@ export async function snapshot(user: SafeUser, id?: string) {
     (user.admin || ["private", "practice", "ended"].includes(phase));
   const roster = contest
     ? Object.values(
-        (await db().hgetall<Record<string, Registration>>(
-          registrationKey(contest),
-        )) ?? {},
+        await readRegistrations(contest),
       )
     : [];
   const approved = roster.filter((r) => r.status === "approved");
@@ -233,20 +229,16 @@ export async function snapshot(user: SafeUser, id?: string) {
     },
     announcements:
       contest && entered
-        ? await db().lrange<{ id: string; text: string; createdAt: number }>(
-            key(`announcements:${contest.id}`),
-            0,
-            19,
-          )
+        ? await readAnnouncements(contest.id)
         : [],
     packages: user.admin
       ? Object.entries(
-          (await db().hgetall<Record<string, string>>(key("packages"))) ?? {},
+          await readPackageCatalogue(),
         ).map(([id, title]) => ({ id, title }))
       : [],
     registrations: await Promise.all(
       (user.admin ? roster : []).map(async (r) => {
-        const u = await db().get<User>(key(`user:${r.userId}`));
+        const u = await readUser(r.userId);
         return { ...r, name: u?.name ?? "", username: u?.username ?? "" };
       }),
     ),
@@ -260,6 +252,7 @@ export async function snapshot(user: SafeUser, id?: string) {
   };
 }
 export async function registerRound(user: SafeUser, id: string) {
+  if(usingPostgres()) return registerSqlRound(user.id,id);
   const c = await getContest(id);
   if (!roundVisible(c)) throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (user.admin) throw new ApiError("Tài khoản quản trị không cần đăng ký.");
@@ -284,6 +277,7 @@ export async function reviewRegistration(
   userId: string,
   status: "approved" | "rejected",
 ) {
+  if(usingPostgres()) return reviewSqlRegistration(id,userId,status);
   const c = await getContest(id);
   const result = await db().eval<unknown[], number>(
     `local raw=redis.call('HGET',KEYS[1],ARGV[1]);if not raw then return 0 end;local r=cjson.decode(raw);r.status=ARGV[2];redis.call('HSET',KEYS[1],ARGV[1],cjson.encode(r));return 1`,
@@ -293,6 +287,7 @@ export async function reviewRegistration(
   if (!result) throw new ApiError("Không tìm thấy đăng ký.", 404);
 }
 export async function createRound(title: string, packageId: string) {
+  if(usingPostgres()) return createSqlRound(title,packageId);
   const pkg = await db().get<ContestPackage>(key(`package:${packageId}`));
   if (!pkg) throw new ApiError("Không tìm thấy bộ đề.");
   const id = randomUUID(),
@@ -344,6 +339,7 @@ export async function control(
   },
   id: string,
 ) {
+  if(usingPostgres()) return controlSqlRound(action,values,id);
   const guarded = guardedRoundActions.includes(action);
   const v = guarded ? roundControlSchema.parse({ ...values, action }) : null;
   const fingerprint = v

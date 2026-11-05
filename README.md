@@ -1,8 +1,10 @@
 # OlpAI Arena
 
-Website ôn luyện mô phỏng Olympic AI 2026: Next.js trên Render, Upstash Redis và Upstash Blob private. Địa chỉ chính: https://olpaiarena.cyou. Vercel được giữ nguyên, kể cả tự deploy, để có thể dùng lại sau này.
+Website ôn luyện mô phỏng Olympic AI 2026: Next.js trên Render, Supabase Postgres cho dữ liệu chính, Upstash Redis cho runtime và Upstash Blob private cho tệp. Địa chỉ chính: https://olpaiarena.cyou. Vercel được giữ nguyên, kể cả tự deploy, để có thể dùng lại sau này.
 
 Xem [triển khai và vận hành Render](docs/RENDER_DEPLOYMENT.md): cấu hình Free, kiểm tra production và nâng compute plan khi cần.
+
+Xem [vận hành Supabase, backup và rollback](docs/SUPABASE_DATABASE.md). Chuyển mode không tự chuyển dữ liệu; production chỉ mở ghi sau import và đối chiếu.
 
 GPU Workspace: admin cấp Pod riêng/chung cho JupyterLab và DeepSeek 32B Q4; nhóm nhiều Pod Chatbot có hàng đợi công bằng, template dùng chung giữa admin và trần tổng token chỉnh được. Thí sinh chỉ thấy prompt/câu trả lời, không có trạng thái hàng đợi hoặc nút hủy. Xem [hàng đợi và nhóm Chatbot](docs/CHAT_QUEUE.md), [cấu hình GPU Workspace](docs/GPU_WORKSPACE.md).
 
@@ -20,7 +22,7 @@ Jupyter-only có thêm [JupyterHub theo team](docs/JUPYTERHUB.md): nhiều Lab r
 
 ## Cài đặt
 
-Node.js 24. Cấu hình server trong .env (gitignored): UPSTASH*REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN và UPSTASH_BLOB_TOKEN. Bucket phải private; không dùng NEXT_PUBLIC* cho credential.
+Node.js 24. Cấu hình server trong .env (gitignored), theo .env.example. Production dùng ARENA_DATABASE_MODE=postgres và ARENA_DATABASE_URL qua transaction pooler TLS; Redis/Blob vẫn cần thiết. Bucket phải private; không dùng NEXT_PUBLIC_ cho credential. Bản local mới chưa import SQL dùng ARENA_DATABASE_MODE=redis và namespace QA riêng trước khi seed.
 
     npm ci
     npm run seed
@@ -29,7 +31,7 @@ Node.js 24. Cấu hình server trong .env (gitignored): UPSTASH*REDIS_REST_URL, 
 
 Seed tạo admin một lần, không ghi đè tài khoản hiện có. Mật khẩu ban đầu nằm trong ACCESS.local.md, không in ra log và không đưa lên Git. Mật khẩu băm scrypt; session 256 bit với cookie HttpOnly/SameSite=Lax/Secure ở production; kiểm tra quyền ở API, kiểm tra Origin và giới hạn tần suất.
 
-Import đưa bộ đề vào danh sách admin, không tự phát hành vòng. Bản nâng cấp từ hệ thống một vòng chạy scripts/migrate-rounds.ts. Namespace mặc định arena:v1; QA/preview phải tách namespace hoặc database.
+Import đưa bộ đề vào danh sách admin, không tự phát hành vòng. scripts/migrate-rounds.ts và refresh-round-package.ts là công cụ Redis lịch sử, được chặn trong postgres mode; điều khiển vòng qua admin hiện tại. Namespace mặc định arena:v1; QA/preview phải tách namespace hoặc database.
 
 ## Kiểm tra
 

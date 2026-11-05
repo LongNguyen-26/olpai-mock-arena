@@ -2,13 +2,17 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { db, key, storage } from "../src/lib/db";
 import { packageSchema as schema } from "../src/lib/package-schema";
+import { usingPostgres } from "../src/lib/sql";
+import { readPackage,saveSqlPackage } from "../src/lib/entity-repository";
+import { assertWritesAllowed } from "../src/lib/write-control";
 async function main() {
+  await assertWritesAllowed();
   if (!process.argv[2])
     throw new Error(
       "Usage: tsx --env-file=.env scripts/stage-package.ts path/to/package.json",
     );
   const pkg = schema.parse(JSON.parse(await readFile(process.argv[2], "utf8")));
-  if (await db().exists(key(`package:${pkg.version}`)))
+  if (await readPackage(pkg.version))
     throw new Error("Version already exists. Use a new immutable version.");
   const bucket = storage();
   if ((await bucket.publicUrl("check")) !== undefined)
@@ -20,7 +24,8 @@ async function main() {
     ),
   ])
     await bucket.info(object);
-  await db()
+  if(usingPostgres()) await saveSqlPackage({...pkg,importedAt:Date.now()},true,pkg.version,true);
+  else await db()
     .multi()
     .set(key(`package:${pkg.version}`), { ...pkg, importedAt: Date.now() })
     .hset(key("packages"), { [pkg.version]: pkg.title })

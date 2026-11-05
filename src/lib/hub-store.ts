@@ -1,3 +1,4 @@
+import { runtimeEval } from "./runtime-authority";
 import { randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -130,7 +131,7 @@ export async function mutateNotebook(
     expectedRevision ?? "",
     c.chatEpoch ?? 0,
   ]);
-  const result = await db().eval<unknown[], string>(
+  const result = await runtimeEval<unknown[], string>(
     AUTHORITY +
       `
 local prior=redis.call('GET',KEYS[5]);if prior then local p=cjson.decode(prior);if p.signature~=ARGV[8] then return 'request' end;return p.value end
@@ -183,7 +184,7 @@ export async function gpuTurn(
       action,
       c.chatEpoch ?? 0,
     ]);
-  const result = await db().eval<unknown[], string>(
+  const result = await runtimeEval<unknown[], string>(
     AUTHORITY +
       `
 local prior=redis.call('GET',KEYS[5]);if prior then if prior~=ARGV[6] then return 'request' end;return 'ok' end

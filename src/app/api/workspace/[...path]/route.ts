@@ -46,6 +46,7 @@ import {
   workspaceState,
   retryWorkspace,
 } from "@/lib/workspaces";
+import { assertWritesAllowed } from "@/lib/write-control";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -84,6 +85,7 @@ async function handle(
     const path = (await context.params).path.join("/"),
       url = new URL(req.url);
     const id = () => z.string().uuid().parse(url.searchParams.get("id"));
+    if(req.method==="POST"||["manifest","hub/authorize","launch"].includes(path)) await assertWritesAllowed();
     if (path === "hub/redeem" && req.method === "POST") {
       const p = z
         .object({

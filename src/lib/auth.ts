@@ -9,6 +9,9 @@ import { cookies } from "next/headers";
 import { db, key } from "./db";
 import { getAdminIds } from "./admins";
 import type { SafeUser, User } from "./types";
+import { ApiError } from "./api-error";
+import { readUser } from "./entity-repository";
+export { ApiError } from "./api-error";
 const scrypt = promisify(scryptCallback);
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -29,7 +32,7 @@ export async function getUser(): Promise<SafeUser | null> {
   const id = await db().get<string>(sessionKey(token));
   if (!id) return null;
   const [user, adminIds] = await Promise.all([
-    db().get<User>(key(`user:${id}`)),
+    readUser(id),
     getAdminIds(),
   ]);
   if (!user) return null;
@@ -52,14 +55,6 @@ export async function logout() {
   const token = jar.get("arena-session")?.value;
   if (token) await db().del(sessionKey(token));
   jar.delete("arena-session");
-}
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-  ) {
-    super(message);
-  }
 }
 export async function requireUser() {
   const user = await getUser();

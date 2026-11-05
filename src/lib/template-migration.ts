@@ -1,3 +1,5 @@
+import { usingPostgres } from "./sql";
+import { assertWritesAllowed } from "./write-control";
 import { randomUUID } from "node:crypto";
 import { db, key } from "./db";
 import { getAdminIds } from "./admins";
@@ -35,6 +37,8 @@ export function freshSharedTemplates(image: string) {
   }));
 }
 export async function resetSharedTemplates(image: string, apply = false) {
+  if(usingPostgres()) throw new Error("Historical Redis template reset is retired in postgres mode. Manage templates through the admin API.");
+  await assertWritesAllowed();
   const marker = key(`gpu:migration:${migrationId}`),
     backupKey = key(`gpu:template-backup:${migrationId}`);
   const completed = await db().get<string>(marker);
@@ -107,6 +111,8 @@ export async function resetSharedTemplates(image: string, apply = false) {
   };
 }
 export async function restoreSharedTemplateBackup() {
+  if(usingPostgres()) throw new Error("Historical Redis template reset is retired in postgres mode. Manage templates through the admin API.");
+  await assertWritesAllowed();
   const backup = await db().get<TemplateBackup>(
     key(`gpu:template-backup:${migrationId}`),
   );

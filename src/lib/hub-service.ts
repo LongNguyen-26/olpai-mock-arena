@@ -1,3 +1,4 @@
+import { runtimeEval } from "./runtime-authority";
 import { createHash, randomBytes } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -31,6 +32,8 @@ import {
 } from "./hub-store";
 import { podOrigin } from "./runpod";
 import type { SafeUser, Team, User } from "./types";
+import { readTeam,readUser } from "./entity-repository";
+import { readWorkspaceRecords } from "./gpu-repository";
 
 export async function hubContext(
   user: SafeUser,
@@ -58,7 +61,7 @@ export async function changeHubTeam(
   revision?: string,
 ) {
   const { w, c } = await hubContext(user, id, teamId, true);
-  const team = await db().hget<Team>(key("teams"), teamId);
+  const team = await readTeam(teamId);
   if (!team?.members.length)
     throw new ApiError("Team không tồn tại hoặc chưa có thành viên.");
   if (action === "grant") await requireWorkspaceTeam(team, c);
@@ -95,7 +98,7 @@ export async function receiveHubReport(
   if (!hubBound(w) || w.status === "terminated")
     throw new ApiError("Hub chưa gắn.", 403);
   const value = { ...report, observedAt: await serverNow() };
-  const stored = await db().eval<unknown[], number>(
+  const stored = await runtimeEval<unknown[], number>(
     `local round=redis.call('GET',KEYS[1]);local raw=redis.call('GET',KEYS[2]);if not raw or not round then return 0 end;local w=cjson.decode(raw);if cjson.decode(round).id~=ARGV[1] or w.runId~=ARGV[1] or w.status=='terminated' or (w.manual and w.manual.state~='bound') then return 0 end;redis.call('SET',KEYS[3],ARGV[2],'EX',120);return 1`,
     [roundKey(c), key(`gpu:workspace:${id}`), hubReportKey(id)],
     [report.runId, JSON.stringify(value)],
@@ -168,14 +171,14 @@ export async function redeemHub(
   state: string,
 ) {
   await agentHub(id, authorization);
-  const value = await db().eval<unknown[], LoginTicket | null>(
+  const value = await runtimeEval<unknown[], LoginTicket | null>(
     `local raw=redis.call('GET',KEYS[1]);if not raw then return nil end;local t=cjson.decode(raw);if t.hostId~=ARGV[1] or t.state~=ARGV[2] then return nil end;redis.call('DEL',KEYS[1]);return raw`,
     [ticketKey(ticket)],
     [id, state],
   );
   if (!value) throw new ApiError("Vé đăng nhập hết hạn hoặc đã dùng.", 401);
   const t: LoginTicket = typeof value === "string" ? JSON.parse(value) : value;
-  const stored = await db().get<User>(key(`user:${t.userId}`));
+  const stored = await readUser(t.userId);
   if (!stored) throw new ApiError("Tài khoản không còn tồn tại.", 403);
   const { password: _p, ...safe } = stored;
   const user: SafeUser = {
@@ -215,12 +218,7 @@ export async function manualConfiguration(user: SafeUser, id: string) {
   };
 }
 async function inspectManual(w: Workspace, podId: string) {
-  const ids = await db().smembers<string[]>(key("gpu:workspaces"));
-  const allocations = ids.length
-    ? await db().mget<(Workspace | null)[]>(
-        ...ids.map((id) => key(`gpu:workspace:${id}`)),
-      )
-    : [];
+  const allocations = await readWorkspaceRecords();
   if (
     allocations.some(
       (other) =>
@@ -310,7 +308,7 @@ export async function controlManual(
         message: "Danh tính đã xác minh; chưa gắn hoặc tải dataset.",
       };
     const now = await serverNow();
-    const attached = await db().eval<unknown[], number>(
+    const attached = await runtimeEval<unknown[], number>(
       `local binding=redis.call('GET',KEYS[1]);if binding and binding~=ARGV[1] then return 0 end;local raw=redis.call('GET',KEYS[2]);local round=redis.call('GET',KEYS[3]);if not raw or not round then return 0 end;local w=cjson.decode(raw);if w.runId~=cjson.decode(round).id or (w.manual.state~='prepared' and w.manual.state~='verifying') then return 0 end;w.podId=ARGV[2];w.manual={state='bound',boundAt=tonumber(ARGV[3])};w.status='provisioning';w.meterAt=tonumber(ARGV[3]);w.meterRate=tonumber(ARGV[4]);w.updatedAt=tonumber(ARGV[3]);redis.call('SET',KEYS[2],cjson.encode(w));redis.call('SET',KEYS[1],ARGV[1]);return 1`,
       [
         key(`gpu:pod-binding:${podId}`),

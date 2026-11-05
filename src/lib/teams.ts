@@ -2,6 +2,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { db, key } from "./db";
 import { ApiError } from "./auth";
 import type { SafeUser, Team } from "./types";
+import { usingPostgres } from "./sql";
+import { sqlTeamAction } from "./sql-teams";
 export const TEAM_SCRIPT = `
 local rawUser=redis.call('GET',KEYS[1]);if not rawUser then return 'missing' end
 local user=cjson.decode(rawUser); local action=ARGV[1]; local teamId=ARGV[2];
@@ -31,6 +33,7 @@ export async function teamAction(
     username?: string;
   },
 ) {
+  if(usingPostgres()) return sqlTeamAction(user.id,action,payload);
   if (action === "invite") {
     if (!user.teamId) throw new ApiError("Bạn chưa có đội.");
     const id = await db().get<string>(

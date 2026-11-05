@@ -1,8 +1,12 @@
+import { usingPostgres } from "../src/lib/sql";
+import { assertWritesAllowed } from "../src/lib/write-control";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { db, key, storage, serverNow } from "../src/lib/db";
 import type { Contest, ContestPackage, Submission } from "../src/lib/types";
 async function main() {
+  if(usingPostgres()) throw new Error("This historical Redis migration is retired in postgres mode. Use current round controls or database-migrate.");
+  await assertWritesAllowed();
   if (process.env.ARENA_NAMESPACE !== "arena:v1")
     throw new Error("Explicit production namespace required");
   const [roundId, packageId, apply] = process.argv.slice(2);

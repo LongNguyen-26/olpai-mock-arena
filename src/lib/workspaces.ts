@@ -1,3 +1,4 @@
+import { runtimeEval } from "./runtime-authority";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db, key, serverNow, storage } from "./db";
 import { ApiError, rateLimit } from "./auth";
@@ -58,6 +59,10 @@ import {
 } from "./chat-queue";
 import { readTemplates, saveSharedTemplate } from "./workspace-templates";
 import { workspaceDeployment } from "./workspace-config";
+import { usingPostgres } from "./sql";
+import { readTeam,readTeams } from "./entity-repository";
+import { readGpuCredential,saveGpuCredential,readWorkspaceRecord,readWorkspaceRecords,putSqlTemplate } from "./gpu-repository";
+import { withReadScope } from "./read-scope";
 import {
   hasService,
   isShared,
@@ -82,7 +87,7 @@ function reservationKeys(w: Workspace) {
     );
 }
 async function releaseReservation(w: Workspace) {
-  await db().eval(
+  await runtimeEval(
     "for i=1,#KEYS do if redis.call('GET',KEYS[i])==ARGV[1] then redis.call('DEL',KEYS[i]) end end;return 1",
     reservationKeys(w),
     [w.id],
@@ -95,21 +100,16 @@ function sessionKey(w: Workspace, user: SafeUser, sessionId: string) {
   return key(`gpu:chat:${w.id}:${w.runId}${audience}:${sessionId}`);
 }
 async function allWorkspaces() {
-  const ids = await db().smembers<string[]>(key("gpu:workspaces"));
-  return ids.length
-    ? (await db().mget<(Workspace | null)[]>(...ids.map(recordKey))).filter(
-        (w): w is Workspace => !!w,
-      )
-    : [];
+  return readWorkspaceRecords();
 }
 async function provider(owner: string) {
-  const encrypted = await db().get<string>(credentialKey(owner));
+  const encrypted = await readGpuCredential(owner);
   if (!encrypted)
     throw new ApiError("Admin cần lưu Runpod API key trước.", 409);
   return new Runpod(decryptSecret(encrypted));
 }
 async function save(w: Workspace) {
-  const saved = await db().eval<unknown[], Workspace>(
+  const saved = await runtimeEval<unknown[], Workspace>(
     `local next=cjson.decode(ARGV[1]);local raw=redis.call('GET',KEYS[1]);if raw then local old=cjson.decode(raw);next.hubTeams=old.hubTeams;if old.runId~=next.runId then next.runId=old.runId;next.roundTitle=old.roundTitle;next.health=cjson.null;next.syncedAt=cjson.null end end;local encoded=cjson.encode(next);redis.call('SET',KEYS[1],encoded);return encoded`,
     [recordKey(w.id)],
     [JSON.stringify(w)],
@@ -128,7 +128,7 @@ async function lock<T>(
   try {
     return await fn();
   } finally {
-    await db().eval(
+    await runtimeEval(
       "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",
       [k],
       [token],
@@ -136,7 +136,7 @@ async function lock<T>(
   }
 }
 export async function getWorkspace(id: string) {
-  const w = await db().get<Workspace>(recordKey(id));
+  const w = await readWorkspaceRecord(id);
   if (!w) throw new ApiError("Không tìm thấy GPU Workspace.", 404);
   w.teamId ??= null;
   w.podId ??= null;
@@ -146,7 +146,7 @@ async function currentRun(w: Workspace, c: Contest) {
   if (w.runId === c.id || ["terminated", "failed"].includes(w.status)) return w;
   // Reuse the team's existing Pod when the same round is reset. Patch only run
   // metadata atomically so a concurrent provider reconciliation is not lost.
-  const updated = await db().eval<unknown[], Workspace | null>(
+  const updated = await runtimeEval<unknown[], Workspace | null>(
     `local round=redis.call('GET',KEYS[2]);if not round or cjson.decode(round).id~=ARGV[1] then return nil end;local raw=redis.call('GET',KEYS[1]);if not raw then return nil end;local w=cjson.decode(raw);if w.status~='terminated' and w.status~='failed' and w.runId~=ARGV[1] then w.runId=ARGV[1];w.roundTitle=ARGV[2];w.health=cjson.null;w.syncedAt=cjson.null;w.updatedAt=tonumber(ARGV[3]);raw=cjson.encode(w);redis.call('SET',KEYS[1],raw) end;return raw`,
     [recordKey(w.id), roundKey(c)],
     [c.id, c.title, await serverNow()],
@@ -164,7 +164,7 @@ export async function accessWorkspace(user: SafeUser, id: string) {
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
   if (!user.admin) {
     const team = user.teamId
-      ? await db().hget<Team>(key("teams"), user.teamId)
+      ? await readTeam(user.teamId)
       : null;
     if (
       !team ||
@@ -190,15 +190,18 @@ export async function withChatPolicy(w: Workspace) {
   return { ...w, contextWindowTokens, template };
 }
 export async function workspaceState(user: SafeUser) {
+  return usingPostgres()?withReadScope(()=>workspaceStateSnapshot(user)):workspaceStateSnapshot(user);
+}
+async function workspaceStateSnapshot(user:SafeUser) {
   const [all, now, templates, hasCredential] = await Promise.all([
     allWorkspaces(),
     serverNow(),
     user.admin ? readTemplates(user.id) : null,
-    user.admin ? db().exists(credentialKey(user.id)) : false,
+    user.admin ? readGpuCredential(user.id) : false,
   ]);
   const team =
     !user.admin && user.teamId
-      ? await db().hget<Team>(key("teams"), user.teamId)
+      ? await readTeam(user.teamId)
       : null;
   const member = !!team?.members.includes(user.id);
   return {
@@ -312,7 +315,7 @@ export async function workspaceState(user: SafeUser) {
         .length === 32,
     teams: user.admin
       ? Object.values(
-          (await db().hgetall<Record<string, Team>>(key("teams"))) ?? {},
+          await readTeams(),
         ).map((t) => ({ id: t.id, name: t.name, members: t.members.length }))
       : [],
     serverNow: now,
@@ -322,7 +325,7 @@ export async function saveCredential(user: SafeUser, apiKey: string) {
   const encrypted = encryptSecret(apiKey);
   // Validate read access before persisting; never echo provider bodies or the key.
   await new Runpod(apiKey).list();
-  const old = await db().get<string>(credentialKey(user.id));
+  const old = await readGpuCredential(user.id);
   if (
     old &&
     decryptSecret(old) !== apiKey &&
@@ -335,7 +338,7 @@ export async function saveCredential(user: SafeUser, apiKey: string) {
       "Hãy dừng và thu hồi các Pod hiện có trước khi đổi API key.",
       409,
     );
-  await db().set(credentialKey(user.id), encrypted);
+  await saveGpuCredential(user.id, encrypted);
 }
 export async function saveTemplate(
   t: WorkspaceTemplate,
@@ -344,6 +347,7 @@ export async function saveTemplate(
 ) {
   // Internal QA/legacy setup can still initialize the shared catalogue.
   if (!owner) {
+    if(usingPostgres()) { await putSqlTemplate(t,"legacy"); return t; }
     await db().hset(key("gpu:templates"), { [t.id]: t });
     return t;
   }
@@ -417,7 +421,7 @@ export async function deployWorkspace(
     services = options.services ?? "both";
   if (!user.admin) throw new ApiError("Chỉ admin được cấp GPU.", 403);
   const allocationId = options.requestId ?? randomUUID();
-  const existing = await db().get<Workspace>(recordKey(allocationId));
+  const existing = await readWorkspaceRecord(allocationId);
   if (existing) {
     if (
       existing.ownerId !== user.id ||
@@ -457,7 +461,7 @@ export async function deployWorkspace(
       409,
     );
   const [team, c, savedTemplate] = await Promise.all([
-    scope === "team" && teamId ? db().hget<Team>(key("teams"), teamId) : null,
+    scope === "team" && teamId ? readTeam(teamId) : null,
     getContest(roundId),
     readTemplates(user.id).then((templates) => templates[templateId]),
   ]);
@@ -500,7 +504,7 @@ export async function deployWorkspace(
     throw new ApiError("Danh sách team chỉ dùng cho JupyterHub.");
   const initialTeams: Record<string, TeamNotebook> = {};
   for (const id of [...new Set(options.teamIds ?? [])].sort()) {
-    const selected = await db().hget<Team>(key("teams"), id);
+    const selected = await readTeam(id);
     if (!selected?.members.length)
       throw new ApiError("Team không tồn tại hoặc chưa có thành viên.");
     await requireWorkspaceTeam(selected, c);
@@ -610,7 +614,7 @@ export async function deployWorkspace(
     if (legacyId && (!legacy || legacy.roundId === roundId))
       checks.push(activeKey(team!.id));
   }
-  const reserved = await db().eval<unknown[], number>(
+  const reserved = await runtimeEval<unknown[], number>(
     `${WORKSPACE_TEAM_ELIGIBILITY_LUA}
      if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
      if ARGV[6]~='' and not eligible(ARGV[6],ARGV[7],ARGV[8]) then return 3 end

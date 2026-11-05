@@ -1,8 +1,12 @@
+import { usingPostgres,namespace,query,closeSqlPools } from "../src/lib/sql";
 import { db, key } from "../src/lib/db";
 import type { Submission, Contest } from "../src/lib/types";
 async function main() {
   if (process.env.ARENA_NAMESPACE !== "arena:v1")
     throw new Error("Explicit production namespace required");
+  if(usingPostgres()) {
+    console.log(JSON.stringify({database:"postgres",submissions:await query("select run_id,count(*)::int as count from arena.submissions where ns=$1 group by run_id order by run_id",[namespace()]),rounds:await query("select id,run_id,package_id from arena.rounds where ns=$1",[namespace()])}));return;
+  }
   let cursor = "0";
   const keys: string[] = [];
   do {
@@ -33,4 +37,4 @@ async function main() {
 main().catch((e) => {
   console.error(e.message);
   process.exitCode = 1;
-});
+}).finally(()=>closeSqlPools());

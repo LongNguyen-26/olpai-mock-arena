@@ -1,6 +1,10 @@
+import { usingPostgres } from "../src/lib/sql";
+import { assertWritesAllowed } from "../src/lib/write-control";
 import { db, key, serverNow } from "../src/lib/db";
 import type { Contest, ContestPackage } from "../src/lib/types";
 async function main() {
+  if(usingPostgres()) throw new Error("This historical Redis migration is retired in postgres mode. Use current round controls or database-migrate.");
+  await assertWritesAllowed();
   const c = await db().get<Contest>(key("contest")),
     pkg = await db().get<ContestPackage>(key("package"));
   if (!c || !pkg) throw new Error("Existing contest/package required.");

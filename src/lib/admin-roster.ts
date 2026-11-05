@@ -2,19 +2,23 @@ import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
 import { getAdminIds } from "./admins";
 import type { SafeUser, Team, User } from "./types";
+import { usingPostgres } from "./sql";
+import { readTeams,readSqlUsers } from "./entity-repository";
+import { deleteSqlRosterEntry } from "./sql-teams";
 
 export async function adminRoster(actor: SafeUser) {
   if (!actor.admin)
     throw new ApiError("Chỉ quản trị viên được quản lý tài khoản.", 403);
   const [admins, teams] = await Promise.all([
     getAdminIds(),
-    db().hgetall<Record<string, Team>>(key("teams")),
+    readTeams(),
   ]);
   if (!admins.includes(actor.id))
     throw new ApiError("Quyền quản trị đã thay đổi.", 403);
   const userKeys: string[] = [];
+  const sqlUsers=usingPostgres()?await readSqlUsers():null;
   let cursor = "0";
-  do {
+  if(!sqlUsers) do {
     const [next, keys] = await db().scan(cursor, {
       match: key("user:*"),
       count: 100,
@@ -22,7 +26,7 @@ export async function adminRoster(actor: SafeUser) {
     userKeys.push(...keys);
     cursor = String(next);
   } while (cursor !== "0");
-  const users: User[] = [];
+  const users: User[] = sqlUsers?.filter(u=>!admins.includes(u.id))??[];
   const unique = [...new Set(userKeys)];
   for (let i = 0; i < unique.length; i += 100) {
     const batch = await db().mget<(User | null)[]>(...unique.slice(i, i + 100));
@@ -87,6 +91,7 @@ export async function deleteRosterEntry(
   kind: "team" | "contestant",
   id: string,
 ) {
+  if(usingPostgres()) return deleteSqlRosterEntry(actor.id,kind,id);
   if (!actor.admin)
     throw new ApiError("Chỉ quản trị viên được xóa đội/thí sinh.", 403);
   const registrations: string[] = [];

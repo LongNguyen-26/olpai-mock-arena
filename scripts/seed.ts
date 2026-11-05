@@ -1,3 +1,6 @@
+import { usingPostgres,closeSqlPools } from "../src/lib/sql";
+import { readAdminIds } from "../src/lib/entity-repository";
+import { assertWritesAllowed } from "../src/lib/write-control";
 import { randomBytes, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { db, key } from "../src/lib/db";
@@ -5,6 +8,11 @@ import { hashPassword } from "../src/lib/auth";
 import type { Contest, User } from "../src/lib/types";
 import { arenaBaseUrl } from "./arena-url";
 async function main() {
+  await assertWritesAllowed();
+  if(usingPostgres()) {
+    if(!(await readAdminIds()).length) throw new Error("Import the approved database snapshot before using postgres mode.");
+    console.log("Migrated SQL database preserved; seed makes no changes.");return;
+  }
   const redis = db();
   await redis.ping();
   if (!(await redis.get(key("admin")))) {
@@ -56,4 +64,4 @@ async function main() {
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : "Seed failed");
   process.exitCode = 1;
-});
+}).finally(()=>closeSqlPools());

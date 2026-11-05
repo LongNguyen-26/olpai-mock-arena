@@ -1,3 +1,4 @@
+import { runtimeEval,readChatContext,readChatJob } from "./runtime-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError, rateLimit } from "./auth";
@@ -150,7 +151,7 @@ local function finish(j,status,message,output)
 end
 `;
 async function script<T>(body: string, keys: string[], args: unknown[] = []) {
-  return db().eval<unknown[], T>(LUA + body, keys, [
+  return runtimeEval<unknown[], T>(LUA + body, keys, [
     process.env.ARENA_NAMESPACE ?? "arena:v1",
     await serverNow(),
     TTL,
@@ -261,7 +262,7 @@ export async function readQueuedChat(
   const t = await resolveChatTarget(user, id, groupId);
   await reconcileChat(t.id, t.c.id);
   let [session, workers, now] = await Promise.all([
-    db().get<ChatSession>(sessionStore(t, user, sessionId)),
+    readChatContext<ChatSession>(sessionStore(t, user, sessionId)),
     chatWorkers(t.workerIds),
     serverNow(),
   ]);
@@ -318,13 +319,13 @@ export async function enqueueChat(
   const fingerprint = createHash("sha256")
     .update(JSON.stringify([t.id, t.c.id, user.id, sessionId, content]))
     .digest("hex");
-  const old = await db().get<ChatJob>(jobKey(requestId));
+  const old = await readChatJob<ChatJob>(jobKey(requestId));
   if (old) {
     if (old.fingerprint !== fingerprint)
       throw new ApiError("Mã request đã được sử dụng cho nội dung khác.", 409);
     return {
       requestId,
-      session: (await db().get<ChatSession>(old.sessionKey)) ?? emptySession(),
+      session: (await readChatContext<ChatSession>(old.sessionKey)) ?? emptySession(),
       template: t.template,
     };
   }
@@ -463,7 +464,7 @@ export async function workerAction(
   )
     throw new ApiError("Số slot worker không khớp cấu hình Pod.", 409);
   if (g && v.fingerprint) {
-    const matches = await db().eval(
+    const matches = await runtimeEval(
       "local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local g=cjson.decode(raw);if g.modelFingerprint and g.modelFingerprint~=ARGV[1] then return 0 end;g.modelFingerprint=ARGV[1];redis.call('SET',KEYS[1],cjson.encode(g));return 1",
       [key(`gpu:chat-group:${g.id}`)],
       [v.fingerprint],
@@ -512,7 +513,7 @@ export async function workerAction(
       [w.id, randomUUID(), String(slot)],
     );
     if (!job) return { job: null, open, runId: c.id };
-    const s = (await db().get<ChatSession>(job.sessionKey))!;
+    const s = (await readChatContext<ChatSession>(job.sessionKey))!;
     return {
       job: {
         requestId: job.id,
@@ -569,7 +570,7 @@ export async function workerAction(
         inputTokens: j.promptTokens,
       };
     if (j.status !== "claimed") return { execute: false, terminal: true };
-    const s = (await db().get<ChatSession>(j.sessionKey))!;
+    const s = (await readChatContext<ChatSession>(j.sessionKey))!;
     let max: number;
     try {
       max = Math.min(

@@ -12,6 +12,9 @@ import {
   registrationKey,
 } from "./rounds";
 import { SubmissionError, judgeCV, judgeQA } from "./judge";
+import { usingPostgres } from "./sql";
+import { readSubmission } from "./entity-repository";
+import { findSqlSubmissionRequest, commitSqlSubmission } from "./sql-rounds";
 import { judgeArena02 } from "./judge-arena02";
 import { judgeDirect } from "./judge-direct";
 import { taskStatements } from "./statements";
@@ -100,12 +103,13 @@ export async function submit(
       ":" +
       nonce,
   );
-  const old = await db().get<string>(idempotency);
+  if(usingPostgres()) {
+    const previous=await findSqlSubmissionRequest({runId:contest.id,teamId:actor,task,split},nonce);
+    if(previous) return response(previous);
+  }
+  const old = usingPostgres() ? null : await db().get<string>(idempotency);
   if (old) {
-    const previous = await db().hget<Submission>(
-      key("submissions:" + contest.id),
-      old,
-    );
+    const previous = await readSubmission(contest.id,old);
     if (previous) return response(previous);
   }
   let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(),
@@ -186,8 +190,12 @@ export async function submit(
     ...(error ? { error } : {}),
     adminTest: admin,
   };
-  const accepted = await db().eval<unknown[], string>(
-    SUBMIT_SCRIPT,
+  let accepted: string;
+  try {
+  // Scoring/upload can outlive the route's initial migration gate.
+  if(await db().get(key("database:write-freeze"))) throw new ApiError("Hệ thống đang chuyển dữ liệu. Vui lòng thử lại sau.",503);
+  accepted = usingPostgres() ? await commitSqlSubmission(record,roundId,nonce) : await db().eval<unknown[], string>(
+    "if redis.call('EXISTS',KEYS[9])==1 then return 'frozen' end;"+SUBMIT_SCRIPT,
     [
       roundKey(contest),
       key("quota:" + contest.id + ":" + actor + ":" + task + ":" + split),
@@ -197,12 +205,20 @@ export async function submit(
       registrationKey(contest),
       key("admin"),
       key("admins"),
+      key("database:write-freeze"),
     ],
     [contest.id, split, JSON.stringify(record), actor],
   );
+  } catch(error) {
+    // A PostgreSQL commit may have succeeded even when its acknowledgement was
+    // lost. Keep the file until reconciliation; never delete a committed file.
+    if((!usingPostgres() || error instanceof ApiError) && path) await deleteSubmissionFile(location).catch(()=>{});
+    throw error;
+  }
   if (accepted !== id && path)
     await deleteSubmissionFile(location).catch(() => {});
   const errors: Record<string, string> = {
+    frozen: "Hệ thống đang chuyển dữ liệu. Vui lòng thử lại sau.",
     run: "Vòng luyện đã được mở lại. Hãy nộp lại.",
     closed: "Đã hết thời gian nhận bài cho tập này.",
     team: "Bạn đã đổi đội trong lúc chấm. Hãy nộp lại.",
@@ -212,10 +228,7 @@ export async function submit(
   };
   if (errors[accepted]) throw new ApiError(errors[accepted], 409);
   if (accepted !== id) {
-    const previous = await db().hget<Submission>(
-      key("submissions:" + contest.id),
-      accepted,
-    );
+    const previous = await readSubmission(contest.id,accepted);
     if (previous) return response(previous);
   }
   return response(record);

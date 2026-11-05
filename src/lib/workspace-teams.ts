@@ -2,6 +2,7 @@ import { db, key } from "./db";
 import { ApiError } from "./auth";
 import { getContest, registrationKey } from "./rounds";
 import type { Registration, SafeUser, Team, Contest } from "./types";
+import { readTeams,readRegistrations } from "./entity-repository";
 
 export function approvedTeamOptions(
   teams: Team[],
@@ -32,8 +33,8 @@ export async function workspaceTeams(actor: SafeUser, roundId: string) {
     throw new ApiError("Chỉ quản trị viên được xem danh sách đội.", 403);
   const c = await getContest(roundId);
   const [teams, registrations] = await Promise.all([
-    db().hgetall<Record<string, Team>>(key("teams")),
-    db().hgetall<Record<string, Registration>>(registrationKey(c)),
+    readTeams(),
+    readRegistrations(c),
   ]);
   return {
     roundId,
@@ -44,9 +45,7 @@ export async function workspaceTeams(actor: SafeUser, roundId: string) {
   };
 }
 export async function requireWorkspaceTeam(team: Team, c: Contest) {
-  const registrations = await db().hgetall<Record<string, Registration>>(
-    registrationKey(c),
-  );
+  const registrations = await readRegistrations(c);
   if (!approvedTeamOptions([team], Object.values(registrations ?? {})).length)
     throw new ApiError(
       "Đội chưa có thành viên được duyệt tham gia vòng luyện đã chọn.",

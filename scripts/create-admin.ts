@@ -7,8 +7,12 @@ import { db, key, serverNow } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 import type { User } from "../src/lib/types";
 import { arenaBaseUrl } from "./arena-url";
+import { usingPostgres } from "../src/lib/sql";
+import { readAdminIds,readUserId,createSqlUser } from "../src/lib/entity-repository";
+import { assertWritesAllowed } from "../src/lib/write-control";
 
 async function main() {
+  await assertWritesAllowed();
   const username = z
     .string()
     .regex(/^[a-z0-9_]{3,40}$/)
@@ -29,12 +33,12 @@ async function main() {
     throw new Error(
       "Use --production for the explicitly authorized account creation.",
     );
-  const primary = await db().get<string>(key("admin"));
+  const primary = usingPostgres()?(await readAdminIds())[0]:await db().get<string>(key("admin"));
   if (!primary)
     throw new Error(
       "Original administrator is missing; initialize it separately.",
     );
-  if (await db().exists(key(`username:${username}`)))
+  if (await readUserId(username))
     throw new Error(
       "Username already exists; no account or password was changed.",
     );
@@ -54,7 +58,7 @@ async function main() {
     { flag: "wx", mode: 0o600 },
   );
   // Retain the credential file if a network error leaves the write outcome uncertain.
-  const result = await db().eval<unknown[], number>(
+  const result = usingPostgres()?(await createSqlUser(user,"additional")?1:0):await db().eval<unknown[], number>(
     `if redis.call('GET',KEYS[1])~=ARGV[1] then return -1 end;if redis.call('EXISTS',KEYS[2])==1 or redis.call('EXISTS',KEYS[3])==1 then return 0 end;redis.call('SET',KEYS[2],ARGV[2]);redis.call('SET',KEYS[3],ARGV[3]);redis.call('SADD',KEYS[4],ARGV[2]);return 1`,
     [
       key("admin"),
@@ -70,7 +74,7 @@ async function main() {
       "Account creation conflicted; no existing account was replaced.",
     );
   }
-  if ((await db().get(key("admin"))) !== primary)
+  if ((usingPostgres()?(await readAdminIds())[0]:await db().get(key("admin"))) !== primary)
     throw new Error(
       "Primary administrator changed concurrently; inspect before proceeding.",
     );

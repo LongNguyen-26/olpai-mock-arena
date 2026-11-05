@@ -3,10 +3,13 @@ import { ApiError } from "./auth";
 import type { WorkspaceTemplate } from "./workspace-domain";
 import { templateName } from "./template-presentation";
 import { randomUUID } from "node:crypto";
+import { usingPostgres,sqlTransaction,bumpRevision } from "./sql";
+import { readSqlTemplates,putSqlTemplate,setSqlTemplatesShared } from "./gpu-repository";
 
 export const templateStore = (owner: string) => key(`gpu:templates:${owner}`);
 export const sharedTemplateStore = () => key("gpu:templates:shared");
 export async function readTemplates(owner: string) {
+  if(usingPostgres()) return readSqlTemplates(owner);
   if (await db().exists(key("gpu:templates:shared:ready")))
     return (
       (await db().hgetall<Record<string, WorkspaceTemplate>>(
@@ -29,6 +32,14 @@ export async function saveSharedTemplate(
   owner: string,
   options: { overwrite?: boolean; expectedRevision?: string },
 ) {
+  if(usingPostgres()) return sqlTransaction(async client=>{
+    const catalogue=await readSqlTemplates(owner);
+    validateTemplateSave(t,catalogue,!!options.overwrite,options.expectedRevision);
+    const now=Date.now(),old=catalogue[t.id];
+    const next={...t,revision:randomUUID(),createdBy:old?.createdBy??owner,createdAt:old?.createdAt??now,updatedBy:owner,updatedAt:now};
+    for(const item of Object.values({...catalogue,[next.id]:next})) await putSqlTemplate(item);
+    await setSqlTemplatesShared();await bumpRevision(client);return next;
+  },true);
   const snapshot = await db().eval<
     unknown[],
     { version: string; values: string[] }

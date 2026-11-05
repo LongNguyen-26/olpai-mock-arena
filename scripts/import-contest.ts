@@ -6,7 +6,11 @@ import { resolve, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { db, key, storage } from "../src/lib/db";
 import type { ContestPackage, Asset } from "../src/lib/types";
+import { usingPostgres } from "../src/lib/sql";
+import { saveSqlPackage } from "../src/lib/entity-repository";
+import { assertWritesAllowed } from "../src/lib/write-control";
 async function main() {
+  await assertWritesAllowed();
   const root = resolve(process.argv[2] ?? "../statements"),
     out = resolve(".local/judges"),
     version = `mock-2026-v1-${Date.now()}`;
@@ -87,7 +91,8 @@ async function main() {
     judges,
     importedAt: Date.now(),
   };
-  await db()
+  if(usingPostgres()) await saveSqlPackage(pkg,true,pkg.version,true);
+  else await db()
     .multi()
     .set(key(`package:${version}`), pkg)
     .hset(key("packages"), { [version]: pkg.title! })

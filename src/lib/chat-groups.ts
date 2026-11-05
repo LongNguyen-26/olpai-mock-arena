@@ -1,3 +1,4 @@
+import { runtimeEval } from "./runtime-authority";
 import { randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -20,6 +21,8 @@ import {
   supportedQueueProtocol,
 } from "./chat-queue";
 import type { SafeUser, Team } from "./types";
+import { readTeam } from "./entity-repository";
+import { readGroupRecord,readGroupIds } from "./gpu-repository";
 
 export interface ChatGroup {
   id: string;
@@ -39,7 +42,7 @@ export interface ChatGroup {
 }
 export const groupKey = (id: string) => key(`gpu:chat-group:${id}`);
 export async function getChatGroup(id: string) {
-  const g = await db().get<ChatGroup>(groupKey(id));
+  const g = await readGroupRecord(id);
   if (!g) throw new ApiError("Không tìm thấy nhóm Chatbot.", 404);
   if (!Array.isArray(g.workspaceIds)) g.workspaceIds = [];
   g.teamId ??= null;
@@ -59,7 +62,7 @@ export async function accessChatGroup(user: SafeUser, id: string) {
     throw new ApiError("Không tìm thấy nhóm Chatbot.", 404);
   if (!user.admin) {
     const team = user.teamId
-      ? await db().hget<Team>(key("teams"), user.teamId)
+      ? await readTeam(user.teamId)
       : null;
     if (
       !team?.members.includes(user.id) ||
@@ -82,7 +85,7 @@ export async function createChatGroup(
   },
 ) {
   if (!user.admin) throw new ApiError("Chỉ admin được tạo nhóm.", 403);
-  const existing = await db().get<ChatGroup>(groupKey(v.id));
+  const existing = await readGroupRecord(v.id);
   if (existing) {
     if (
       existing.ownerId !== user.id ||
@@ -99,7 +102,7 @@ export async function createChatGroup(
     t = (await readTemplates(user.id))[v.templateId];
   if (!t || t.services !== "llm")
     throw new ApiError("Chọn template Chỉ Chatbot đã lưu.", 409);
-  const team = v.teamId ? await db().hget<Team>(key("teams"), v.teamId) : null;
+  const team = v.teamId ? await readTeam(v.teamId) : null;
   if (v.scope === "team" && !team?.members.length)
     throw new ApiError("Chọn đội có thành viên.");
   if (v.scope === "team") await requireWorkspaceTeam(team!, c);
@@ -128,7 +131,7 @@ export async function createChatGroup(
     if (old.roundId === g.roundId && old.status !== "terminated")
       throw new ApiError("Đội đã có Pod cung cấp Chatbot.", 409);
   }
-  const ok = await db().eval(
+  const ok = await runtimeEval(
     "if redis.call('EXISTS',KEYS[2])==1 then return 2 end;if redis.call('EXISTS',KEYS[1])==1 then return 0 end;redis.call('SET',KEYS[1],ARGV[1]);redis.call('SET',KEYS[2],ARGV[2]);redis.call('SADD',KEYS[3],ARGV[3]);return 1",
     [reservation, groupKey(g.id), key("gpu:chat-groups")],
     [`group:${g.id}`, JSON.stringify(g), g.id],
@@ -163,7 +166,7 @@ export async function controlChatGroup(
     if (q.queued || q.running || q.uncertain.length)
       throw new ApiError("Nhóm còn request chưa hoàn tất.", 409);
   }
-  const changed = await db().eval(
+  const changed = await runtimeEval(
     "local g=cjson.decode(redis.call('GET',KEYS[1]));if ARGV[1]=='retire' and (#g.workspaceIds~=tonumber(ARGV[3]) or redis.call('ZCARD',KEYS[3])>0) then return 0 end;g.paused=ARGV[1]~='resume';if ARGV[1]=='retire' then g.retired=true;if redis.call('GET',KEYS[2])==ARGV[2] then redis.call('DEL',KEYS[2]) end end;redis.call('SET',KEYS[1],cjson.encode(g));return 1",
     [
       groupKey(id),
@@ -188,7 +191,7 @@ export async function drainChatWorker(
   return { ok: true };
 }
 export async function chatGroupViews(user: SafeUser) {
-  const ids = await db().smembers<string[]>(key("gpu:chat-groups"));
+  const ids = await readGroupIds();
   const now = await serverNow();
   return (
     await Promise.all(
