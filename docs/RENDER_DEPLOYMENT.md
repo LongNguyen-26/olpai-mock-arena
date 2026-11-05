@@ -6,12 +6,27 @@ Quyết định ngày 05/11/2026: Render phục vụ chính, dùng Free trước
 
 - Workspace: `My Workspace` (`tea-d6fb6q9drdic739rrnf0`).
 - Web service: `olpai-arena` (`srv-dbi7v2dg1s2s73e8m740`), Node, Free, Singapore, một instance.
-- Repo: `LongNguyen-26/olpai-mock-arena`, nhánh `main`, tự deploy khi commit.
+- Repo: `LongNguyen-26/olpai-mock-arena`, nhánh `main`. Cờ tự deploy đang bật, nhưng cần kiểm tra việc nhận Git webhook (xem bên dưới).
 - Tên miền chính: `https://olpaiarena.cyou`; `www` chuyển về tên miền gốc.
 - Địa chỉ Render: `https://olpai-arena.onrender.com`.
 - Dashboard: https://dashboard.render.com/web/srv-dbi7v2dg1s2s73e8m740.
 
 Đã kiểm tra HTTPS trực tiếp: tên miền chính và onrender trả trang từ Render; www redirect về tên miền chính. Không cần thay DNS đang hoạt động.
+
+## Kết quả kiểm tra ngày 05/11/2026
+
+- Commit ứng dụng: `e8d167d88d2ace61597492c5d32f68c58e030e4c`.
+- Deploy `dep-dbm22ld9fdbs73bjvpc0`: `live`, build thành công trên Render với Node 24.13.0; server bind `0.0.0.0:10000` và sẵn sàng.
+- TypeScript qua; toàn bộ 95 unit test qua khi chạy tuần tự; render.yaml qua JSON Schema chính thức. Chưa dùng Render CLI để validate theo tài khoản.
+- QA Workspace qua với Runpod giả lập, Redis/Blob trong namespace QA riêng và tự dọn. Không cấp GPU thật.
+- Smoke sau deploy qua trên **cả hai** `olpaiarena.cyou` và `olpai-arena.onrender.com`: `/api/health`, login, cookie Secure/HttpOnly, API yêu cầu đăng nhập, catalogue/đề của 6 vòng và Workspace state. Đọc giá GPU bằng Runpod credential đã lưu thành công, xác minh credential này giải mã được trên Render.
+- 98 bản ghi Workspace lịch sử, **0 bản ghi còn hoạt động** tại lúc kiểm tra. Không có cấu hình manual đang chờ gắn thuộc admin được kiểm tra; chưa kiểm tra Jupyter/kernel/inference thật trong lần này. Không tạo hoặc restart Pod để QA hosting.
+- Không thấy sự kiện server failed/restarted/suspended/hardware failure trong khoảng theo dõi ngắn ngay sau deploy. Đây không phải cam kết không có lỗi trong tương lai hoặc kiểm tra tải đồng thời.
+- Mẫu metric trước deploy: RAM khoảng 180–215 MB trên giới hạn 512 MB, phần lớn CPU thấp khi ít traffic. Cần quan sát lại khi có nhiều người dùng.
+- Build local biên dịch được nhưng worker TypeScript bị Windows từ chối cấp phát bộ nhớ; TypeScript chạy riêng qua và build đầy đủ trên Render qua. Không tắt type checking để vượt qua lỗi.
+- Công cụ UI dừng vì không xác định được URL Chrome; xác minh production qua HTTP/API và log Render, chưa kiểm tra browser/kernel thật.
+
+Các cập nhật tài liệu sau commit ứng dụng không yêu cầu build lại; dùng `[skip render]` cho commit chỉ có tài liệu khi thích hợp.
 
 ## Kiến trúc và cấu hình
 
@@ -77,7 +92,9 @@ Smoke tạo session admin tạm, đọc catalogue/đề/API Workspace, kiểm tr
 
 Các script production mặc định dùng `https://olpaiarena.cyou`. Chọn host khác bằng `--base=https://...` hoặc `ARENA_BASE_URL`; có thể chọn Vercel khi cần kiểm tra lại. Script Arena 04 chỉ kiểm tra host được chọn, không tự chạy trên cả hai provider.
 
-Push commit đã kiểm tra lên `main`, chờ Render tự deploy, đối chiếu **full SHA**, trạng thái `live`, rồi chạy smoke. Không trigger thêm deploy khi auto deploy đang chạy. Vercel vẫn có thể tự deploy cùng commit theo cấu hình cũ.
+Push commit đã kiểm tra lên `main`, theo dõi xem Render đã tạo deploy chưa, đối chiếu **full SHA**, trạng thái `live`, rồi chạy smoke. Không trigger thêm deploy khi auto deploy đang chạy. Vercel vẫn có thể tự deploy cùng commit theo cấu hình cũ.
+
+Trong lần kiểm tra ngày 05/11, push commit ứng dụng không tạo event/deploy mới dù `autoDeploy=yes`. Vì vậy đã chạy một lần Manual Deploy sau khi xác nhận không có deploy nào đang chạy. Theo [tài liệu Render](https://render.com/docs/deploys), tự deploy cần liên kết Git provider; dịch vụ lấy source từ public repo URL phải deploy thủ công. Cần kiểm tra và liên kết đúng GitHub repo trong Dashboard nếu muốn Render tự nhận các push tiếp theo. Không suy ra webhook đã hoạt động chỉ từ cờ autoDeploy. Công cụ trình duyệt của phiên này dừng vì không xác định được URL Chrome, nên chưa chỉnh liên kết Git provider qua UI.
 
 `/api/health` trả trạng thái process, không gọi Redis/Blob mỗi lần Render probe. Có thể đặt Health Check Path này trong Dashboard sau khi route được deploy. TCP health check đang có vẫn hợp lệ. Kiểm tra kết nối dữ liệu nằm trong smoke, không coi process health là bằng chứng toàn bộ nghiệp vụ hoạt động.
 
