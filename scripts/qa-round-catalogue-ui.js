@@ -1,0 +1,66 @@
+/** Run a local copy with __QA_PASSWORD__ replaced from the ignored fixture. */
+async page => {
+  const base='http://localhost:3018', password='__QA_PASSWORD__';
+  const check=(value,message)=>{if(!value)throw new Error(message)};
+  const errors=[],mutations=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/admin/round/manage'))mutations.push(r.postDataJSON())});
+  const login=async (p,name)=>{
+    await p.goto(base+'/login');
+    await p.getByRole('textbox',{name:'Email hoặc tên đăng nhập',exact:true}).fill(name);
+    await p.getByRole('textbox',{name:'Mật khẩu',exact:true}).fill(password);
+    await p.locator('form').getByRole('button',{name:'Đăng nhập',exact:true}).click();
+    await p.waitForURL(base+'/');await p.locator('.round-card').first().waitFor();
+  };
+  await page.context().clearCookies();await page.setViewportSize({width:1600,height:1050});
+  await login(page,'qa_catalogue_admin');
+  const read=async p=>(await (await p.request.get(base+'/api/arena')).json());
+  const original=await read(page),live=original.rounds.find(r=>r.phase==='public'),waiting=original.rounds.find(r=>r.phase==='waiting');
+  check(original.packages.some(p=>p.title.includes('Chuẩn hóa cũ v1')),'Archived normalized version');
+  check(original.packages[0].title.includes('Bản hiện hành'),'Current package first');
+  check((await page.locator('.round-source').count())===2,'Admin source labels');
+  await page.screenshot({path:'output/playwright/round-catalogue-desktop.png',fullPage:true});
+  const firstId=original.rounds[0].id;
+  await page.locator('.round-card').first().getByRole('button',{name:/Đưa .* xuống/}).click();
+  await page.getByRole('status').filter({hasText:'Đã đổi thứ tự'}).waitFor();
+  await page.reload();await page.locator('.round-card').first().waitFor();
+  check((await read(page)).rounds[1].id===firstId,'Order persisted across reload');
+  const card=page.locator('.round-card').filter({has:page.getByRole('heading',{name:live.title,exact:true})});
+  await card.getByRole('button',{name:'Đổi tên',exact:true}).click();
+  const dialog=page.getByRole('dialog');await dialog.getByRole('textbox',{name:'Tên vòng luyện',exact:true}).fill('Vòng QA đổi tên trên thẻ');
+  await dialog.getByRole('button',{name:'Lưu tên',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await page.getByRole('heading',{name:'Vòng QA đổi tên trên thẻ',exact:true}).waitFor();
+  check(new URL(page.url()).searchParams.has('round')===false,'Tool click did not navigate the card');
+  await page.goto(base+'/?round='+live.id+'#admin');
+  await page.getByRole('button',{name:'Đổi tên',exact:true}).click();
+  await dialog.getByRole('textbox',{name:'Tên vòng luyện',exact:true}).fill('Vòng QA đổi tên khi đang thi');
+  await dialog.getByRole('button',{name:'Lưu tên',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  check(await page.locator('.round-config-panel input[name=title]').inputValue()==='Vòng QA đổi tên khi đang thi','Configuration title refreshed');
+  await page.goto(base+'/#rounds');await page.locator('.round-source').first().waitFor();
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'output/playwright/round-catalogue-mobile.png',fullPage:true});
+  check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'No mobile overflow');
+  const deleteCard=page.locator('.round-card').filter({has:page.getByRole('heading',{name:waiting.title,exact:true})});
+  await deleteCard.getByRole('button',{name:'Xóa vòng',exact:true}).click();
+  check(await dialog.getByRole('button',{name:'Hủy',exact:true}).evaluate(e=>e===document.activeElement),'Safe initial delete focus');
+  await page.screenshot({path:'output/playwright/round-catalogue-delete-mobile.png',fullPage:true});
+  const before=mutations.length;await dialog.getByRole('button',{name:'Hủy',exact:true}).click();
+  check(mutations.length===before,'Cancel sent no deletion');
+  const studentContext=await page.context().browser().newContext();const student=await studentContext.newPage();
+  await login(student,'qa_catalogue_student');
+  check(await student.locator('.round-source,.round-admin-actions').count()===0,'Student has no source/admin actions');
+  check(await student.locator('.round-task-titles li').count()===2,'Only opened round reveals titles');
+  for(const action of ['rename','delete','move']) {
+    const response=await student.request.post(base+'/api/admin/round/manage?round='+waiting.id,{headers:{Origin:base},data:{action}});
+    check(response.status()===403,'Student denied '+action);
+  }
+  await deleteCard.getByRole('button',{name:'Xóa vòng',exact:true}).click();
+  await dialog.getByRole('button',{name:'Xác nhận xóa vòng',exact:true}).click();
+  await deleteCard.waitFor({state:'hidden'});
+  check((await page.request.get(base+'/api/arena?round='+waiting.id)).status()===404,'Deleted round inaccessible to admin');
+  check((await student.request.get(base+'/api/arena?round='+waiting.id)).status()===404,'Deleted round inaccessible to student');
+  await student.request.post(base+'/api/auth/logout',{headers:{Origin:base},data:{}});await studentContext.close();
+  await page.request.post(base+'/api/auth/logout',{headers:{Origin:base},data:{}});await page.context().clearCookies();
+  check(errors.length===0,errors.join('\n'));
+  console.log('PASS real browser/API/SQL: persistent reorder; live rename from card/detail; delete cancel/confirm; source/title visibility; student 403; deleted 404; desktop/mobile screenshots; no page errors; logged out.');
+}

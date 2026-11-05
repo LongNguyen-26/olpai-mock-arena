@@ -2,6 +2,8 @@ import { db, key } from "./db";
 import { namespace, usingPostgres, query, sqlTransaction, bumpRevision, sqlNow } from "./sql";
 import { ApiError } from "./api-error";
 import type { Contest, ContestPackage, Registration, Submission, Team, User } from "./types";
+import type { PackageSummary } from "./package-presentation";
+import { taskStatements } from "./statements";
 
 export const legacyRoundId = "__legacy__";
 export const roundIdOf = (c: Contest) => c.roundId ?? legacyRoundId;
@@ -59,6 +61,25 @@ export async function readPackage(id?: string): Promise<ContestPackage | null> {
 export async function readPackageCatalogue(): Promise<Record<string,string>> {
   if (!usingPostgres()) return (await db().hgetall<Record<string,string>>(key("packages"))) ?? {};
   return Object.fromEntries((await query("select id,title from arena.packages where ns=$1 and listed order by imported_at,id", [namespace()])).map(r=>[r.id,r.title]));
+}
+export async function readPackageSummaries(ids: string[]): Promise<PackageSummary[]> {
+  if (!ids.length) return [];
+  if (usingPostgres()) {
+    const rows = await query(`select id,title,imported_at,configuration->'arenaNumber' arena_number,
+      configuration->>'edition' edition,
+      coalesce((select jsonb_agg(jsonb_build_object('id',t->>'id','title',t->>'title'))
+        from jsonb_array_elements(configuration->'tasks') t),'[]'::jsonb) tasks
+      from arena.packages where ns=$1 and id=any($2::text[])`, [namespace(), ids]);
+    return Promise.all(rows.map(async r => {
+      const legacy = r.tasks.length ? null : await readPackage(r.id);
+      return { id:r.id, title:r.title, importedAt:Number(r.imported_at),
+        arenaNumber:r.arena_number ?? undefined, edition:r.edition ?? undefined,
+        tasks:legacy ? taskStatements(legacy).map(t => ({id:t.id,title:t.title})) : r.tasks };
+    }));
+  }
+  const rows = await db().mget<(ContestPackage | null)[]>(...ids.map(id => key(`package:${id}`)));
+  return rows.flatMap((p, i) => p ? [{ id:ids[i], title:p.title ?? ids[i], importedAt:p.importedAt,
+    arenaNumber:p.arenaNumber, edition:p.edition, tasks:taskStatements(p).map(t => ({ id:t.id, title:t.title })) }] : []);
 }
 export async function readRegistrations(c: Contest): Promise<Record<string,Registration>> {
   if (!usingPostgres()) return (await db().hgetall<Record<string,Registration>>(key(`registrations:${c.roundId ?? c.id}`))) ?? {};

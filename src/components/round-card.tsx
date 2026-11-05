@@ -9,7 +9,8 @@ import {
   EyeOff,
 } from "lucide-react";
 import RoundVisibilityButton from "./round-visibility-button";
-import { duration, type ArenaData } from "./arena-client";
+import { duration, type ArenaData, type Action } from "./arena-client";
+import RoundManagementTools from "./round-management-tools";
 import { roundTiming } from "@/lib/round-presentation";
 
 const names = {
@@ -37,6 +38,8 @@ export default function RoundCard({
   busy = false,
   onStart,
   onVisibility,
+  order = [],
+  action,
 }: {
   round: ArenaData["rounds"][number];
   now: number;
@@ -45,6 +48,8 @@ export default function RoundCard({
   busy?: boolean;
   onStart?: () => void;
   onVisibility?: (hidden: boolean) => void;
+  order?: string[];
+  action?: Action;
 }) {
   const timing = roundTiming(r, now);
   const live = ["public", "private", "practice"].includes(timing.phase);
@@ -88,6 +93,10 @@ export default function RoundCard({
           )}
         </div>
         <h2>{r.title}</h2>
+        {admin && r.packageTitle && <p className="round-source"><b>Bộ đề nguồn:</b> {r.packageTitle}</p>}
+        {!!r.taskTitles?.length && <ul className="round-task-titles" aria-label="Các tác vụ">
+          {r.taskTitles.map(t => <li key={t.id}><span>Tác vụ {t.id}</span>{t.title.replace(/^Tác vụ\s*\d+\s*[-–—:·]?\s*/i, "")}</li>)}
+        </ul>}
         <div className="round-meta">
           <span>
             <Clock3 size={18} />
@@ -161,6 +170,7 @@ export default function RoundCard({
               busy={busy}
               onChange={(value) => onVisibility?.(value)}
             />
+            {action && <RoundManagementTools round={r} order={order} busy={busy} action={action} />}
           </div>
         )}
       </div>

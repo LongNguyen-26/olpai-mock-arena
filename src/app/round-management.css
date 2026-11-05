@@ -100,6 +100,23 @@
 .round-policy-dialog::backdrop {
   background: #102d3b88;
 }
+.round-task-titles {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.round-task-titles li { display: flex; gap: 10px; align-items: baseline; }
+.round-task-titles li > span { flex-shrink: 0; color: #637985; font-size: 12px; }
+.round-source { color: #637985; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.round-order-actions { display: inline-flex; gap: 6px; }
+.round-management-dialog form { display: grid; gap: 20px; margin-top: 18px; }
+.round-management-dialog input { width: 100%; min-width: 0; }
+.round-management-dialog .action-row { justify-content: flex-end; flex-wrap: wrap; }
 .round-policy-dialog fieldset {
   display: grid;
   gap: 16px;

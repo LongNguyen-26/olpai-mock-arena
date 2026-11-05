@@ -21,7 +21,8 @@ import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
 import { usingPostgres } from "./sql";
-import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue } from "./entity-repository";
+import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
+import { presentPackages } from "./package-presentation";
 import { getSqlContest, createSqlRound, registerSqlRound, reviewSqlRegistration, controlSqlRound } from "./sql-rounds";
 import type {
   Contest,
@@ -92,12 +93,26 @@ export async function snapshot(user: SafeUser, id?: string) {
       c ? readRegistrations(c) : null,
     ),
   );
+  const catalogue = user.admin ? await readPackageCatalogue() : {};
+  const summaries = await readPackageSummaries([...new Set([
+    ...Object.keys(catalogue),
+    ...contests.filter(c => c && roundVisible(c, user.admin) &&
+      (user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))))
+      .flatMap(c => c?.packageId ? [c.packageId] : []),
+  ])]);
+  const packages = user.admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
+  const packageLabels = new Map((user.admin ? [...presentPackages(summaries), ...packages] : []).map(p => [p.id, p.title]));
+  const packageMap = new Map(summaries.map(p => [p.id, p]));
   const rounds = contests.flatMap((c, i) =>
     c && roundVisible(c, user.admin)
       ? [
           {
             id: c.roundId ?? c.id,
             title: c.title,
+            runId: c.id,
+            ...(user.admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
+            taskTitles: user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))
+              ? packageMap.get(c.packageId ?? "")?.tasks ?? [] : [],
             taskCount: c.taskCount ?? 2,
             phase: phaseOf(c, now),
             startAt: c.startAt,
@@ -231,11 +246,7 @@ export async function snapshot(user: SafeUser, id?: string) {
       contest && entered
         ? await readAnnouncements(contest.id)
         : [],
-    packages: user.admin
-      ? Object.entries(
-          await readPackageCatalogue(),
-        ).map(([id, title]) => ({ id, title }))
-      : [],
+    packages,
     registrations: await Promise.all(
       (user.admin ? roster : []).map(async (r) => {
         const u = await readUser(r.userId);

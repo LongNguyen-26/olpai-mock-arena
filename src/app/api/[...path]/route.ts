@@ -39,6 +39,7 @@ import { adminRoster, deleteRosterEntry } from "@/lib/admin-roster";
 import { usingPostgres } from "@/lib/sql";
 import { readUser,readUserId,readSubmission,createSqlUser,changeSqlPassword } from "@/lib/entity-repository";
 import { assertWritesAllowed } from "@/lib/write-control";
+import { manageRound, roundManagementSchema } from "@/lib/round-management";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -309,6 +310,12 @@ async function handle(
     if (route === "round/register") {
       await rateLimit("enroll:" + user.id, 20, 60);
       await registerRound(user, selectedRound());
+      return json({ ok: true });
+    }
+    if (route === "admin/round/manage" && req.method === "POST") {
+      await requireAdmin();
+      await rateLimit(`admin:round-manage:${user.id}`, 60, 60);
+      await manageRound(selectedRound(), roundManagementSchema.parse(await payload(req)));
       return json({ ok: true });
     }
     if (route === "admin/round/create") {

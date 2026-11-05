@@ -34,6 +34,8 @@ export const packageSchema = z
   .object({
     version: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
     title: z.string().min(3).max(100),
+    arenaNumber: z.number().int().min(1).max(9999).optional(),
+    edition: z.enum(["original", "standardized"]).optional(),
     statement: z.string().default(""),
     tasks: z
       .array(

@@ -87,6 +87,8 @@ export interface Registration {
 export interface ContestPackage {
   version: string;
   title?: string;
+  arenaNumber?: number;
+  edition?: "original" | "standardized";
   tasks?: TaskStatement[];
   statement: string;
   assets: Asset[];

@@ -1,3 +1,10 @@
+# Quản lý vòng luyện và tên phiên bản bộ đề — 05/11/2026
+
+- Admin sắp xếp lên/xuống, đổi tên ở mọi giai đoạn, xóa sau hộp xác nhận; API kiểm tra quyền và dữ liệu phiên bản cũ. Xóa mềm giữ bài nộp/đăng ký/bộ đề, không thao tác Pod. Catalogue tính nhãn Arena/bản cũ/bản hiện hành/lịch sử chuẩn hóa từ metadata; giữ package ID bất biến và binding vòng. Thẻ hiện tác vụ sau khi mở, có bộ đề nguồn riêng cho admin.
+- Typecheck, 100 unit test và production build local qua. Windows sandbox chặn junction của Turbopack; build với quyền tạo junction qua, không bỏ kiểm tra TypeScript.
+- Supabase và Redis thật trong namespace QA riêng: rename đồng thời chỉ một lần thành công, reorder kiểm tra thứ tự cũ, xóa trả 404 và giữ package/đăng ký. Nhánh Redis cũ qua reorder CAS/rename đồng thời/xóa mềm. Không seed/import/migration production, không gọi nhà cung cấp GPU.
+- Playwright trên local dùng API/Supabase/Redis thật: đăng nhập admin/thí sinh, reorder giữ sau reload, rename từ thẻ và khi đang thi, Hủy không gửi delete, xác nhận xóa trả 404 cho cả hai vai trò; thí sinh gọi cả ba action quản trị trả 403. Không page error; 403/404 trong các kiểm tra quyền là dự kiến. Đã xem ảnh desktop/mobile và hộp xác nhận, không tràn ngang. Browser đã đăng xuất/đóng; server, namespace và credential QA đã dọn. Ảnh trong `output/playwright/round-catalogue-*.png` chỉ là fixture QA.
+
 # Chuyển dữ liệu chính sang Supabase trên Render — 05/11/2026
 
 - Application commit `29613f3c3211eb8a2b05adbb2d35afa813012be1`; Render SQL deployment `dep-dbm3m1l9fdbs73boop1g` live. Health cả `olpaiarena.cyou` và `olpai-arena.onrender.com` trả postgres/migration 1/đúng SHA.

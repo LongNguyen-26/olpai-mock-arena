@@ -429,6 +429,8 @@ export default function Arena() {
                     onEnter={() => go("overview", r.id)}
                     admin={isAdmin}
                     busy={busy}
+                    action={action}
+                    order={data.rounds.map(r => r.id)}
                     onVisibility={(hidden) =>
                       void action(
                         "admin/control",

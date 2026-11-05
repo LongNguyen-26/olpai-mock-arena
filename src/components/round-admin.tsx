@@ -11,6 +11,7 @@ import {
 import { api, when, type ViewProps } from "./arena-client";
 import { phaseOf, privateStart, contestEnd } from "@/lib/domain";
 import RoundVisibilityButton from "./round-visibility-button";
+import RoundManagementTools from "./round-management-tools";
 import RoundAccessControls from "./round-access-controls";
 export default function RoundAdmin({ data, busy, action }: ViewProps) {
   const c = data.contest;
@@ -29,6 +30,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             Điều khiển vòng luyện
           </h2>
           <div className="round-control-status">
+            <RoundManagementTools renameOnly round={{ id:c.roundId!, runId:c.id, revision:c.revision, title:c.title }} busy={busy} action={action} />
             <span className="pill neutral">
               {open ? "Đang mở" : phase === "ended" ? "Đã kết thúc" : "Chưa mở"}
             </span>
@@ -167,7 +169,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
           </span>
         </div>
         <form
-          key={`${c.id}-${c.publicSeconds}-${c.privateSeconds}-${c.publicLimit}-${c.privateLimit}-${c.unlimited}-${c.autoApprove}`}
+          key={`${c.id}-${c.title}-${c.publicSeconds}-${c.privateSeconds}-${c.publicLimit}-${c.privateLimit}-${c.unlimited}-${c.autoApprove}`}
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -421,10 +423,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
   );
 }
 export function PublishRound({ data, busy, action }: ViewProps) {
-  const packages = [...data.packages].sort(
-    (a, b) =>
-      Number(b.id.includes("-clean-")) - Number(a.id.includes("-clean-")),
-  );
+  const packages = data.packages;
   return (
     <section className="panel publish-panel">
       <div className="section-title">
@@ -461,9 +460,6 @@ export function PublishRound({ data, busy, action }: ViewProps) {
               {packages.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.title}
-                  {p.id.includes("-clean-")
-                    ? " · Bản chuẩn hóa"
-                    : " · Bản trước"}
                 </option>
               ))}
             </select>
