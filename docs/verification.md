@@ -1,3 +1,12 @@
+# Chuyển dữ liệu chính sang Supabase trên Render — 05/11/2026
+
+- Application commit `29613f3c3211eb8a2b05adbb2d35afa813012be1`; Render SQL deployment `dep-dbm3m1l9fdbs73boop1g` live. Health cả `olpaiarena.cyou` và `olpai-arena.onrender.com` trả postgres/migration 1/đúng SHA.
+- Typecheck, 95 unit tests và production build qua. QA SQL/Redis thật trong namespace riêng qua 12 nhóm kiểm tra: tranh chấp username/team/quota/reservation, task 3/invalid/idempotency, reset run, SQL authority, queue/budget, cache eviction, replay sau SQL rollback, Hub ticket và callback đến muộn. Runpod/Pod được giả lập trong QA, không tạo GPU tính phí.
+- Rehearsal và production import đều khớp toàn bộ row/checksum của 18 bảng: 46 users, 18 teams/36 members, 9 packages, 9 rounds, 17 runs, 102 registrations, 245 submissions, 53 quotas, 18 receipts, 14 templates, 2 ciphertext credentials, 2.966 runtime history. Namespace SQL production trước import trống; import dưới write-freeze, đã gỡ freeze sau smoke.
+- Smoke HTTP staging và production qua: hash đăng nhập cũ, quyền admin, 6 vòng hiển thị và đề, 239 submissions trong run hiển thị, roster, 98 Workspace; logout dọn session. SQL smoke cả hai host Render qua. Smoke Render còn kiểm tra giải mã credential cũ bằng đọc giá Runpod, không cấp Pod. Không có Workspace đang hoạt động. Log Render sau deploy chưa có error/warn; Supabase security advisor không có lint. Size database khoảng 23 MB, không còn namespace QA/staging.
+- Đã sửa tải lịch sử Workspace lớn làm cạn hàng đợi SQL pool bằng gom dữ liệu/gộp truy vấn trùng trong một response đọc; không cache policy giữa request. Backup AES-GCM, rehearsal restore SQL về Redis nghiệp vụ đã đối chiếu, giữ runtime hiện tại. Không chuyển Blob/Drive hoặc đổi encryption key.
+- Vercel pause đến 30/11/2026, thêm env trả 402. Người dùng duyệt tiếp tục riêng Render và xử lý Vercel sau. Giữ auto deploy Vercel; trước khi dùng lại cần SQL env + code main hiện hành + smoke, không dùng Redis cũ làm nguồn mới. Xem [runbook](SUPABASE_DATABASE.md).
+
 # Giao diện JupyterLab cho thí sinh và quyền quản trị — 30/10/2026
 
 - Thí sinh mở JupyterLab từ thẻ GPU như Pod Jupyter thông thường. Không hiển thị bảng quản trị server/team; readiness xét đúng team, revision và heartbeat, cùng lịch truy cập của vòng. Server dừng/đang chuẩn bị/mất heartbeat/lỗi/khóa lịch đều có trạng thái ngắn gọn và không bật link sai.

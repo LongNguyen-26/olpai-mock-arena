@@ -30,7 +30,7 @@ Các cập nhật tài liệu sau commit ứng dụng không yêu cầu build l�
 
 ## Kiến trúc và cấu hình
 
-Next.js chạy bằng Node web service, không dùng static export. API trình duyệt gọi đường dẫn tương đối trên host đang mở. Redis, session, vòng thi, hàng đợi và kết quả nằm trên Upstash Redis; file nằm trên Upstash Blob. GPU/Jupyter/LLM vẫn chạy ở Runpod. Không có Vercel SDK, Vercel Blob, Edge Config hoặc Vercel Cron trong luồng ứng dụng hiện tại.
+Next.js chạy bằng Node web service, không dùng static export. API trình duyệt gọi đường dẫn tương đối trên host đang mở. Từ cutover 05/11/2026, Supabase Postgres lưu dữ liệu chính; Upstash Redis giữ session, hàng đợi, lease và runtime/cache; file nằm trên Upstash Blob/Drive. GPU/Jupyter/LLM vẫn chạy ở Runpod. Xem [database, backup và rollback](SUPABASE_DATABASE.md). Không có Vercel SDK, Vercel Blob, Edge Config hoặc Vercel Cron trong luồng ứng dụng hiện tại.
 
 Không cần chuyển dữ liệu, seed lại, tạo database Render hoặc gắn persistent disk cho web. Không lưu dữ liệu nghiệp vụ lên filesystem của Free service.
 
@@ -61,6 +61,8 @@ Giữ nguyên các giá trị production sau trên Render:
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Cùng Redis production hiện có |
 | `UPSTASH_BLOB_TOKEN` | Cùng bucket private hiện có |
 | `ARENA_NAMESPACE` | `arena:v1`, hoặc bỏ trống để dùng mặc định hiện tại |
+| `ARENA_DATABASE_MODE` | `postgres` sau cutover đã đối chiếu; không tự đổi về Redis để fallback |
+| `ARENA_DATABASE_URL` | Server-only, role `arena_backend`, Supabase transaction pooler 6543/TLS |
 | `GPU_WORKSPACE_ENCRYPTION_KEY` | **Đúng khóa production cũ**, không sinh lại |
 | `GPU_WORKSPACE_PUBLIC_URL` | Origin HTTPS của host đang phục vụ; có thể dùng onrender.com hoặc tên miền chính |
 | `GPU_WORKSPACE_LOGIN_ORIGINS` | Các alias HTTPS dùng để mở Hub; gồm tên miền chính, www và onrender nếu sử dụng |
@@ -68,7 +70,7 @@ Giữ nguyên các giá trị production sau trên Render:
 
 Code mới có thể dùng `RENDER_EXTERNAL_URL` khi chưa đặt callback origin. Cấu hình tường minh vẫn ưu tiên, nên có thể chạy trên Vercel hoặc host khác. Không có tự fallback HTTP về Vercel khi Render lỗi.
 
-Runpod API key của admin được mã hóa trong Redis, không cần đưa key đó vào biến public của web. Không đổi encryption key để chữa lỗi deploy. Khóa có độ dài đúng mới chỉ là kiểm tra cấu hình; đọc giá GPU thành công bằng credential đã lưu mới kiểm tra được giải mã credential đó và gọi provider.
+Runpod API key của admin được mã hóa trong Supabase sau migration, không cần đưa key đó vào biến public của web. Không đổi encryption key để chữa lỗi deploy. Khóa có độ dài đúng mới chỉ là kiểm tra cấu hình; đọc giá GPU thành công bằng credential đã lưu mới kiểm tra được giải mã credential đó và gọi provider.
 
 Pod đã tạo giữ `ARENA_CONTROL_URL` và alias login trong môi trường riêng. Đổi Environment của web không tự cập nhật Pod cũ. Nếu có Pod đang dùng URL cũ và cần đổi, kiểm tra riêng rồi lên lịch thao tác; không tự restart/thu hồi Pod hoặc rebuild image chỉ vì đổi hosting web.
 
