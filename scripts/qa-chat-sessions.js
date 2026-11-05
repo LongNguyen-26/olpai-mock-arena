@@ -62,7 +62,7 @@ async (page) => {
   const id = async (p) =>
     p.evaluate(() => sessionStorage.getItem("arena-chat:qa-pod"));
   const send = async (p, text) => {
-    await p.getByRole("textbox", { name: "Tin nhắn cho DeepSeek" }).fill(text);
+    await p.getByRole("textbox", { name: "Tin nhắn cho Chatbot" }).fill(text);
     await p.getByRole("button", { name: "Gửi tin nhắn", exact: true }).click();
     await p.getByText("Trả lời: " + text, { exact: true }).waitFor();
   };
@@ -96,7 +96,7 @@ async (page) => {
     "Reload mixed tab histories",
   );
   await page
-    .getByRole("textbox", { name: "Tin nhắn cho DeepSeek" })
+    .getByRole("textbox", { name: "Tin nhắn cho Chatbot" })
     .fill("Bản nháp cũ");
   await page
     .getByRole("button", { name: "Đoạn chat mới", exact: true })
@@ -110,7 +110,7 @@ async (page) => {
   );
   check(
     (await page
-      .getByRole("textbox", { name: "Tin nhắn cho DeepSeek" })
+      .getByRole("textbox", { name: "Tin nhắn cho Chatbot" })
       .inputValue()) === "",
     "New chat retained old draft",
   );
@@ -141,7 +141,7 @@ async (page) => {
   );
   await send(page, "Phiên mới A");
   await page
-    .getByRole("textbox", { name: "Tin nhắn cho DeepSeek" })
+    .getByRole("textbox", { name: "Tin nhắn cho Chatbot" })
     .fill("/new");
   await page.getByRole("button", { name: "Gửi tin nhắn", exact: true }).click();
   await ready(page);

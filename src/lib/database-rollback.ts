@@ -6,7 +6,7 @@ import { exportRedisSnapshot,rawRedis,checksum,canonical,type DatabaseSnapshot,t
 export function businessKey(suffix:string) {
   return /^(admin|admins|teams|rounds|packages|contest|package|admin:deletions)$/.test(suffix)||
     /^(user|username|code|invites|package|round|runs|registrations|announcements|submissions|quota|request|quota-grant|round-control):/.test(suffix)||
-    suffix==="gpu:templates"||suffix.startsWith("gpu:templates:")||suffix.startsWith("gpu:credential:");
+    suffix==="gpu:templates"||suffix.startsWith("gpu:templates:")||suffix.startsWith("gpu:credential:")||suffix.startsWith("api:credential:");
 }
 /** Produce a Redis-compatible business snapshot from the current SQL authority.
  * Runtime records and files are copied from Redis, never reset to an old backup. */
@@ -57,6 +57,7 @@ export async function exportSqlSnapshot():Promise<DatabaseSnapshot> {
   if(state?.configuration.templatesShared)string("gpu:templates:shared:ready","1");
   string("gpu:templates:version",String(state?.revision??0));
   for(const c of await query("select * from arena.gpu_credentials where ns=$1",[ns]))string(`gpu:credential:${c.owner_id}`,c.ciphertext);
+  for(const c of await query("select * from arena.api_credentials where ns=$1",[ns]))string(`api:credential:${c.provider}:${c.owner_id}`,c.configuration);
   const audit=await query("select * from arena.audit_events where ns=$1 order by created_at",[ns]),deletions:Record<string,unknown>={};
   for(const a of audit)if(a.payload?.kind&&a.payload?.id)deletions[`${a.payload.kind}:${a.payload.id}`]=a.payload;
   hash("admin:deletions",deletions);

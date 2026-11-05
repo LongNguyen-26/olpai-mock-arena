@@ -265,3 +265,15 @@
 - 74 unit test và build đạt. `qa-round-controls.ts` kiểm tra Redis thật trong namespace QA: giữ/xóa ledger và quota, snapshot lượt cũ, reset đồng thời/trùng request, nhận bài sau luyện trực tiếp và hủy lịch thi. 72 fixture TypeScript/Lua và các luồng trước tiếp tục đạt.
 - `qa-workspace-flow.ts` với Runpod/model giả lập xác nhận reset giữ/đổi run rồi mở luyện trực tiếp, manifest/launch Lab gắn đúng run mới, Pod ID được giữ và không gọi create/stop/resume/terminate trong các thao tác này.
 - Playwright HTTP/Redis QA thật kiểm tra điểm mẫu trước/sau giữ BXH, bỏ giữ tạo BXH trống, hủy xác nhận không đổi vòng, hai lựa chọn bắt đầu thi/luyện sau reset, luyện từ lịch hẹn và nhãn mới; desktop 1600px/mobile 390px không tràn hoặc pageerror. Đã xem ảnh `output/playwright/round-access-reset-{keep-desktop,clear-mobile}.png`. Các luồng chuyển private, submission, chatbot, expiry trước đó tiếp tục đạt. Auth, server và fixture QA được dọn sau kiểm tra; không sửa vòng hoặc Pod production để QA.
+
+
+## Groq Chatbot — 05/11/2026
+
+- Thêm chọn nhà cung cấp Runpod/Groq, khóa Groq riêng của admin được mã hóa, model đọc từ API, cấp chatbot riêng/chung theo vòng. Groq không tạo Pod hoặc sửa image/runtime GPU.
+- `npm run typecheck`; 104/104 unit test; production build thành công. Windows cần build ngoài sandbox để Turbopack tạo junction cho pg.
+- QA Groq dùng Supabase/Redis thật trong namespace riêng: cấp phát đồng thời/idempotency, quyền admin/đội, chống inference lặp, hai slot song song và trần bốn prompt/đội, input quá dài, 429/backoff/dừng sau ba lần từ chối, 401/refund, timeout/giữ reservation/đối soát owner, private chặn kết quả muộn, xóa/thay khóa và backup SQL mã hóa. PASS, 13 completion giả lập, 0 gọi Groq thật.
+- QA SQL/Redis hiện có PASS: reservation Runpod đồng thời, claim/prepare/complete, cache eviction, lịch sử bền vững, quyền SQL, reset/quota, Hub và backup/restore. Không tạo GPU thật.
+- Playwright desktop 1440×1000 và mobile 390×844: chọn provider, lưu khóa giả lập/xóa input, danh sách model, payload cấp phát, card API không hiện Pod/đơn giá giờ; phản hồi Groq giả lập; hai tab, refresh và chat mới. Không có lỗi JS trong lần kiểm tra sạch. Ảnh trong output/playwright/groq-*.png (nội bộ). QA phiên chat chung PASS cả hai browser context và /new.
+- Production Node local trong namespace QA rỗng: instrumentation khởi tạo Groq scheduler; health có startedAt, lastPollAt và lastSuccessfulPollAt. Health không thực hiện DB/provider call.
+- Migration additive `20261105110732_chatbot_api_credentials` đã áp dụng Supabase; advisor security không có lint mới. Khóa mã hóa/credential Runpod và dữ liệu vòng thật giữ nguyên.
+- Chưa nghiệm thu inference thật/tốc độ/chi phí Groq khi admin chưa nhập API key thật trên web.

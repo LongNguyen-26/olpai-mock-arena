@@ -1099,3 +1099,10 @@
     justify-content: center;
   }
 }
+
+.groq-form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px; }
+.groq-form-grid label { display:grid;gap:6px;min-width:0; }
+.groq-form-grid input,.groq-form-grid select { width:100%;min-width:0; }
+.groq-allocation-form { margin-top:24px; }
+.groq-admin .gpu-head-actions { flex-wrap:wrap; }
+@media(max-width:640px) { .groq-form-grid { grid-template-columns:1fr; } }

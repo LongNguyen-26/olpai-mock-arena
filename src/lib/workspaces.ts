@@ -39,6 +39,7 @@ import {
   capacityRejected,
   type RuntimeHealth,
   type Workspace,
+  templateSchema,
   type WorkspaceTemplate,
 } from "./workspace-domain";
 import type { Contest, SafeUser, Team } from "./types";
@@ -439,6 +440,7 @@ export async function deployWorkspace(
     return workspaceView(existing, await serverNow());
   }
   const group = options.groupId ? await getChatGroup(options.groupId) : null;
+  if (group?.provider === "groq") throw new ApiError("Chatbot Groq không sử dụng Pod.", 409);
   if (
     group &&
     (group.ownerId !== user.id ||
@@ -466,7 +468,7 @@ export async function deployWorkspace(
     readTemplates(user.id).then((templates) => templates[templateId]),
   ]);
   const t = group
-    ? await groupTemplate(group)
+    ? templateSchema.parse(await groupTemplate(group))
     : (options.retryTemplate ?? savedTemplate);
   if (
     t &&

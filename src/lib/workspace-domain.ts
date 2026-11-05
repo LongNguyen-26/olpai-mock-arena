@@ -1,3 +1,4 @@
+import type { ChatPolicy } from "./chat-policy";
 import { z } from "zod";
 import { chatbotAllowed, notebookAllowed } from "./domain";
 import { roundVisible } from "./round-visibility";
@@ -241,7 +242,7 @@ export function chatbotOpen(
   );
 }
 export function outputBudget(
-  t: WorkspaceTemplate,
+  t: ChatPolicy,
   s: ChatSession,
   promptTokens: number,
 ) {
@@ -285,7 +286,7 @@ export class ChatLimitError extends Error {
   }
 }
 export function exhaustChatSession(
-  t: WorkspaceTemplate,
+  t: ChatPolicy,
   s: ChatSession,
   content: string,
   requestId: string,
@@ -320,7 +321,7 @@ export const chatPolicyFields = [
   "inputTokenLimit",
   "outputTokenLimit",
 ] as const;
-export function chatContextWindow(t: WorkspaceTemplate) {
+export function chatContextWindow(t: ChatPolicy) {
   return (
     Math.min(t.sessionTokenLimit, t.inputTokenLimit + t.outputTokenLimit) + 128
   );

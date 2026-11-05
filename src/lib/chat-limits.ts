@@ -1,6 +1,7 @@
-import type { ChatSession, WorkspaceTemplate } from "./workspace-domain";
+import type { ChatPolicy } from "./chat-policy";
+import type { ChatSession } from "./workspace-domain";
 
-export function chatLimitSummary(t: WorkspaceTemplate, s: ChatSession) {
+export function chatLimitSummary(t: ChatPolicy, s: ChatSession) {
   const total = `Tổng phiên: ${s.inputTokens + s.outputTokens}/${t.sessionTokenLimit} token · Còn ${Math.max(0, t.sessionTokenLimit - s.inputTokens - s.outputTokens)}`;
   if (t.tokenLimitMode === "turn")
     return `${total} · Mỗi lượt: Input ≤ ${t.inputTokenLimit} · Output ≤ ${t.outputTokenLimit}`;
@@ -8,7 +9,7 @@ export function chatLimitSummary(t: WorkspaceTemplate, s: ChatSession) {
     return `${total} · Input phiên: ${s.inputTokens}/${t.inputTokenLimit} · Output phiên: ${s.outputTokens}/${t.outputTokenLimit}`;
   return `${s.inputTokens + s.outputTokens}/${t.sessionTokenLimit} token · Input ≤ ${t.inputTokenLimit}/lượt · Output ≤ ${t.outputTokenLimit}/lượt`;
 }
-export function chatUsageLog(t: WorkspaceTemplate, s: ChatSession) {
+export function chatUsageLog(t: ChatPolicy, s: ChatSession) {
   const last = s.lastTurn
     ? ` Lượt vừa rồi: input ${s.lastTurn.inputTokens}, output ${s.lastTurn.outputTokens}${s.lastTurn.rejected ? " (không gọi model)" : ""}.`
     : "";
@@ -20,7 +21,7 @@ export function chatUsageLog(t: WorkspaceTemplate, s: ChatSession) {
         : `Phiên này: ${s.inputTokens + s.outputTokens}/${t.sessionTokenLimit} token. Input đã dùng ${s.inputTokens}; output đã dùng ${s.outputTokens}.`;
   return `${chatLimitSummary(t, s)}. ${policy}${last}`;
 }
-export function isChatClosed(t: WorkspaceTemplate, s: ChatSession) {
+export function isChatClosed(t: ChatPolicy, s: ChatSession) {
   if (s.pending) return true;
   return (
     !!s.exhausted ||

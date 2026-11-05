@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import GroqAdmin from "./groq-admin";
 import WorkspaceTemplateForm from "./workspace-template-form";
 import JupyterHubPanel from "./jupyter-hub";
 import { isTeamHub } from "@/lib/hub-domain";
@@ -48,6 +49,7 @@ const statusNames = {
   failed: "Cấp phát bị từ chối",
 };
 export default function GpuWorkspace({ data }: ViewProps) {
+  const [chatProvider, setChatProvider] = useState<"runpod" | "groq">("runpod");
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -159,7 +161,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       setScope("all");
   }, [services, template?.jupyterMode]);
   useEffect(() => {
-    if (!data.user.admin || !state?.hasCredential) return;
+    if (!data.user.admin || !state?.hasCredential || chatProvider !== "runpod") return;
     let active = true;
     const refreshPrices = async () => {
       try {
@@ -175,7 +177,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       active = false;
       clearInterval(timer);
     };
-  }, [data.user.admin, state?.hasCredential]);
+  }, [data.user.admin, state?.hasCredential, chatProvider]);
   useEffect(() => {
     if (data.contest?.roundId) setRoundId(data.contest.roundId);
   }, [data.contest?.roundId]);
@@ -561,6 +563,8 @@ export default function GpuWorkspace({ data }: ViewProps) {
           {syncWarning}
         </div>
       )}
+      {data.user.admin && <section className="panel gpu-panel"><label>Nhà cung cấp khi cấp phát<select value={chatProvider} onChange={e => setChatProvider(e.target.value as "runpod" | "groq")}><option value="runpod">Runpod · GPU, JupyterLab và Chatbot</option><option value="groq">Groq · Chatbot qua API</option></select></label></section>}
+      {data.user.admin && chatProvider === "groq" && <GroqAdmin data={data} refresh={load} />}
       {!state && <p role="status">Đang tải GPU Workspace…</p>}
       {state && (
         <section className="gpu-allocations">
@@ -658,7 +662,7 @@ export default function GpuWorkspace({ data }: ViewProps) {
       {state && data.user.admin && (
         <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
-      {state && data.user.admin && (
+      {state && data.user.admin && chatProvider === "runpod" && (
         <>
           <section className="panel gpu-panel">
             <h2>

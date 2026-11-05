@@ -170,7 +170,7 @@ async function main() {
     console.log(JSON.stringify(proof));
   } finally {
     assert.ok(namespace()===ns&&ns.startsWith("arena:qa:sql:"));
-    const tables=["team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
+    const tables=["team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","api_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
     await sqlTransaction(async client=>{for(const t of tables) await client.query(`delete from arena.${t} where ns=$1`,[ns]);},true);
     let cursor="0";const keys:string[]=[];do{const [next,found]=await db().scan(cursor,{match:ns+":*",count:100});keys.push(...found);cursor=String(next);}while(cursor!=="0");
     for(const k of keys) assert.ok(k.startsWith(ns+":"));

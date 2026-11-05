@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { GroqError } from "@/lib/groq";
+import { groqCredentialState, availableGroqModels, changeGroqCredential, createGroqChatbot, groqAllocationSchema } from "@/lib/groq-service";
 import { z } from "zod";
 import {
   ApiError,
@@ -322,6 +324,18 @@ async function handle(
           headers,
         },
       );
+    if (path.startsWith("groq/")) {
+      await requireAdmin();
+      await rateLimit(`groq:manage:${user.id}`, 30, 60);
+      if (path === "groq/credential" && req.method === "GET") return json(await groqCredentialState(user));
+      if (path === "groq/models" && req.method === "GET") return json(await availableGroqModels(user));
+      if (path === "groq/credential" && req.method === "POST") {
+        const v = z.object({ apiKey: z.string().trim().min(10).max(300).nullable() }).parse(await payload(req));
+        return json(await changeGroqCredential(user, v.apiKey));
+      }
+      if (path === "groq/deploy" && req.method === "POST") return json(await createGroqChatbot(user, groqAllocationSchema.parse(await payload(req))), 201);
+      throw new ApiError("Không tìm thấy thao tác Groq.", 404);
+    }
     if (path === "chat" && req.method === "GET") {
       const workspaceId = url.searchParams.has("id") ? id() : undefined,
         groupId = url.searchParams.has("groupId")
@@ -566,6 +580,7 @@ async function handle(
       );
     if (e instanceof ApiError) return json({ error: e.message }, e.status);
     if (e instanceof RunpodError) return json({ error: e.message }, 502);
+    if (e instanceof GroqError) return json({ error: e.message }, e.kind === "rate_limit" ? 429 : 502);
     // Do not log provider payloads, Pod environment variables, credentials, or prompts.
     console.error(
       "GPU Workspace request failed",

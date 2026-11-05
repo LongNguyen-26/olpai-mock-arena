@@ -80,7 +80,7 @@ export const importColumns:Record<string,string[]>={
   announcements:["run_id","id","text","created_at"],
   submissions:["id","run_id","actor_id","user_id","task","split","filename","created_at","score","secondary","metric","bytes","sha256","path","file_storage","note","status","error","admin_test"],
   submission_quotas:["run_id","actor_id","task","split","used"],requests:["scope","id","fingerprint","result","expires_at"],
-  gpu_templates:["store","id","name","revision","configuration"],gpu_credentials:["owner_id","ciphertext"],
+  gpu_templates:["store","id","name","revision","configuration"],gpu_credentials:["owner_id","ciphertext"],api_credentials:["owner_id","provider","configuration"],
   runtime_history:["kind","id","round_id","run_id","owner_id","status","payload","expires_at","observed_at"],
   audit_events:["id","kind","payload","created_at"],legacy_archive:["source_key","redis_type","payload","expires_at"],
 };
@@ -138,6 +138,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
       const store=k==="gpu:templates"?"legacy":k==="gpu:templates:shared"?"shared":`owner:${k.slice(14)}`;
       for(const [id,t] of hash(r)) add("gpu_templates",store,id,t.name,t.revision??null,JSON.stringify(t));
     } else if(k.startsWith("gpu:credential:")) add("gpu_credentials",k.slice(15),String(raw));
+    else if(k.startsWith("api:credential:groq:")) add("api_credentials",k.slice(20),"groq",JSON.stringify(raw));
     else if(k==="admin:deletions") for(const [id,a] of hash(r)) add("audit_events",id,"legacy-roster-delete",JSON.stringify(a),a.deletedAt??snapshot.exportedAt);
     else {
       let kind:string|undefined,id:string|undefined;

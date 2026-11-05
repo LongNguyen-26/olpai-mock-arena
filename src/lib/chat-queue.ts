@@ -1,3 +1,6 @@
+import { readApiCredential } from "./api-credentials";
+import { readAdminIds } from "./entity-repository";
+import type { ChatTemplate } from "./chat-policy";
 import { runtimeEval,readChatContext,readChatJob } from "./runtime-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
@@ -71,6 +74,7 @@ export interface ChatJob {
   promptTokens?: number;
   maxTokens?: number;
   error?: string;
+  providerRequestId?: string;
 }
 export interface ChatWorker {
   workspaceId: string;
@@ -103,7 +107,8 @@ interface Target {
   teamId: string | null;
   teamName: string;
   roundTitle: string;
-  template: WorkspaceTemplate;
+  template: ChatTemplate;
+  provider?: "runpod" | "groq";
   contextWindowTokens: number;
   c: Contest;
   paused: boolean;
@@ -118,6 +123,7 @@ local p=ARGV[1]; local now=arena_now(); local ttl=tonumber(ARGV[3]);
 local function read(k) local v=redis.call('GET',k);if v then return cjson.decode(v) end end
 local function write(k,v) redis.call('SET',k,cjson.encode(v),'EX',ttl) end
 local function valid(j)
+ if j.groupId then local g=read(p..':gpu:chat-group:'..j.groupId);if not g or g.retired then return false end end
  local c=arena_round(j.roundKey,now);if not c or c.id~=j.runId or not arena_chat(c,now) then return false end
  if (j.chatEpoch or 0)~=(c.chatEpoch or 0) then return false end
  local deadline=arena_value(j.accessDeadline);if deadline and now>=deadline then return false end
@@ -138,14 +144,14 @@ local function finish(j,status,message,output)
  if j.status=='completed' or j.status=='failed' or j.status=='cancelled' then return end
  local s=read(j.sessionKey);if s and s.pending and s.pending.requestId==j.id then
   if status=='completed' then
-   table.insert(s.messages,{role='assistant',content=output.content});s.outputTokens=s.outputTokens-(j.maxTokens-output.outputTokens)
-   s.lastTurn={inputTokens=j.promptTokens,outputTokens=output.outputTokens};s.error=nil
+   table.insert(s.messages,{role='assistant',content=output.content});s.inputTokens=s.inputTokens-j.promptTokens+(output.inputTokens or j.promptTokens);s.outputTokens=s.outputTokens-(j.maxTokens-output.outputTokens)
+   s.lastTurn={inputTokens=output.inputTokens or j.promptTokens,outputTokens=output.outputTokens};s.error=nil
   else
    s.error=message; if #s.messages>0 then s.messages[#s.messages].rejected=true end
   end
   s.pending=nil;s.lastRequestId=j.id;write(j.sessionKey,s)
  end
- j.status=status;j.error=message;j.updatedAt=now;write(p..':gpu:job:'..j.id,j)
+ j.status=status;j.error=message;if output then j.providerRequestId=output.providerRequestId;j.actualInputTokens=output.inputTokens;j.actualOutputTokens=output.outputTokens end;j.updatedAt=now;write(p..':gpu:job:'..j.id,j)
  if tonumber(redis.call('GET',j.counterKey) or '0')>0 then redis.call('DECR',j.counterKey) end
  redis.call('ZREM',j.activeKey,j.id)
 end
@@ -180,7 +186,8 @@ export async function resolveChatTarget(
       contextWindowTokens: g.contextWindowTokens,
       c,
       paused: g.paused,
-      workerIds: g.workspaceIds,
+      workerIds: g.provider === "groq" ? [`groq:${g.id}`] : g.workspaceIds,
+      provider: g.provider,
     };
   }
   const { w, c } = await accessWorkspace(user, id!);
@@ -218,12 +225,11 @@ export async function chatWorkers(ids: string[]) {
       )
     : [];
 }
-export async function reconcileChat(target: string, run: string) {
+export async function reconcileChat(target: string, run: string, knownGroup?: import("./chat-groups").ChatGroup) {
   const ids = await db().zrange<string[]>(activeJobsKey(target, run), 0, 255);
   if (!ids.length) return;
-  const workerIds = target.startsWith("group:")
-    ? (await getChatGroup(target.slice(6))).workspaceIds
-    : [target.slice(10)];
+  const group = target.startsWith("group:") ? knownGroup ?? await getChatGroup(target.slice(6)) : null;
+  const workerIds = group ? (group.provider === "groq" ? [`groq:${group.id}`] : group.workspaceIds) : [target.slice(10)];
   const workers = await chatWorkers(workerIds),
     now = await serverNow(),
     unavailableKey = key(`gpu:unavailable:${target}:${run}`);
@@ -231,7 +237,7 @@ export async function reconcileChat(target: string, run: string) {
     (w) => w.ready && w.runId === run && now - w.heartbeatAt < LEASE_MS,
   );
   let outage = false;
-  if (available) await db().del(unavailableKey);
+  if (available || group?.provider === "groq") await db().del(unavailableKey);
   else {
     await db().set(unavailableKey, now, { nx: true, ex: TTL });
     outage = now - Number(await db().get<number>(unavailableKey)) >= 180000;
@@ -277,21 +283,25 @@ export async function readQueuedChat(
     );
   }
   const policyOpen = chatbotOpen({ runId: t.c.id, services: "llm" }, t.c, now);
+  const apiReady = t.provider === "groq" && (await readAdminIds()).includes(t.ownerId) && !!await readApiCredential(t.ownerId);
   return {
+    provider: t.provider ?? "runpod",
+    model: t.provider === "groq" && t.groupId ? (await getChatGroup(t.groupId)).groq?.id ?? "Groq" : "DeepSeek R1 · 32B Q4",
+    tokenAccounting: t.provider === "groq" ? "reserve-bytes" : "tokenizer",
     session: session ?? emptySession(),
     template: t.template,
     contextWindowTokens: t.contextWindowTokens,
     enabled:
       policyOpen &&
       !t.paused &&
-      workers.some(
+      (apiReady || (t.provider !== "groq" && workers.some(
         (w) =>
           w.ready &&
           supportedQueueProtocol(w.protocol) &&
           w.runId === t.c.id &&
           now - w.heartbeatAt < LEASE_MS &&
           !w.draining,
-      ),
+      ))),
     policyOpen,
     runId: t.c.id,
     serverNow: now,
@@ -331,6 +341,7 @@ export async function enqueueChat(
   }
   await rateLimit(`gpu:chat:${user.id}`, 20, 60);
   await reconcileChat(t.id, t.c.id);
+  if (t.provider === "groq" && (!(await readAdminIds()).includes(t.ownerId) || !await readApiCredential(t.ownerId))) throw new ApiError("Kết nối Groq chưa sẵn sàng.", 409);
   if (t.paused) throw new ApiError("Chatbot tạm ngừng nhận tin nhắn mới.", 409);
   if (!chatbotOpen({ runId: t.c.id, services: "llm" }, t.c, now))
     throw new ApiError("Quyền sử dụng chatbot của vòng này đang khóa.", 403);
@@ -405,6 +416,7 @@ async function authenticatedWorker(id: string, authorization: string | null) {
     throw new ApiError("Worker không hoạt động.", 403);
   const c = await getContest(w.roundId);
   const g = w.chatGroupId ? await getChatGroup(w.chatGroupId) : undefined;
+  if (g?.provider === "groq") throw new ApiError("Nhóm này dùng Groq API.", 403);
   if (g && (g.ownerId !== w.ownerId || !g.workspaceIds.includes(w.id)))
     throw new ApiError("Worker không thuộc nhóm.", 403);
   if (
@@ -415,7 +427,8 @@ async function authenticatedWorker(id: string, authorization: string | null) {
   )
     throw new ApiError("Runtime worker không khớp nhóm.", 409);
   return {
-    w,
+    workerId: w.id,
+    workerCapacity: chatParallel(w.template),
     c,
     g,
     target: g ? `group:${g.id}` : `workspace:${w.id}`,
@@ -439,21 +452,34 @@ export interface WorkerRequest {
   content?: string;
   inputTokens?: number;
   outputTokens?: number;
+  providerRequestId?: string;
+  safeError?: string;
 }
 export async function workerAction(
   action: string,
   v: WorkerRequest,
   authorization: string | null,
 ) {
-  const { w, c, g, target, template, context } = await authenticatedWorker(
-    v.workspaceId,
-    authorization,
-  );
+  return performWorkerAction(action, v, await authenticatedWorker(v.workspaceId, authorization));
+}
+export async function groqQueueAction(action: string, v: WorkerRequest, groupId: string) {
+  const g = await getChatGroup(groupId);
+  if (g.provider !== "groq" || !g.groq || g.retired) throw new ApiError("Chatbot Groq không hoạt động.", 403);
+  if (!(await readAdminIds()).includes(g.ownerId) || !await readApiCredential(g.ownerId)) throw new ApiError("Kết nối Groq chưa sẵn sàng.", 409);
+  const c = await getContest(g.roundId);
+  return performWorkerAction(action, v, { workerId: `groq:${g.id}`, workerCapacity: g.groq.parallel,
+    c, g, target: `group:${g.id}`, template: g.template, context: g.contextWindowTokens });
+}
+async function performWorkerAction(action: string, v: WorkerRequest, binding: {
+  workerId: string; workerCapacity: number; c: Contest; g?: import("./chat-groups").ChatGroup;
+  target: string; template: ChatTemplate; context: number;
+}) {
+  const { workerId, workerCapacity, c, g, target, template, context } = binding;
   const now = await serverNow(),
     open = chatbotOpen({ runId: c.id, services: "llm" }, c, now);
   if (!supportedQueueProtocol(v.protocol))
     throw new ApiError("Giao thức worker không tương thích.", 409);
-  const capacity = v.protocol === 1 ? 1 : chatParallel(w.template);
+  const capacity = v.protocol === 1 ? 1 : workerCapacity;
   const slot = v.protocol === 1 ? 0 : v.slot;
   if (
     !Number.isInteger(slot) ||
@@ -463,7 +489,7 @@ export async function workerAction(
     (v.protocol === QUEUE_PROTOCOL && v.capacity !== capacity)
   )
     throw new ApiError("Số slot worker không khớp cấu hình Pod.", 409);
-  if (g && v.fingerprint) {
+  if (g && g.provider !== "groq" && v.fingerprint) {
     const matches = await runtimeEval(
       "local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local g=cjson.decode(raw);if g.modelFingerprint and g.modelFingerprint~=ARGV[1] then return 0 end;g.modelFingerprint=ARGV[1];redis.call('SET',KEYS[1],cjson.encode(g));return 1",
       [key(`gpu:chat-group:${g.id}`)],
@@ -471,16 +497,16 @@ export async function workerAction(
     );
     if (!matches) throw new ApiError("Model worker không khớp nhóm.", 409);
   }
-  await reconcileChat(target, c.id);
-  const draining = !!(await db().get<boolean>(key(`gpu:drain:${w.id}`)));
+  await reconcileChat(target, c.id, g);
+  const draining = !!(await db().get<boolean>(key(`gpu:drain:${workerId}`)));
   // Updating liveness never clears a reserved slot; only a terminal job or a fenced claim does.
   const worker = await script<ChatWorker>(
     `
  local old=read(KEYS[1]) or {};local next=cjson.decode(ARGV[4]);next.jobId=old.jobId;next.slotJobs=old.slotJobs or {};write(KEYS[1],next);return cjson.encode(next)`,
-    [workerKey(w.id)],
+    [workerKey(workerId)],
     [
       JSON.stringify({
-        workspaceId: w.id,
+        workspaceId: workerId,
         runId: c.id,
         ready: v.ready && open,
         protocol: v.protocol,
@@ -509,8 +535,8 @@ export async function workerAction(
    else finish(j,'cancelled','Chatbot đã khóa hoặc quyền truy cập đã thay đổi.') end
   end
  end;write(KEYS[2],q);return nil`,
-      [workerKey(w.id), key(`gpu:queue:${target}:${c.id}`)],
-      [w.id, randomUUID(), String(slot)],
+      [workerKey(workerId), key(`gpu:queue:${target}:${c.id}`)],
+      [workerId, randomUUID(), String(slot)],
     );
     if (!job) return { job: null, open, runId: c.id };
     const s = (await readChatContext<ChatSession>(job.sessionKey))!;
@@ -536,7 +562,7 @@ export async function workerAction(
   if (
     !j ||
     j.target !== target ||
-    j.workerId !== w.id ||
+    j.workerId !== workerId ||
     (j.slot ?? 0) !== slot ||
     j.attempt !== v.attempt
   )
@@ -607,7 +633,7 @@ export async function workerAction(
   if (action === "complete") {
     if (
       !["running", "uncertain"].includes(j.status) ||
-      v.inputTokens !== j.promptTokens ||
+      (g?.provider === "groq" ? (!Number.isInteger(v.inputTokens) || v.inputTokens! < 1) : v.inputTokens !== j.promptTokens) ||
       !Number.isInteger(v.outputTokens) ||
       v.outputTokens! < 0 ||
       v.outputTokens! > j.maxTokens! ||
@@ -619,10 +645,21 @@ export async function workerAction(
       [jobKey(j.id)],
       [
         v.attempt,
-        JSON.stringify({ content: v.content, outputTokens: v.outputTokens }),
+        JSON.stringify({ content: v.content, inputTokens: v.inputTokens, outputTokens: v.outputTokens, providerRequestId: v.providerRequestId }),
       ],
     );
     return { accepted: !!accepted, terminal: true, open, runId: c.id };
+  }
+  if (g?.provider === "groq" && ["api-rejected", "api-requeue", "api-uncertain"].includes(action)) {
+    const accepted = await script(
+      `local j=read(KEYS[1]);if not j or j.attempt~=ARGV[4] or (j.status~='claimed' and j.status~='running') then return 0 end
+       if not valid(j) then finish(j,'cancelled','Chatbot đã khóa.');return 0 end
+       if ARGV[5]=='api-uncertain' then j.status='uncertain';j.error=ARGV[6];j.updatedAt=now;write(KEYS[1],j);local s=read(j.sessionKey);if s then s.error=ARGV[6];write(j.sessionKey,s) end;return 1 end
+       if j.status=='running' then local s=read(j.sessionKey);if s and s.pending and s.pending.requestId==j.id then s.inputTokens=s.inputTokens-j.promptTokens;s.outputTokens=s.outputTokens-j.maxTokens;s.pending.reserved=0;write(j.sessionKey,s) end end
+       if ARGV[5]=='api-requeue' then j.apiRetries=(j.apiRetries or 0)+1;if j.apiRetries>=3 then finish(j,'failed',ARGV[6]);return 1 end;j.status='queued';j.workerId=nil;j.slot=nil;j.attempt=nil;j.promptTokens=nil;j.maxTokens=nil;j.updatedAt=now;write(KEYS[1],j);enqueue(j)
+       else finish(j,'failed',ARGV[6]) end;return 1`,
+      [jobKey(j.id)], [v.attempt, action, v.safeError ?? "Groq chưa xác nhận kết quả."]);
+    return { accepted: !!accepted, terminal: action !== "api-requeue", open, runId: c.id };
   }
   if (action === "fail") {
     await script(

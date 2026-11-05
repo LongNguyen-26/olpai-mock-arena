@@ -1,3 +1,6 @@
+import type { ChatTemplate } from "./chat-policy";
+import type { GroqConfiguration } from "./groq";
+import { readApiCredential } from "./api-credentials";
 import { runtimeEval } from "./runtime-authority";
 import { randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
@@ -21,7 +24,7 @@ import {
   supportedQueueProtocol,
 } from "./chat-queue";
 import type { SafeUser, Team } from "./types";
-import { readTeam } from "./entity-repository";
+import { readTeam, readAdminIds } from "./entity-repository";
 import { readGroupRecord,readGroupIds } from "./gpu-repository";
 
 export interface ChatGroup {
@@ -33,12 +36,15 @@ export interface ChatGroup {
   scope: "team" | "all";
   teamId: string | null;
   workspaceIds: string[];
-  template: WorkspaceTemplate;
+  provider?: "runpod" | "groq";
+  groq?: GroqConfiguration;
+  template: ChatTemplate;
   contextWindowTokens: number;
   modelFingerprint?: string;
   paused: boolean;
   retired?: boolean;
   createdAt: number;
+  allocationFingerprint?: string;
 }
 export const groupKey = (id: string) => key(`gpu:chat-group:${id}`);
 export async function getChatGroup(id: string) {
@@ -49,6 +55,7 @@ export async function getChatGroup(id: string) {
   return g;
 }
 export async function groupTemplate(g: ChatGroup) {
+  if (g.provider === "groq") return g.template;
   const saved = (await readTemplates(g.ownerId))[g.template.id],
     next = { ...g.template };
   if (saved)
@@ -207,9 +214,10 @@ export async function chatGroupViews(user: SafeUser) {
         const { group: g, c } = result;
         if (g.retired) return null;
         const [workers, members] = await Promise.all([
-          chatWorkers(g.workspaceIds),
+          chatWorkers(g.provider === "groq" ? [`groq:${g.id}`] : g.workspaceIds),
           Promise.all(g.workspaceIds.map(getWorkspace)),
         ]);
+        const apiReady = g.provider === "groq" && (await readAdminIds()).includes(g.ownerId) && !!await readApiCredential(g.ownerId);
         const ready = workers.filter(
           (w) =>
             w.ready &&
@@ -221,6 +229,8 @@ export async function chatGroupViews(user: SafeUser) {
         return {
           id: g.id,
           name: g.name,
+          provider: g.provider ?? "runpod",
+          model: g.groq?.id ?? "DeepSeek",
           roundId: g.roundId,
           scope: g.scope,
           teamId: g.teamId,
@@ -228,14 +238,14 @@ export async function chatGroupViews(user: SafeUser) {
           canManage: user.admin && user.id === g.ownerId,
           chatbotEnabled:
             !g.paused &&
-            ready > 0 &&
+            (apiReady || (g.provider !== "groq" && ready > 0)) &&
             chatbotOpen({ runId: c.id, services: "llm" }, c, now),
           ...(user.admin
             ? {
                 workspaceIds: g.workspaceIds,
                 templateId: g.template.id,
-                ready,
-                readySlots: workers
+                ready: g.provider === "groq" ? (apiReady ? 1 : 0) : ready,
+                readySlots: g.provider === "groq" ? (apiReady ? (g.groq?.parallel ?? 1) : 0) : workers
                   .filter(
                     (w) =>
                       w.ready &&
@@ -256,6 +266,7 @@ export async function chatGroupViews(user: SafeUser) {
                   (sum, w) => sum + (w.podId ? w.meterRate : 0),
                   0,
                 ),
+                providerError: g.provider === "groq" ? await db().get<string>(key(`groq:error:${g.id}`)) : null,
                 queue: await chatQueueSummary(`group:${id}`, c.id),
               }
             : {}),

@@ -213,7 +213,7 @@ export default function WorkspaceChat() {
         <div>
           <span className="chat-brand">
             <Cpu size={23} />
-            DeepSeek R1 · 32B Q4
+            {data?.model ?? "Chatbot"}
           </span>
           <p>
             {data ? `${data.teamName} · ${data.roundTitle}` : "GPU Workspace"}
@@ -231,6 +231,7 @@ export default function WorkspaceChat() {
         </div>
       </header>
       <section className="chat-main">
+        {data?.provider === "groq" && <p className="gpu-hint">Groq · Token được chốt theo thống kê của model. Trước mỗi lượt, hệ thống giữ ngân sách dự phòng bảo thủ để tránh vượt giới hạn.</p>}
         <div
           className="chat-messages"
           role="log"
@@ -256,7 +257,7 @@ export default function WorkspaceChat() {
           {data?.session.messages.map((message, i) => (
             <article className={`chat-message ${message.role}`} key={i}>
               <strong>
-                {message.role === "user" ? "Đội của bạn" : "DeepSeek"}
+                {message.role === "user" ? "Đội của bạn" : data?.model ?? "Trợ lý"}
               </strong>
               <div className="prose">
                 <ChatMarkdown>
@@ -319,7 +320,7 @@ export default function WorkspaceChat() {
         </div>
         <form className="chat-compose" onSubmit={send}>
           <textarea
-            aria-label="Tin nhắn cho DeepSeek"
+            aria-label="Tin nhắn cho Chatbot"
             placeholder="Nhập câu hỏi hoặc /help…"
             value={content}
             maxLength={16000}

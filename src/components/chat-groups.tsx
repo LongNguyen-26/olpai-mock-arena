@@ -148,7 +148,7 @@ export default function ChatGroups({
                   <strong>Mở Chatbot</strong>
                   <small>
                     {g.chatbotEnabled
-                      ? "Hỏi đáp, phân tích & lập trình cùng DeepSeek"
+                      ? `Hỏi đáp, phân tích & lập trình cùng ${g.provider === "groq" ? g.model : "DeepSeek"}`
                       : "Chatbot sẽ mở khi dịch vụ và vòng luyện sẵn sàng"}
                   </small>
                 </span>
@@ -161,12 +161,12 @@ export default function ChatGroups({
                   aria-label="Tổng quan nhóm"
                 >
                   <div className="chat-stat">
-                    <span>GPU sẵn sàng</span>
+                    <span>{g.provider === "groq" ? "Kết nối Groq" : "GPU sẵn sàng"}</span>
                     <strong>
                       {g.ready ?? 0}
-                      <small> / {g.total ?? 0}</small>
+                      <small>{g.provider === "groq" ? " API" : ` / ${g.total ?? 0}`}</small>
                     </strong>
-                    <small>Pod trong nhóm</small>
+                    <small>{g.provider === "groq" ? g.model : "Pod trong nhóm"}</small>
                   </div>
                   <div className="chat-stat is-running">
                     <span>Lượt đang chạy</span>
@@ -188,9 +188,10 @@ export default function ChatGroups({
                 </div>
               )}
             </div>
+            {admin && g.providerError && <div className="alert" role="status">{g.providerError}</div>}
             <div className="chat-group-toolbar">
               <div className="chat-group-cost">
-                {showCost ? (
+                {g.provider === "groq" ? <span>Groq · Tính phí theo token trên tài khoản của admin</span> : showCost ? (
                   <>
                     <span>Chi phí ước tính</span>
                     <strong>{usd(totalCost)}</strong>
@@ -241,14 +242,14 @@ export default function ChatGroups({
                           ? "Tiếp tục nhận prompt"
                           : "Tạm ngừng nhận prompt mới"}
                       </button>
-                      <button
+                      {g.provider !== "groq" && <button
                         className="btn small-btn chat-add-pod"
                         disabled={busy}
                         onClick={() => onAddPod(g)}
                       >
                         <Plus size={15} />
                         Thêm Pod
-                      </button>
+                      </button>}
                       {!members.length && (
                         <button
                           className="btn small-btn"
@@ -353,7 +354,7 @@ export default function ChatGroups({
                 </div>
               </div>
             )}
-            {!members.length && (
+            {!members.length && g.provider !== "groq" && (
               <p className="chat-group-empty">
                 {admin
                   ? "Chưa có GPU hoạt động. Thêm Pod vào nhóm để cung cấp Chatbot."
