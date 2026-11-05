@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, key, serverNow } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 import type { User } from "../src/lib/types";
+import { arenaBaseUrl } from "./arena-url";
 
 async function main() {
   const username = z
@@ -49,7 +50,7 @@ async function main() {
   await mkdir(dirname(output), { recursive: true });
   await writeFile(
     output,
-    `# Tài khoản quản trị bổ sung\n\n- Tên đăng nhập: ${username}\n- Mật khẩu: ${password}\n- Tên hiển thị: ${name}\n- Đăng nhập: https://olpai-mock-arena.vercel.app/login\n\nĐổi mật khẩu tại Tài khoản sau khi đăng nhập.\n`,
+    `# Tài khoản quản trị bổ sung\n\n- Tên đăng nhập: ${username}\n- Mật khẩu: ${password}\n- Tên hiển thị: ${name}\n- Đăng nhập: ${arenaBaseUrl()}/login\n\nĐổi mật khẩu tại Tài khoản sau khi đăng nhập.\n`,
     { flag: "wx", mode: 0o600 },
   );
   // Retain the credential file if a network error leaves the write outcome uncertain.

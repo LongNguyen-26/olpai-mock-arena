@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { arenaBaseUrl } from "./arena-url";
 async function main() {
-  const base = "https://olpai-mock-arena.vercel.app";
+  const base = arenaBaseUrl();
   const page = await fetch(base + "/login");
   assert.equal(page.status, 200);
   assert.ok((await page.text()).includes("<title>OlpAI Arena</title>"));

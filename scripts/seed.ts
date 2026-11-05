@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { db, key } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 import type { Contest, User } from "../src/lib/types";
+import { arenaBaseUrl } from "./arena-url";
 async function main() {
   const redis = db();
   await redis.ping();
@@ -28,7 +29,7 @@ async function main() {
       );
     await writeFile(
       "ACCESS.local.md",
-      `# Truy cập quản trị OlpAI Arena\n\nURL: https://olpai-mock-arena.vercel.app\n\nTên đăng nhập: arena_admin\n\nMật khẩu ban đầu: ${password}\n\nĐổi mật khẩu trong mục Tài khoản ngay sau lần đăng nhập đầu. Tệp này không được đưa lên Git.\n`,
+      `# Truy cập quản trị OlpAI Arena\n\nURL: ${arenaBaseUrl()}\n\nTên đăng nhập: arena_admin\n\nMật khẩu ban đầu: ${password}\n\nĐổi mật khẩu trong mục Tài khoản ngay sau lần đăng nhập đầu. Tệp này không được đưa lên Git.\n`,
     );
     console.log(
       "Admin created. Initial access is in ignored ACCESS.local.md (password not printed).",

@@ -1,6 +1,8 @@
 # OlpAI Arena
 
-Website ôn luyện mô phỏng Olympic AI 2026: Next.js trên Vercel, Upstash Redis và Upstash Blob private.
+Website ôn luyện mô phỏng Olympic AI 2026: Next.js trên Render, Upstash Redis và Upstash Blob private. Địa chỉ chính: https://olpaiarena.cyou. Vercel được giữ nguyên, kể cả tự deploy, để có thể dùng lại sau này.
+
+Xem [triển khai và vận hành Render](docs/RENDER_DEPLOYMENT.md): cấu hình Free, kiểm tra production và nâng compute plan khi cần.
 
 GPU Workspace: admin cấp Pod riêng/chung cho JupyterLab và DeepSeek 32B Q4; nhóm nhiều Pod Chatbot có hàng đợi công bằng, template dùng chung giữa admin và trần tổng token chỉnh được. Thí sinh chỉ thấy prompt/câu trả lời, không có trạng thái hàng đợi hoặc nút hủy. Xem [hàng đợi và nhóm Chatbot](docs/CHAT_QUEUE.md), [cấu hình GPU Workspace](docs/GPU_WORKSPACE.md).
 

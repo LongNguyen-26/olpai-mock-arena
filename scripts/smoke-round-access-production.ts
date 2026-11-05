@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { phaseOf, submissionAccess, chatbotAllowed, notebookAllowed } from "../src/lib/domain";
 import type { Contest } from "../src/lib/types";
+import { arenaBaseUrl } from "./arena-url";
 
 async function main() {
-  const base = "https://olpai-mock-arena.vercel.app";
+  const base = arenaBaseUrl();
   assert.equal((await fetch(base + "/login")).status, 200);
   assert.equal((await fetch(base + "/api/arena")).status, 401);
   assert.equal((await fetch(base + "/api/workspace/state")).status, 401);
@@ -50,7 +51,7 @@ async function main() {
       await mkdir(".local", { recursive: true });
       const separator = cookie.indexOf("=");
       await writeFile(".local/round-access-production-auth.json", JSON.stringify({
-        cookies: [{ name: cookie.slice(0, separator), value: cookie.slice(separator + 1), domain: "olpai-mock-arena.vercel.app", path: "/", expires: -1, httpOnly: true, secure: true, sameSite: "Lax" }], origins: [],
+        cookies: [{ name: cookie.slice(0, separator), value: cookie.slice(separator + 1), domain: new URL(base).hostname, path: "/", expires: -1, httpOnly: true, secure: base.startsWith("https:"), sameSite: "Lax" }], origins: [],
       }));
       keep = true;
     }

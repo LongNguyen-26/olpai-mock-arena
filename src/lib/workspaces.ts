@@ -21,7 +21,6 @@ import { podStartupMessage, podStartupProgressMessage } from "./runpod-startup";
 import {
   isTeamHub,
   hubImage,
-  hubLoginOrigins,
   HUB_PROTOCOL,
   type TeamNotebook,
 } from "./hub-domain";
@@ -58,6 +57,7 @@ import {
   type ChatWorker,
 } from "./chat-queue";
 import { readTemplates, saveSharedTemplate } from "./workspace-templates";
+import { workspaceDeployment } from "./workspace-config";
 import {
   hasService,
   isShared,
@@ -536,12 +536,8 @@ export async function deployWorkspace(
     !(await getPackage(c))
   )
     throw new ApiError("Vòng này chưa có dataset.");
-  const controlUrl = process.env.GPU_WORKSPACE_PUBLIC_URL;
-  if (!controlUrl || new URL(controlUrl).protocol !== "https:")
-    throw new ApiError(
-      "Cần GPU_WORKSPACE_PUBLIC_URL là URL HTTPS công khai của web.",
-      503,
-    );
+  // Validate callbacks before any provider operation can allocate a Pod.
+  workspaceDeployment();
   const rp = await provider(user.id),
     prices = await gpuPrices(user);
   const price = gpuCloudPrice(
@@ -1096,13 +1092,11 @@ export async function agentManifest(
 }
 
 export function workspaceEnvironment(w: Workspace) {
-  const controlUrl = process.env.GPU_WORKSPACE_PUBLIC_URL;
-  if (!controlUrl || new URL(controlUrl).protocol !== "https:")
-    throw new ApiError("Thiếu URL điều khiển HTTPS.", 503);
+  const { controlOrigin, loginOrigins } = workspaceDeployment();
   return {
     ARENA_CONTROL_URL: new URL(
       "/api/workspace/manifest",
-      controlUrl,
+      controlOrigin,
     ).toString(),
     ARENA_WORKSPACE_ID: w.id,
     ARENA_AGENT_TOKEN: decryptSecret(w.secret),
@@ -1114,12 +1108,7 @@ export function workspaceEnvironment(w: Workspace) {
     ARENA_MAX_TEAM_SERVERS: String(w.template.maxTeamServers ?? 7),
     ...(isTeamHub(w)
       ? {
-          ARENA_LOGIN_ORIGINS: JSON.stringify(
-            hubLoginOrigins(
-              controlUrl,
-              process.env.GPU_WORKSPACE_LOGIN_ORIGINS,
-            ),
-          ),
+          ARENA_LOGIN_ORIGINS: JSON.stringify(loginOrigins),
         }
       : {}),
     ARENA_CONTEXT_SIZE: String(
@@ -1157,10 +1146,7 @@ export async function launchNotebook(
         "JupyterLab của đội chưa mở. Vui lòng nhờ quản trị viên khởi động.",
         409,
       );
-    const allowed = hubLoginOrigins(
-      process.env.GPU_WORKSPACE_PUBLIC_URL!,
-      process.env.GPU_WORKSPACE_LOGIN_ORIGINS,
-    );
+    const allowed = workspaceDeployment().loginOrigins;
     const origin = arenaOrigin ?? allowed[0];
     if (!allowed.includes(origin))
       throw new ApiError(

@@ -1,6 +1,7 @@
 /** Auth loaded from .local by the CLI. Inspect/cancel only; block every non-auth POST. */
 async page => {
-  const base = "https://olpai-mock-arena.vercel.app";
+  const base = new URL(page.url()).origin;
+  if (!base.startsWith("https:")) throw new Error("Open the selected production URL before running browser QA.");
   const check = (value, message) => { if (!value) throw new Error(message); };
   const errors = [], failures = [], blocked = [];
   page.on("pageerror", e => errors.push(e.message));

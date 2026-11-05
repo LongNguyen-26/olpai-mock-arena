@@ -1,6 +1,7 @@
-/** Read-only verification on both hosting providers; never creates a round or Pod. */
+/** Read-only verification on the selected host; never creates a round or Pod. */
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { arenaBaseUrl } from "./arena-url";
 
 async function main() {
   const root = "../statements/Arena_04/web_ready/release_20261030";
@@ -9,7 +10,7 @@ async function main() {
   const password = access.match(/Mật khẩu ban đầu: (.+)/)?.[1];
   assert.ok(password, "Local admin access unavailable");
   const results = [];
-  for (const base of ["https://olpai-arena.onrender.com", "https://olpai-mock-arena.vercel.app"]) {
+  for (const base of [arenaBaseUrl()]) {
     const request = (path: string, init?: RequestInit) => fetch(base + path, { ...init, signal: AbortSignal.timeout(60_000) });
     assert.equal((await request("/login")).status, 200);
     assert.equal((await request("/api/arena")).status, 401);

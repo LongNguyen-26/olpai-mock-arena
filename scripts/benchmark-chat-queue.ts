@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { arenaBaseUrl } from "./arena-url";
 
 async function main() {
   const arg = (name: string) =>
@@ -12,13 +13,14 @@ async function main() {
   const total = Number(arg("requests") ?? 14),
     groupId = arg("group"),
     file = arg("accounts");
-  const base = arg("base") ?? "https://olpai-mock-arena.vercel.app";
+  const base = arenaBaseUrl();
   assert.ok(
     [14, 28].includes(total) && groupId && file,
     "Use --requests=14|28 --group=UUID --accounts=.local/accounts.json",
   );
   assert.ok(
     [
+      "https://olpai-arena.onrender.com",
       "https://olpai-mock-arena.vercel.app",
       "https://olpaiarena.cyou",
       "https://www.olpaiarena.cyou",

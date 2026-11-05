@@ -1,0 +1,41 @@
+# Deployment reference. The existing olpai-arena service is managed in Dashboard;
+# adding this file alone does not change it. Do not create a duplicate service.
+services:
+  - type: web
+    name: olpai-arena
+    runtime: node
+    plan: free
+    region: singapore
+    repo: https://github.com/LongNguyen-26/olpai-mock-arena
+    branch: main
+    autoDeployTrigger: commit
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: exec node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port "$PORT"
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 300
+    domains:
+      - olpaiarena.cyou
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: ARENA_NAMESPACE
+        value: arena:v1
+      - key: GPU_WORKSPACE_PUBLIC_URL
+        value: https://olpaiarena.cyou
+      - key: GPU_WORKSPACE_LOGIN_ORIGINS
+        value: https://olpaiarena.cyou,https://www.olpaiarena.cyou,https://olpai-arena.onrender.com
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: UPSTASH_BLOB_TOKEN
+        sync: false
+      # Copy the EXISTING production key. Never generate a replacement on migration.
+      - key: GPU_WORKSPACE_ENCRYPTION_KEY
+        sync: false
+      - key: RUNPOD_WORKSPACE_IMAGE
+        sync: false
+      - key: RUNPOD_HUB_IMAGE
+        sync: false

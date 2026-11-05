@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hubImage } from "../src/lib/hub-domain";
+import { arenaBaseUrl } from "./arena-url";
 import {
   defaultTemplate,
   type WorkspaceTemplate,
@@ -14,7 +15,7 @@ async function main() {
     image && hubImage(image),
     "Provide --image=<published immutable Hub digest>",
   );
-  const base = "https://olpai-mock-arena.vercel.app";
+  const base = arenaBaseUrl();
   const name = "JupyterHub · 7 team · GPU dùng chung";
   if (!process.argv.includes("--apply")) {
     console.log(

@@ -1,8 +1,9 @@
 /** Read-only feature smoke check; never allocates a Pod or changes a round. */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { arenaBaseUrl } from "./arena-url";
 async function main() {
-  const base = "https://olpai-mock-arena.vercel.app";
+  const base = arenaBaseUrl();
   assert.equal((await fetch(base + "/login")).status, 200);
   assert.equal((await fetch(base + "/api/workspace/state")).status, 401);
   const access = await readFile("ACCESS.local.md", "utf8");
