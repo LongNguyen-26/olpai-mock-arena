@@ -27,6 +27,7 @@ import {
   endpoint,
   fmt,
   when,
+  tableDate,
   type ViewProps,
 } from "./arena-client";
 import { contestEnd, submissionAccess } from "@/lib/domain";
@@ -78,6 +79,8 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
     remaining = target
       ? Math.max(0, Math.ceil((target - now) / 1000))
       : c.publicSeconds + c.privateSeconds;
+  const destination = data.user.admin ? "admin" : "statement";
+  const entryLabel = data.user.admin ? "Quản trị vòng luyện" : "Vào làm bài";
   const mySubs = data.submissions.filter(
       (s) => s.teamId === data.user.teamId && s.status !== "invalid",
     ),
@@ -86,7 +89,13 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
     ]?.find((r) => r.teamId === data.user.teamId);
   return (
     <>
-      <section className="hero">
+      <a className="hero" href={`/?round=${encodeURIComponent(c.roundId ?? c.id)}#${destination}`}
+        aria-label={`${entryLabel} · ${c.title}`}
+        onClick={e => {
+          if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          go(destination);
+        }}>
         <div className="hero-copy">
           <span className="pill hero-pill">
             <span className="status-dot" />
@@ -113,13 +122,7 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
               Tối đa 3 thành viên
             </span>
           </div>
-          <button
-            className="btn orange-btn"
-            onClick={() => go(data.user.admin ? "admin" : "statement")}
-          >
-            {data.user.admin ? "Quản trị vòng luyện" : "Vào làm bài"}
-            <ArrowRight size={18} />
-          </button>
+          <span className="btn orange-btn">{entryLabel} <ArrowRight size={18} /></span>
         </div>
         <div className="hero-timer">
           <span className="eyebrow">
@@ -144,7 +147,7 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
                 : "Chờ quản trị viên bắt đầu"}
           </p>
         </div>
-      </section>
+      </a>
       <div className="stat-grid">
         <Stat
           icon={<Users size={21} />}
@@ -363,7 +366,8 @@ export function DataView({ data }: Props) {
           <div className="asset-size">{bytes(a.bytes)}</div>
           <div className="asset-actions">
             <a
-              className="btn primary"
+              className="btn primary asset-download"
+              aria-label={`Tải trực tiếp ${a.name}`}
               href={
                 endpoint("download", id) + `&asset=${encodeURIComponent(a.key)}`
               }
@@ -432,6 +436,7 @@ export function BoardView({ data }: Props) {
                 ))}
                 <th>Tổng điểm</th>
                 <th>Số bài nộp</th>
+                <th title="Lần nộp muộn nhất trong các bài đạt điểm tốt nhất của từng tác vụ (UTC+7)">Ngày</th>
               </tr>
             </thead>
             <tbody>
@@ -456,11 +461,12 @@ export function BoardView({ data }: Props) {
                     ))}
                     <td className="total-score mono">{fmt(r.total)}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(r.extraTotal)}</small>}</td>
                     <td>{r.submitted}</td>
+                    <td className="table-date"><time dateTime={new Date(r.lastAt).toISOString()}>{tableDate(r.lastAt)}</time></td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4 + data.taskIds.length}>
+                  <td colSpan={5 + data.taskIds.length}>
                     <div className="empty">
                       <Trophy size={30} />
                       <b>Chưa có điểm</b>

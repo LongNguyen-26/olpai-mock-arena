@@ -73,7 +73,7 @@ export default function RoundCard({
         {tasks.map(t => <li key={t.id}><b>TV{t.id}</b> {t.title}</li>)}
       </ul>}
       {r.leader && r.leader.phase === timing.phase && <div className="card-leader">
-        <Trophy size={16}/><span>Nhất {r.leader.split}</span><b>{r.leader.name}</b><strong>{fmt(r.leader.total)} điểm</strong>
+        <Trophy size={16}/><span>Nhất {r.leader.split === "private" ? "Private" : "Public"}</span><b>{r.leader.name}</b><strong>{fmt(r.leader.total)} điểm</strong>
       </div>}
     </div>
     <footer className="index-footer">

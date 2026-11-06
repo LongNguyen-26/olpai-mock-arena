@@ -3183,3 +3183,23 @@ td .filename {
   .round-route li { padding: 7px; gap: 6px; }
   .score-tools .participation-count { font-size: 11px; }
 }
+.hero { text-decoration: none; }
+.hero, .asset-card { transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.hero:focus-visible, .asset-card:has(.asset-download:focus-visible) { outline: 3px solid #30877f; outline-offset: 3px; }
+.asset-download::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 10px; }
+.asset-card .asset-download { transform: none; }
+.asset-actions a:not(.asset-download) { position: relative; z-index: 2; }
+.table-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.round-route li, .leaderboard tbody tr { transition: background-color .15s ease; }
+@media (hover: hover) {
+  .hero:hover { background-color: #213d46; box-shadow: 0 5px 16px #20383f20; }
+  .hero:hover .orange-btn { background-color: #ff925c; }
+  .asset-card:hover { border-color: #90b2b2; box-shadow: 0 4px 14px #23474c1a; }
+  .round-route li:hover { background-color: #e7eeee; }
+  .round-route li[aria-current=step]:hover { background-color: #cfe9df; }
+  .leaderboard tbody tr:has(.rank):hover { background-color: #edf6f5; }
+  .leaderboard tbody tr.my-team:hover { background-color: #e2f1ea; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero, .asset-card, .round-route li, .leaderboard tbody tr { transition: none; }
+}
