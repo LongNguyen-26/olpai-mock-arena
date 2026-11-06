@@ -68,6 +68,7 @@ export interface TaskStatement {
   maxScore?: number;
   columns?: string[];
   maxSubmissionBytes?: number;
+  zipJudge?: "dim-absa" | "canal-recall";
 }
 export interface JudgeSpec {
   kind: "pinball" | "aspect-f1" | "pump-f1";

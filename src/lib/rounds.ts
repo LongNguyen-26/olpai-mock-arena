@@ -209,6 +209,7 @@ export async function snapshot(user: SafeUser, id?: string) {
             id: t.id,
             title: t.title,
             maxScore: t.maxScore ?? 100,
+            ...(t.zipJudge ? { submissionFormat: "zip" as const } : {}),
             maxSubmissionBytes: t.maxSubmissionBytes ?? 3_000_000,
             columns:
               t.columns ??

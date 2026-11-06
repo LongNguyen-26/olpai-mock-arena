@@ -222,8 +222,8 @@ async function handle(
         );
         return new Response(new Uint8Array(bytes), {
           headers: {
-            "Content-Type": "text/csv; charset=utf-8",
-            "Content-Disposition": `attachment; filename="submission.csv"; filename*=UTF-8''${filename}`,
+            "Content-Type": s.filename.toLowerCase().endsWith(".zip") ? "application/zip" : "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="submission.${s.filename.toLowerCase().endsWith(".zip") ? "zip" : "csv"}"; filename*=UTF-8''${filename}`,
             "Cache-Control": "private, no-store",
           },
         });

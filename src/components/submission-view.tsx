@@ -63,6 +63,8 @@ export default function SubmitView({
       s.status !== "invalid" &&
       !s.adminTest,
   ).length;
+  const selectedTask = data.tasks.find(t => t.id === task);
+  const zip = selectedTask?.submissionFormat === "zip";
   const quota = split === "private" ? c.privateLimit : c.publicLimit;
   async function send(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -233,13 +235,14 @@ export default function SubmitView({
               </div>
               <label className="dropzone">
                 <UploadCloud size={32} />
-                <b>Chọn tệp CSV</b>
-                <span>UTF-8 · Tối đa {(data.tasks.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000) / 1_000_000} MB</span>
+                <b>Chọn tệp {zip ? "ZIP" : "CSV"}</b>
+                <span>{zip ? "ZIP · Giải nén tối đa 16 MiB" : "UTF-8"} · Tệp tải lên tối đa {(data.tasks.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000) / 1_000_000} MB</span>
                 <input
                   type="file"
                   name="file"
                   required
-                  accept=".csv,text/csv"
+                  key={task}
+                  accept={zip ? ".zip,application/zip" : ".csv,text/csv"}
                   onChange={() => {
                     nonce.current = crypto.randomUUID();
                   }}
@@ -257,7 +260,7 @@ export default function SubmitView({
         </section>
         <aside className="panel submit-help">
           <h3>Lưu ý nộp bài</h3>
-          <p>CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn.</p>
+          <p>{zip ? "Đặt các tệp dự đoán đúng tên ngay ở gốc ZIP của giai đoạn đang chọn." : "CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn."}</p>
           <p>Bài lỗi định dạng được lưu vào lịch sử và không trừ quota.</p>
           <p>
             Điểm mỗi tác vụ lấy bài hợp lệ cao nhất. Tổng điểm tối đa{" "}

@@ -16,6 +16,7 @@ import { usingPostgres } from "./sql";
 import { readSubmission } from "./entity-repository";
 import { findSqlSubmissionRequest, commitSqlSubmission } from "./sql-rounds";
 import { judgeArena02 } from "./judge-arena02";
+import { judgeZip } from "./judge-zip";
 import { judgeDirect } from "./judge-direct";
 import { taskStatements } from "./statements";
 import {
@@ -117,18 +118,20 @@ export async function submit(
     secondary = 0,
     metric: number | undefined,
     error = "";
+  const definition = pkg.tasks?.find(t => t.id === task);
+  const extension = definition?.zipJudge ? ".zip" : ".csv";
   try {
-    const maxBytes = pkg.tasks?.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000;
+    const maxBytes = definition?.maxSubmissionBytes ?? 3_000_000;
     if (
-      !file.name.toLowerCase().endsWith(".csv") ||
+      !file.name.toLowerCase().endsWith(extension) ||
       file.size < 1 ||
       file.size > maxBytes
     )
-      throw new SubmissionError(`Chọn một CSV UTF-8, tối đa ${maxBytes / 1_000_000} MB.`);
+      throw new SubmissionError(`Chọn tệp ${extension}, tối đa ${maxBytes / 1_000_000} MB.`);
     bytes = new Uint8Array(await file.arrayBuffer());
-    let text: string;
+    let text = "";
     try {
-      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      if (!definition?.zipJudge) text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
         bytes,
       );
     } catch {
@@ -143,7 +146,9 @@ export async function submit(
         ),
       ).toString("utf8"),
     );
-    const result = pkg.directJudgeSpecs?.[task]
+    const result = definition?.zipJudge
+      ? await judgeZip(bytes, truth, definition.zipJudge)
+      : pkg.directJudgeSpecs?.[task]
       ? judgeDirect(text, truth, pkg.directJudgeSpecs[task]!)
       : pkg.judgeSpecs?.[task]
         ? judgeArena02(text, truth, pkg.judgeSpecs[task]!)
@@ -167,7 +172,7 @@ export async function submit(
         actor +
         "/" +
         id +
-        ".csv"
+        extension
       : "";
   const location = path ? await storeSubmissionFile(path, id, bytes) : { path };
   const record: Submission = {
