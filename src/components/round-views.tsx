@@ -17,7 +17,8 @@ import {
   Trophy,
   Users,
 } from "lucide-react";
-import Markdown from "react-markdown";
+import { coverFor } from "@/lib/task-cover";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   api,
@@ -34,6 +35,8 @@ type Props = ViewProps & {
   phase: Phase;
   now: number;
   go: (section: string) => void;
+  statementTask: string;
+  openTask: (task: TaskId) => void;
   refresh: () => Promise<void>;
   report: (error: string) => void;
 };
@@ -65,7 +68,7 @@ function Locked({
     </div>
   );
 }
-export function OverviewView({ data, phase, now, go }: Props) {
+export function OverviewView({ data, phase, now, go, openTask }: Props) {
   const c = data.contest;
   if (!c) return null;
   const locked = !data.canReadStatement,
@@ -192,94 +195,40 @@ export function OverviewView({ data, phase, now, go }: Props) {
             Lộ trình vòng luyện
           </h2>
         </div>
-        <div className="timeline">
+        <ol className="round-route">
           {[
-            {
-              n: "01",
-              title: "Chờ bắt đầu",
-              caption: "Đăng ký tham gia",
-              active: ["waiting", "scheduled"].includes(phase),
-            },
-            {
-              n: "02",
-              title: "Mở public",
-              caption: `${c.publicLimit} lượt / tác vụ`,
-              active: phase === "public",
-            },
-            {
-              n: "03",
-              title: "Mở private",
-              caption: `${c.privateLimit} lượt / tác vụ`,
-              active: phase === "private",
-            },
-            {
-              n: "04",
-              title: "Kết thúc",
-              caption: "Điểm chung cuộc",
-              active: phase === "ended",
-            },
-            ...(c.practice
-              ? [
-                  {
-                    n: "05",
-                    title: "Luyện tập tiếp",
-                    caption: "Tiếp tục kết quả và quota",
-                    active: phase === "practice",
-                  },
-                ]
-              : []),
-          ].map((s) => (
-            <div
-              className={`timeline-step ${s.active ? "current" : ""}`}
-              key={s.n}
-            >
-              <span className="step-number">{s.n}</span>
-              <div>
-                <b>{s.title}</b>
-                <small>{s.caption}</small>
-              </div>
-            </div>
-          ))}
-        </div>
+            { phases: ["waiting", "scheduled"], title: "Chờ bắt đầu", note: "Đăng ký tham gia" },
+            { phases: ["public"], title: "Public", note: `${c.publicLimit} lượt / tác vụ` },
+            { phases: ["private"], title: "Private", note: `${c.privateLimit} lượt / tác vụ` },
+            { phases: ["ended"], title: "Kết thúc", note: "Điểm chung cuộc" },
+            ...(c.practice ? [{ phases: ["practice"], title: "Luyện tập tiếp", note: c.practice.endAt ? "Có thời hạn" : "Không giới hạn" }] : []),
+          ].map((step, index) => <li key={step.title} aria-current={step.phases.includes(phase) ? "step" : undefined}>
+            <span className="route-mark" aria-hidden="true">{index + 1}</span>
+            <span><b>{step.title}</b><small>{step.note}</small></span>
+          </li>)}
+        </ol>
       </section>
       <div className="section-title outside">
         <h2>Đề thi</h2>
       </div>
       <div className="task-grid">
-        {data.taskIds.map((id) => (
-          <article className="task-card simple-task" key={id}>
-            <span className="pill neutral">TÁC VỤ 0{id}</span>
-            <h3>
-              {locked
-                ? `Tác vụ 0${id} · Chưa mở`
-                : (data.tasks
-                    .find((t) => t.id === id)
-                    ?.title.replace(/^Tác vụ \d+\s*/, "") ?? `Tác vụ 0${id}`)}
-            </h3>
-            <div className="task-footer">
-              <span>
-                Public tốt nhất{" "}
-                <b>
-                  {fmt(
-                    mySubs
-                      .filter((s) => s.task === id && s.split === "public")
-                      .reduce<number | null>(
-                        (best, s) =>
-                          best === null
-                            ? s.score
-                            : Math.max(best, s.score ?? 0),
-                        null,
-                      ),
-                  )}
-                </b>
-              </span>
-              <button onClick={() => go("statement")}>
-                {locked ? <LockKeyhole size={18} /> : <ArrowRight size={18} />}
-                Xem đề
-              </button>
+        {data.taskIds.map(id => {
+          const title = locked ? "Chưa mở" : data.tasks.find(t => t.id === id)?.title.replace(/^Tác vụ \d+\s*/, "") ?? `Tác vụ 0${id}`;
+          const scores = mySubs.filter(s => s.task === id && s.split === "public" && s.score != null);
+          const best = scores.length ? Math.max(...scores.map(s => s.score!)) : null;
+          return <article className="overview-task" key={id}>
+            <div className="overview-task-head" style={{backgroundImage: `linear-gradient(90deg, #fff 18%, #fffffff2 45%, #ffffff0a 92%), url(/round-covers/${coverFor(title)}.svg)`}}>
+              <small>Tác vụ 0{id}</small><h3>{title}</h3>
             </div>
-          </article>
-        ))}
+            <div className="overview-task-foot">
+              <span>Public tốt nhất <b>{fmt(best)}</b></span>
+              <a className="task-enter" aria-label={`Xem đề tác vụ ${id}`} href={`/?round=${encodeURIComponent(c.roundId ?? c.id)}&task=${id}#statement`}
+                onClick={e => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); openTask(id); } }}>
+                Xem đề {locked ? <LockKeyhole size={15}/> : <ArrowRight size={15}/>}
+              </a>
+            </div>
+          </article>;
+        })}
       </div>
       <section className="panel announcement-panel">
         <div className="section-title">
@@ -318,9 +267,9 @@ export function OverviewView({ data, phase, now, go }: Props) {
     </>
   );
 }
-export function StatementView({ data, go, report }: Props) {
-  const [task, setTask] = useState<TaskId>("1"),
-    [statements, setStatements] = useState<TaskStatement[]>([]);
+export function StatementView({ data, go, report, statementTask, openTask }: Props) {
+  const task = data.taskIds.find(id => id === statementTask) ?? data.taskIds[0];
+  const [statements, setStatements] = useState<TaskStatement[]>([]);
   const c = data.contest;
   useEffect(() => {
     setStatements([]);
@@ -352,7 +301,7 @@ export function StatementView({ data, go, report }: Props) {
             <button
               key={id}
               className={task === id ? "active" : ""}
-              onClick={() => setTask(id)}
+              onClick={() => openTask(id)}
             >
               Tác vụ 0{id}
             </button>
@@ -374,7 +323,9 @@ export function StatementView({ data, go, report }: Props) {
       </div>
       <div className="prose">
         {statements.length ? (
-          <Markdown remarkPlugins={[remarkGfm]}>
+          <Markdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) =>
+            key === "src" && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(url) ? url : defaultUrlTransform(url)
+          }>
             {(statements.find((t) => t.id === task)?.content ?? "").replace(
               /^#[ \t]+Tác vụ[ \t]+\d+[^\n]*(?:\n|$)/gim,
               "",
@@ -460,12 +411,13 @@ export function BoardView({ data }: Props) {
             Private
           </button>
         </div>
-        <span className="participation-count">
+        <div className="score-tools"><span className="participation-count">
           <Users size={18} />
           {data.participantCount} thí sinh · {data.teamCount} đội
         </span>
+          {(board === "public" || data.leaderboard.private) && <ScoreNote data={data} split={board}/>}
+        </div>
       </div>
-      {(board==="public" || data.leaderboard.private) && <ScoreNote data={data} split={board}/>}
       {board === "private" && !data.leaderboard.private ? (
         <Locked title="Điểm private chưa được mở" />
       ) : (

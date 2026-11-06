@@ -66,19 +66,19 @@ export async function readPackageSummaries(ids: string[]): Promise<PackageSummar
   if (!ids.length) return [];
   if (usingPostgres()) {
     const rows = await query(`select id,title,imported_at,configuration->'arenaNumber' arena_number,
-      configuration->>'edition' edition,
+      configuration->>'edition' edition, configuration->'baselineScores' baselines,
       coalesce((select jsonb_agg(jsonb_build_object('id',t->>'id','title',t->>'title'))
         from jsonb_array_elements(configuration->'tasks') t),'[]'::jsonb) tasks
       from arena.packages where ns=$1 and id=any($2::text[])`, [namespace(), ids]);
     return Promise.all(rows.map(async r => {
       const legacy = r.tasks.length ? null : await readPackage(r.id);
       return { id:r.id, title:r.title, importedAt:Number(r.imported_at),
-        arenaNumber:r.arena_number ?? undefined, edition:r.edition ?? undefined,
+        baselineScores:r.baselines ?? undefined, arenaNumber:r.arena_number ?? undefined, edition:r.edition ?? undefined,
         tasks:legacy ? taskStatements(legacy).map(t => ({id:t.id,title:t.title})) : r.tasks };
     }));
   }
   const rows = await db().mget<(ContestPackage | null)[]>(...ids.map(id => key(`package:${id}`)));
-  return rows.flatMap((p, i) => p ? [{ id:ids[i], title:p.title ?? ids[i], importedAt:p.importedAt,
+  return rows.flatMap((p, i) => p ? [{ id:ids[i], title:p.title ?? ids[i], importedAt:p.importedAt, baselineScores:p.baselineScores,
     arenaNumber:p.arenaNumber, edition:p.edition, tasks:taskStatements(p).map(t => ({ id:t.id, title:t.title })) }] : []);
 }
 export async function readRegistrations(c: Contest): Promise<Record<string,Registration>> {
@@ -97,6 +97,20 @@ export function submissionFromRow(r: Record<string,unknown>): Submission {
 export async function readSubmissions(runId: string): Promise<Submission[]> {
   if (!usingPostgres()) return Object.values((await db().hgetall<Record<string,Submission>>(key(`submissions:${runId}`))) ?? {});
   return (await query("select * from arena.submissions where ns=$1 and run_id=$2 order by created_at desc,id", [namespace(),runId])).map(submissionFromRow);
+}
+/** Only ranking fields travel from storage to the directory. */
+export async function readDirectoryScores(runIds: string[]) {
+  if (!runIds.length) return [];
+  if (!usingPostgres()) return (await Promise.all(runIds.map(readSubmissions))).flat();
+  const rows = await query(`select distinct on (run_id,actor_id,split,task)
+    run_id,actor_id,split,task,score,secondary,created_at from arena.submissions
+    where ns=$1 and run_id=any($2::text[]) and not admin_test and status is distinct from 'invalid'
+    order by run_id,actor_id,split,task,score desc,
+      case when task='2' then secondary else 0 end desc,created_at,id`, [namespace(),runIds]);
+  return rows.map(r => ({
+    runId: String(r.run_id), teamId: String(r.actor_id), split: r.split as Submission["split"],
+    task: r.task as Submission["task"], score: Number(r.score), secondary: Number(r.secondary), createdAt: Number(r.created_at),
+  }));
 }
 export async function readSubmission(runId: string,id: string) {
   if (!usingPostgres()) return db().hget<Submission>(key(`submissions:${runId}`),id);

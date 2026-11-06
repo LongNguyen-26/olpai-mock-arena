@@ -23,7 +23,7 @@ import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
 import { usingPostgres } from "./sql";
-import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
+import { readDirectoryScores, readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
 import { presentPackages } from "./package-presentation";
 import { getSqlContest, createSqlRound, registerSqlRound, reviewSqlRegistration, controlSqlRound } from "./sql-rounds";
 import type {
@@ -96,8 +96,11 @@ export async function snapshot(user: SafeUser, id?: string) {
     ),
   );
   const catalogue = user.admin ? await readPackageCatalogue() : {};
+  const leaderRounds = contests.filter((c): c is Contest => !!c && !id && roundVisible(c,user.admin) &&
+    !["waiting", "scheduled"].includes(phaseOf(c,now)));
   const summaries = await readPackageSummaries([...new Set([
     ...Object.keys(catalogue),
+    ...leaderRounds.flatMap(c => c.packageId ? [c.packageId] : []),
     ...contests.filter(c => c && roundVisible(c, user.admin) &&
       (user.admin || titlesVisible(c,now)))
       .flatMap(c => c?.packageId ? [c.packageId] : []),
@@ -105,6 +108,21 @@ export async function snapshot(user: SafeUser, id?: string) {
   const packages = user.admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
   const packageLabels = new Map((user.admin ? [...presentPackages(summaries), ...packages] : []).map(p => [p.id, p.title]));
   const packageMap = new Map(summaries.map(p => [p.id, p]));
+  const scoreRows = await readDirectoryScores(leaderRounds.map(c => c.id));
+  const leaders = new Map(leaderRounds.map(c => {
+    const phase = phaseOf(c, now);
+    const pkg = packageMap.get(c.packageId ?? "");
+    const taskIds: TaskId[] = pkg?.tasks.map(t => t.id) ?? ["1", "2"];
+    const rows = scoreRows.filter(s => s.runId === c.id);
+    const baselines = pkg && packageBaselines({...pkg,version:pkg.id});
+    const top = (split: "public" | "private") => {
+      const ranked = rankTeams(Object.values(teamsRaw), rows, {}, split, taskIds);
+      const first = scoreBoard(ranked, taskIds, c.scoreDisplay ?? defaultDisplay, baselines?.[split]).board[0];
+      return first ? { name: first.name, total: first.total, split, phase } : null;
+    };
+    const leader = phase === "public" ? top("public") : top("private") ?? (phase === "practice" ? top("public") : null);
+    return [c.id, leader] as const;
+  }));
   const rounds = contests.flatMap((c, i) =>
     c && roundVisible(c, user.admin)
       ? [
@@ -112,6 +130,7 @@ export async function snapshot(user: SafeUser, id?: string) {
             id: c.roundId ?? c.id,
             title: c.title,
             runId: c.id,
+            leader: leaders.get(c.id) ?? null,
             ...(user.admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
             showTaskTitles: titlesVisible(c,now),
             taskTitles: user.admin || titlesVisible(c,now)

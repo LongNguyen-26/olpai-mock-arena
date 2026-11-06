@@ -108,11 +108,11 @@ export default function SubmitView({
               <UploadCloud size={22} />
               {admin ? "Nộp thử · Admin" : "Nộp bài"}
             </h2>
-            {(admin || choices.length > 0) && (
+            <div className="score-tools">{(admin || choices.length > 0) && (
               <span className="pill neutral submission-phase">
                 {split.toUpperCase()}
               </span>
-            )}
+            )}<ScoreNote data={data} split={split}/></div>
           </div>
           {choices.length > 0 && (
             <label className="submission-split-picker">
@@ -262,7 +262,6 @@ export default function SubmitView({
         </section>
         <aside className="panel submit-help">
           <h3>Lưu ý nộp bài</h3>
-          <ScoreNote data={data} split={split}/>
           <p>{zip ? "Đặt các tệp dự đoán đúng tên ngay ở gốc ZIP của giai đoạn đang chọn." : "CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn."}</p>
           <p>Bài lỗi định dạng được lưu vào lịch sử và không trừ quota.</p>
           <p>

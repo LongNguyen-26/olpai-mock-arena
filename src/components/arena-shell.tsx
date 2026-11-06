@@ -79,6 +79,7 @@ export const names = {
   ended: "Đã kết thúc",
 };
 export default function Arena() {
+  const [statementTask, setStatementTask] = useState("1");
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
   const [roundQuery,setRoundQuery]=useState("");
   const [roundFilter,setRoundFilter]=useState("all");
@@ -147,6 +148,7 @@ export default function Arena() {
     let active = true;
     const read = () => {
       const url = new URL(window.location.href);
+      setStatementTask(url.searchParams.get("task") ?? "1");
       selected.current = url.searchParams.get("round") ?? "";
       const s = url.hash.slice(1) as Section;
       setSection(s in labels ? s : selected.current ? "overview" : "rounds");
@@ -195,12 +197,15 @@ export default function Arena() {
   useEffect(() => {
     if (c) void load();
   }, [phase, load]);
-  function go(s: string, id = selected.current) {
+  function go(s: string, id = selected.current, task?: string) {
     if (!(s in labels)) return;
     selected.current = id;
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("round", id);
     else url.searchParams.delete("round");
+    if (s === "statement" && task) url.searchParams.set("task", task);
+    else url.searchParams.delete("task");
+    setStatementTask(task ?? "1");
     url.hash = s;
     window.history.pushState({}, "", url);
     setSection(s as Section);
@@ -259,6 +264,8 @@ export default function Arena() {
       phase,
       now: clock + offset,
       go,
+      statementTask,
+      openTask: (task: string) => go("statement", selected.current, task),
       refresh: () => load(),
       report: setError,
     };
@@ -433,12 +440,12 @@ export default function Arena() {
               {toast}
             </div>
           )}
-          <div className="page-heading">
+          {section !== "rounds" && <div className="page-heading">
             <div>
               <h1>{labels[section]}</h1>
-              {inside && section !== "rounds" && <p>{c.title}</p>}
+              {inside && <p>{c.title}</p>}
             </div>
-          </div>
+          </div>}
           {section === "rounds" && (
             <>
               <div className="round-filters"><label>Tìm vòng<input type="search" placeholder="Tên vòng luyện" value={roundQuery} onChange={e=>setRoundQuery(e.target.value)}/></label>

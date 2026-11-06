@@ -3,10 +3,11 @@ import {
   ArrowRight,
   Play,
   Users,
-  Layers,
+  Layers, CalendarDays, Timer, BadgeCheck, Trophy,
 } from "lucide-react";
 import RoundVisibilityButton from "./round-visibility-button";
-import { duration, type ArenaData, type Action } from "./arena-client";
+import { coverFor } from "@/lib/task-cover";
+import { duration, fmt, type ArenaData, type Action } from "./arena-client";
 import RoundManagementTools from "./round-management-tools";
 import { roundTiming } from "@/lib/round-presentation";
 
@@ -26,24 +27,6 @@ const startDateFormat = new Intl.DateTimeFormat("vi-VN", {
   month: "2-digit",
   year: "numeric",
 });
-
-const coverThemes: [RegExp, string][] = [
-  [/thú cưng/i, "pets"],
-  [/nhà hàng/i, "restaurant"],
-  [/phụ tải điện/i, "power"],
-  [/nhiều cảm xúc/i, "emotions"],
-  [/tế bào/i, "cells"],
-  [/đọc hiểu/i, "reading"],
-  [/đồ ăn/i, "delivery"],
-  [/khách hàng/i, "reviews"],
-  [/máy bơm/i, "pump"],
-  [/hành khách/i, "transit"],
-  [/bến kênh/i, "canal"],
-];
-
-function coverFor(title: string) {
-  return coverThemes.find(([pattern]) => pattern.test(title))?.[1] ?? "neutral";
-}
 
 export default function RoundCard({
   round: r,
@@ -79,22 +62,23 @@ export default function RoundCard({
     <div className="index-body">
       <div className="index-status">
         <strong>{names[timing.phase]}</strong>
+        {live && timing.seconds != null && <span className="card-clock" aria-label={`Thời gian còn lại ${duration(timing.seconds)}`}><Timer size={15}/>{duration(timing.seconds)}</span>}
+        {registration === "approved" && <span className="card-registration"><BadgeCheck size={14}/>Đã đăng ký</span>}
+        {registration === "pending" && <span className="card-registration">Chờ duyệt</span>}
         {r.hidden && <span className="index-hidden">Đã ẩn</span>}
       </div>
-      <div className="index-title"><h2><a href={`/?round=${encodeURIComponent(r.id)}#overview`} onClick={e => { e.preventDefault(); onEnter(); }}>{r.title}</a></h2></div>
+      <div className="index-title"><h2><a href={`/?round=${encodeURIComponent(r.id)}#overview`} onClick={e => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onEnter(); } }}>{r.title}</a></h2></div>
       {admin && <small className="round-source">{r.packageTitle}</small>}
       {!!tasks.length && <ul className="index-tasks" aria-label="Tên tác vụ">
         {tasks.map(t => <li key={t.id}><b>TV{t.id}</b> {t.title}</li>)}
       </ul>}
-      <div className="index-meta">
-        <span title="Thời gian bắt đầu">{startAt != null ? startDateFormat.format(startAt) : "Chưa đặt lịch"}{live && timing.seconds != null && ` · còn ${duration(timing.seconds)}`}</span>
-        {registration === "approved" && <span>Đã đăng ký</span>}
-        {registration === "pending" && <span>Chờ duyệt</span>}
-      </div>
+      {r.leader && r.leader.phase === timing.phase && <div className="card-leader">
+        <Trophy size={16}/><span>Nhất {r.leader.split}</span><b>{r.leader.name}</b><strong>{fmt(r.leader.total)} điểm</strong>
+      </div>}
     </div>
     <footer className="index-footer">
-      <div className="index-count"><span><Users size={15}/>{r.registrationCount} thí sinh</span><span><Layers size={15}/>{r.taskCount} tác vụ</span></div>
-      <button className="btn small-btn index-enter" onClick={onEnter}>Vào vòng <ArrowRight size={15}/></button>
+      <div className="index-count"><span className="card-date" title="Thời gian bắt đầu"><CalendarDays size={15}/>{startAt != null ? startDateFormat.format(startAt) : "Chưa đặt lịch"}</span><span><Users size={15}/>{r.registrationCount} thí sinh</span><span><Layers size={15}/>{r.taskCount} tác vụ</span></div>
+      <span className="btn small-btn index-enter" aria-hidden="true">Vào vòng <ArrowRight size={15}/></span>
     </footer>
     {admin && <details className="index-management"><summary>Quản trị</summary><div className="round-admin-actions">
       {["waiting","scheduled"].includes(timing.phase) && <button className="btn small-btn" disabled={busy} onClick={onStart}><Play size={14}/>Bắt đầu</button>}

@@ -4,6 +4,7 @@ export interface PackageSummary {
   id: string;
   title: string;
   importedAt: number;
+  baselineScores?: import('./score-display').Baselines;
   arenaNumber?: number;
   edition?: "original" | "standardized";
   tasks: { id: TaskId; title: string }[];
