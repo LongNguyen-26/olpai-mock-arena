@@ -62,7 +62,7 @@ async function main() {
     const target=arg("target");if(!target||!/^arena:(qa|stage):[a-zA-Z0-9:_-]+$/.test(target)||!apply) throw new Error("Cleanup requires --apply and the exact QA/staging --target namespace");
     process.env.ARENA_NAMESPACE=target;process.env.ARENA_DATABASE_MODE="postgres";
     await sqlTransaction(async client=>{
-      const tables=["team_members","team_invites","admins",...Object.keys(importColumns).filter(t=>!["team_members","team_invites","admins"].includes(t)),"migration_runs","state"];
+      const tables=["auth_identities","team_members","team_invites","admins",...Object.keys(importColumns).filter(t=>!["auth_identities","team_members","team_invites","admins"].includes(t)),"migration_runs","state"];
       for(const table of tables) await client.query(`delete from arena.${table} where ns=$1`,[target]);
     },true);
     console.log(JSON.stringify({cleaned:true,targetNamespace:target,productionTouched:false}));return;

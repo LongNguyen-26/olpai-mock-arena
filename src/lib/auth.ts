@@ -39,7 +39,7 @@ export async function getUser(): Promise<SafeUser | null> {
   ]);
   if (!user) return null;
   const { password: _password, ...safe } = user;
-  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id) };
+  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id), authMethod: user.password === "external:supabase" ? "supabase" : "legacy" };
 }
 export async function createSession(id: string) {
   const token = randomBytes(32).toString("base64url");

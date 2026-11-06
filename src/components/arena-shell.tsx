@@ -30,6 +30,8 @@ import GpuWorkspace from "./gpu-workspace";
 import ArenaLoading from "./arena-loading";
 import AdminRoster from "./admin-roster";
 import RoundCard from "./round-card";
+import AuthRequired from "./auth-required";
+import { loginHref, publicSections } from "@/lib/auth-navigation";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
   OverviewView,
@@ -241,7 +243,10 @@ export default function Arena() {
         }}
       />
     );
-  const isAdmin = data.user.admin,
+  const isAdmin = !!data.user?.admin,
+    guest = !data.user,
+    needsLogin = guest && !publicSections.has(section),
+    returnPath = `/${selected.current ? `?round=${encodeURIComponent(selected.current)}` : ""}#${section}`,
     transitioning = (c?.roundId ?? "") !== selected.current,
     inside = !!c && !transitioning,
     open = inside && ["public", "private", "practice"].includes(phase),
@@ -338,20 +343,20 @@ export default function Arena() {
             <Settings2 size={19} />
             Tài khoản
           </button>
-          <button className="nav-link" onClick={signOut}>
+          {!guest && <button className="nav-link" onClick={signOut}>
             <LogOut size={19} />
             Đăng xuất
-          </button>
+          </button>}
         </nav>
         <div className="sidebar-bottom">
           <button className="user-card" onClick={() => go("settings")}>
             <span className="avatar">
-              {data.user.name.slice(0, 1).toUpperCase()}
+              {data.user?.name.slice(0, 1).toUpperCase() ?? "K"}
             </span>
             <span>
-              <b>{data.user.name}</b>
+              <b>{data.user?.name ?? "Khách tham quan"}</b>
               <small>
-                {isAdmin ? "Quản trị viên" : (data.team?.name ?? "Chưa có đội")}
+                {guest ? "Khám phá OlpAI Arena" : isAdmin ? "Quản trị viên" : (data.team?.name ?? "Chưa có đội")}
               </small>
             </span>
             <Settings2 size={16} />
@@ -381,6 +386,7 @@ export default function Arena() {
             )}
           </div>
           <div className="topbar-right">
+            {guest && <a className="btn primary small-btn" href={loginHref(returnPath)}>Đăng nhập</a>}
             {c && (
               <span className={`live-indicator ${open ? "is-live" : ""}`}>
                 <i />
@@ -401,13 +407,13 @@ export default function Arena() {
             >
               <Settings2 size={18} />
             </button>
-            <button
+            {!guest && <button
               className="icon-btn"
               aria-label="Đăng xuất"
               onClick={signOut}
             >
               <LogOut size={18} />
-            </button>
+            </button>}
           </div>
         </header>
         <main className="content">
@@ -431,6 +437,11 @@ export default function Arena() {
               {inside && section !== "rounds" && <p>{c.title}</p>}
             </div>
           </div>
+          {guest && section === "rounds" && <div className="guest-banner">
+            <div><strong>Khám phá trước, tham gia khi bạn sẵn sàng.</strong><p>Xem các vòng luyện, đề đã công bố và bảng xếp hạng. Đăng nhập để tải dữ liệu và luyện tập cùng đội.</p></div>
+            <a className="btn" href={loginHref(returnPath, true)}>Tạo tài khoản</a>
+          </div>}
+          {needsLogin && <AuthRequired section={section} next={returnPath} />}
           {section === "rounds" && (
             <>
               <div className="round-grid">
@@ -486,8 +497,9 @@ export default function Arena() {
             </div>
           )}
           {inside &&
+            !guest &&
             !data.entered &&
-            !["rounds", "team", "settings", "workspace"].includes(section) && (
+            ["overview", "data", "submit"].includes(section) && (
               <section className="panel registration-panel">
                 <div>
                   <h2>
@@ -496,7 +508,7 @@ export default function Arena() {
                       : "Tham gia vòng luyện"}
                   </h2>
                   <p>
-                    Đăng ký để xem đề, tải dữ liệu và nộp bài khi vòng luyện mở.
+                    Đăng ký để tải dữ liệu và nộp bài khi vòng luyện mở. Đề đã công bố và bảng xếp hạng có thể xem ngay.
                   </p>
                 </div>
                 <button
@@ -522,17 +534,17 @@ export default function Arena() {
             )}
           {inside && section === "overview" && <OverviewView {...views} />}{" "}
           {inside && section === "statement" && <StatementView {...views} />}{" "}
-          {inside && section === "data" && <DataView {...views} />}{" "}
+          {inside && !guest && data.entered && section === "data" && <DataView {...views} />}{" "}
           {inside && data.entered && section === "submit" && (
             <SubmitView key={c.id} {...views} />
           )}{" "}
           {inside && section === "leaderboard" && <BoardView {...views} />}
-          {section === "team" && !isAdmin && <TeamView {...props} />}{" "}
-          {section === "settings" && <ProfileView {...props} />}{" "}
-          {(section === "workspace" || workspaceMounted) && (
+          {section === "team" && !guest && !isAdmin && <TeamView {...props} />}{" "}
+          {section === "settings" && !guest && <ProfileView {...props} />}{" "}
+          {!guest && (section === "workspace" || workspaceMounted) && (
             <div hidden={section !== "workspace"}>
               <GpuWorkspace
-                key={`${data.user.id}:${data.user.admin}:${data.user.teamId ?? ""}`}
+                key={`${data.user?.id}:${data.user?.admin}:${data.user?.teamId ?? ""}`}
                 {...props}
                 active={section === "workspace"}
               />

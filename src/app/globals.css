@@ -3020,3 +3020,23 @@ td .filename {
     font-size: 25px;
   }
 }
+.guest-banner { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:24px; padding:22px 26px; border:1px solid #cfdfdc; border-radius:16px; background:#f0f7f5; }
+.guest-banner strong { color:#174b43; font-size:16px; }
+.guest-banner p { color:#526d65; margin:7px 0 0; max-width:720px; line-height:1.7; }
+.guest-banner .btn { flex-shrink:0; }
+.auth-required { display:flex; align-items:center; flex-direction:column; text-align:center; padding:55px 24px; min-height:360px; gap:14px; }
+.auth-required h2,.auth-required p { margin:0; }
+.auth-required p { max-width:540px; color:#65716b; line-height:1.8; }
+.auth-required small { max-width:520px; color:#7c8681; line-height:1.7; }
+.auth-required-actions { display:flex; gap:12px; margin:10px 0; flex-wrap:wrap; justify-content:center; }
+.auth-back { display:inline-flex; align-items:center; gap:7px; color:#637069; font-size:13px; margin-bottom:32px; text-decoration:none; }
+.google-auth { margin-top:20px; justify-content:center; background:white; }
+.google-mark { font-family:Arial,sans-serif; font-size:20px; font-weight:700; color:#4285f4; }
+.auth-divider { display:flex; align-items:center; gap:14px; color:#8a938e; font-size:12px; margin:20px 0; }
+.auth-divider::before,.auth-divider::after { content:""; height:1px; flex:1; background:#e4e8e5; }
+.auth-forgot { align-self:flex-end; font-size:13px; }
+.auth-notice { background:#edf7ef; color:#245a39; line-height:1.7; }
+.confirmation-content { display:flex; flex-direction:column; gap:20px; color:#38604c; line-height:1.8; }
+.auth-connections { padding:18px 0; margin-bottom:20px; border-bottom:1px solid #e4e8e5; }
+.auth-connections p { line-height:1.8; color:#65716b; }
+@media(max-width:640px) { .guest-banner { flex-direction:column; align-items:flex-start; padding:20px; } .auth-required { padding:36px 20px; } .auth-back { margin-bottom:24px; } }

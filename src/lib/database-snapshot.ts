@@ -86,6 +86,7 @@ export const importColumns:Record<string,string[]>={
   sessions:["token_hash","user_id","expires_at"],rate_counters:["id","count","expires_at"],
   runtime_leases:["id","token","expires_at"],runtime_signals:["id","value","expires_at"],
   chat_lanes:["group_id","run_id","audience","served_at"],submission_files:["id","gzip"],
+  auth_identities:["subject","user_id","created_at"],
 };
 type Plan={tables:Record<string,unknown[][]>;issues:string[];configuration:{templatesShared:boolean};counts:Record<string,number>};
 export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
@@ -154,7 +155,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
     }
   }
   for(const [table,rows] of Object.entries(snapshot.sqlRuntime??{})) {
-    if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
+    if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
     tables[table]=rows;
   }
   return {tables,issues,configuration:{templatesShared:!!value("gpu:templates:shared:ready")},counts:Object.fromEntries(Object.entries(tables).map(([k,v])=>[k,v.length]))};

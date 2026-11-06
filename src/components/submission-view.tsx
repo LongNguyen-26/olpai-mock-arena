@@ -40,7 +40,7 @@ export default function SubmitView({
   const nonce = useRef(crypto.randomUUID());
   const c = data.contest;
   if (!c) return null;
-  const admin = data.user.admin;
+  const admin = data.user?.admin;
   const choices = (["public", "private"] as const).filter(
     (s) => admin || (submissionAccess(c, now, s).visible && canRead(c, now, s)),
   );
@@ -57,7 +57,7 @@ export default function SubmitView({
   const open = admin || submissionAccess(c, now, split).accepting;
   const count = data.submissions.filter(
     (s) =>
-      s.teamId === data.user.teamId &&
+      s.teamId === data.user?.teamId &&
       s.task === task &&
       s.split === split &&
       s.status !== "invalid" &&

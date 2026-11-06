@@ -20,6 +20,8 @@ import { taskStatements } from "./statements";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
+import { authOptions } from "./supabase-auth";
+import { identitySubject } from "./auth-identities";
 import { usingPostgres } from "./sql";
 import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
 import { presentPackages } from "./package-presentation";
@@ -77,12 +79,13 @@ export async function requireRegistration(user: SafeUser, c: Contest) {
       403,
     );
 }
-export async function snapshot(user: SafeUser, id?: string) {
+export async function snapshot(user: SafeUser | null, id?: string) {
+  const admin = !!user?.admin;
   const [ids, now, teamsRaw, inviteIds, adminIds] = await Promise.all([
     readRoundIds(),
     serverNow(),
     readTeams(),
-    readInvites(user.id),
+    user ? readInvites(user.id) : Promise.resolve([]),
     getAdminIds(),
   ]);
   const contests = ids.length
@@ -93,25 +96,25 @@ export async function snapshot(user: SafeUser, id?: string) {
       c ? readRegistrations(c) : null,
     ),
   );
-  const catalogue = user.admin ? await readPackageCatalogue() : {};
+  const catalogue = admin ? await readPackageCatalogue() : {};
   const summaries = await readPackageSummaries([...new Set([
     ...Object.keys(catalogue),
-    ...contests.filter(c => c && roundVisible(c, user.admin) &&
-      (user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))))
+    ...contests.filter(c => c && roundVisible(c, admin) &&
+      (admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))))
       .flatMap(c => c?.packageId ? [c.packageId] : []),
   ])]);
-  const packages = user.admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
-  const packageLabels = new Map((user.admin ? [...presentPackages(summaries), ...packages] : []).map(p => [p.id, p.title]));
+  const packages = admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
+  const packageLabels = new Map((admin ? [...presentPackages(summaries), ...packages] : []).map(p => [p.id, p.title]));
   const packageMap = new Map(summaries.map(p => [p.id, p]));
   const rounds = contests.flatMap((c, i) =>
-    c && roundVisible(c, user.admin)
+    c && roundVisible(c, admin)
       ? [
           {
             id: c.roundId ?? c.id,
             title: c.title,
             runId: c.id,
-            ...(user.admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
-            taskTitles: user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))
+            ...(admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
+            taskTitles: admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))
               ? packageMap.get(c.packageId ?? "")?.tasks ?? [] : [],
             taskCount: c.taskCount ?? 2,
             phase: phaseOf(c, now),
@@ -128,7 +131,7 @@ export async function snapshot(user: SafeUser, id?: string) {
             unlimited: !!c.unlimited,
             autoApprove: c.autoApprove !== false,
             hidden: !!c.hidden,
-            registration: registrations[i]?.[user.id] ?? null,
+            registration: user ? registrations[i]?.[user.id] ?? null : null,
             registrationCount: Object.values(registrations[i] ?? {}).filter(
               (r) => !adminIds.includes(r.userId) && r.status !== "rejected",
             ).length,
@@ -139,7 +142,7 @@ export async function snapshot(user: SafeUser, id?: string) {
   const teams = teamsRaw ?? {};
   for (const t of Object.values(teams))
     if (!Array.isArray(t.members)) t.members = [];
-  const rawTeam = user.teamId ? (teams[user.teamId] ?? null) : null;
+  const rawTeam = user?.teamId ? (teams[user.teamId] ?? null) : null;
   const team = rawTeam
     ? {
         ...rawTeam,
@@ -156,26 +159,25 @@ export async function snapshot(user: SafeUser, id?: string) {
       }
     : null;
   const contest = id ? await getContest(id) : null;
-  if (contest && !roundVisible(contest, user.admin))
+  if (contest && !roundVisible(contest, admin))
     throw new ApiError("Không tìm thấy vòng luyện.", 404);
-  const registration = contest
+  const registration = contest && user
     ? await readRegistration(contest, user.id)
     : null;
   const entered =
-    !!contest && (user.admin || registration?.status === "approved");
-  const pkg = contest && entered ? await getPackage(contest) : null;
+    !!contest && (admin || registration?.status === "approved");
+  const pkg = contest ? await getPackage(contest) : null;
   const definitions = pkg ? taskStatements(pkg) : [];
   const taskIds: TaskId[] = definitions.length
     ? definitions.map((t) => t.id)
     : ["1", "2"];
-  const rows = contest && entered ? await getSubmissions(contest.id) : [];
+  const rows = contest ? await getSubmissions(contest.id) : [];
   const phase = contest ? phaseOf(contest, now) : "waiting";
   const canReadStatement =
-    !!contest && entered && canRead(contest, now, "statement", user.admin);
+    !!contest && canRead(contest, now, "statement", admin);
   const privateVisible =
     !!contest &&
-    entered &&
-    (user.admin || ["private", "practice", "ended"].includes(phase));
+    (admin || ["private", "practice", "ended"].includes(phase));
   const roster = contest
     ? Object.values(
         await readRegistrations(contest),
@@ -189,6 +191,8 @@ export async function snapshot(user: SafeUser, id?: string) {
   ).length;
   return {
     user,
+    auth: authOptions(),
+    authLinked: user && authOptions().supabase ? !!(await identitySubject(user.id)) : false,
     rounds,
     contest,
     registration,
@@ -218,12 +222,12 @@ export async function snapshot(user: SafeUser, id?: string) {
           }))
         : [],
     assets:
-      pkg && contest
+      pkg && contest && entered
         ? pkg.assets.filter(
             (a) =>
               !a.name.endsWith(".md") &&
               a.name !== "Bo_de_mo_phong_OlpAI_2026.pdf" &&
-              canRead(contest, now, a.phase, user.admin),
+              canRead(contest, now, a.phase, admin),
           )
         : [],
     team,
@@ -232,7 +236,7 @@ export async function snapshot(user: SafeUser, id?: string) {
       .filter((t): t is Team => !!t)
       .map((t) => ({ id: t.id, name: t.name })),
     submissions: rows
-      .filter((s) => user.admin || s.teamId === user.teamId)
+      .filter((s) => !!user && (admin || s.teamId === user.teamId))
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((s) => visibleSubmission(s)),
     selections: {},
@@ -248,12 +252,12 @@ export async function snapshot(user: SafeUser, id?: string) {
         : [],
     packages,
     registrations: await Promise.all(
-      (user.admin ? roster : []).map(async (r) => {
+      (admin ? roster : []).map(async (r) => {
         const u = await readUser(r.userId);
         return { ...r, name: u?.name ?? "", username: u?.username ?? "" };
       }),
     ),
-    teams: user.admin
+    teams: admin
       ? Object.values(teams).map((t) => ({
           id: t.id,
           name: t.name,

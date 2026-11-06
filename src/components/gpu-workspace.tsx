@@ -224,7 +224,7 @@ export default function GpuWorkspace({
     void load();
     const timer = setInterval(
       () => void load(),
-      data.user.admin ? 10000 : 30000,
+      !!data.user?.admin ? 10000 : 30000,
     );
     const focus = () => void load();
     window.addEventListener("focus", focus);
@@ -236,7 +236,7 @@ export default function GpuWorkspace({
       historyFlight.current?.controller.abort();
       priceFlight.current?.controller.abort();
     };
-  }, [load, data.user.admin, active]);
+  }, [load, !!data.user?.admin, active]);
   useEffect(() => {
     if (!refreshing) {
       setSlow(false);
@@ -249,7 +249,7 @@ export default function GpuWorkspace({
     if (active && allocationTab === "history") void loadHistory();
   }, [active, allocationTab, loadHistory, state?.counts?.history]);
   useEffect(() => {
-    if (!active || !data.user.admin || !roundId) return;
+    if (!active || !!!data.user?.admin || !roundId) return;
     let current = true;
     const controller = new AbortController();
     setTeamOptions((previous) => ({
@@ -277,7 +277,7 @@ export default function GpuWorkspace({
       current = false;
       controller.abort();
     };
-  }, [active, data.user.admin, roundId, data.serverNow]);
+  }, [active, !!data.user?.admin, roundId, data.serverNow]);
   const eligibleTeams =
     teamOptions.roundId === roundId ? teamOptions.teams : [];
   useEffect(() => {
@@ -318,7 +318,7 @@ export default function GpuWorkspace({
   useEffect(() => {
     if (
       !active ||
-      !data.user.admin ||
+      !!!data.user?.admin ||
       !state?.hasCredential ||
       state.runpodMode === "disabled" ||
       chatProvider !== "runpod"
@@ -332,7 +332,7 @@ export default function GpuWorkspace({
     };
   }, [
     active,
-    data.user.admin,
+    !!data.user?.admin,
     state?.hasCredential,
     chatProvider,
     refreshPrices,
@@ -370,7 +370,7 @@ export default function GpuWorkspace({
       } catch (e) {
         if (current)
           setSyncWarning(
-            data.user.admin
+            !!data.user?.admin
               ? `Chưa cập nhật được trạng thái Pod: ${(e as Error).message} Thời điểm đối soát cuối vẫn được hiển thị bên dưới.`
               : "Trạng thái GPU chưa được cập nhật. Vui lòng thử lại sau.",
           );
@@ -384,7 +384,7 @@ export default function GpuWorkspace({
       current = false;
       clearInterval(timer);
     };
-  }, [active, syncIds, load, data.user.admin, state?.runpodMode]);
+  }, [active, syncIds, load, !!data.user?.admin, state?.runpodMode]);
   async function run(fn: () => Promise<unknown>, message: string) {
     if (mutating || !verified) return;
     setBusy(true);
@@ -631,13 +631,13 @@ export default function GpuWorkspace({
     }
     allocationRequest.current = "";
   }
-  function renderWorkspace(w: WorkspaceView, canManage = data.user.admin) {
+  function renderWorkspace(w: WorkspaceView, canManage = !!data.user?.admin) {
     return (
       <div key={w.id} className={isTeamHub(w) ? "hub-host" : undefined}>
         <WorkspaceCard
           w={w}
           observedNow={state!.serverNow}
-          admin={data.user.admin}
+          admin={!!data.user?.admin}
           canManage={canManage && state?.runpodMode !== "disabled" && (!isTeamHub(w) || !!w.hub?.canManage)}
           retry={() =>
             void run(async () => {
@@ -687,8 +687,8 @@ export default function GpuWorkspace({
         {isTeamHub(w) && (
           <JupyterHubPanel
             w={w}
-            admin={data.user.admin}
-            teamId={data.user.teamId}
+            admin={!!data.user?.admin}
+            teamId={data.user?.teamId}
             busy={busy}
             run={run}
             refresh={load}
@@ -768,7 +768,7 @@ export default function GpuWorkspace({
       )}
       {error && (
         <div className="alert error" role="alert">
-          {data.user.admin
+          {!!data.user?.admin
             ? error
             : "Chưa hoàn tất thao tác. Vui lòng thử lại hoặc báo quản trị viên."}
         </div>
@@ -806,7 +806,7 @@ export default function GpuWorkspace({
           {allocationTab === "current" && (
             <ChatGroups
               state={state}
-              admin={data.user.admin}
+              admin={!!data.user?.admin}
               busy={busy}
               run={run}
               renderWorkspace={renderWorkspace}
@@ -831,7 +831,7 @@ export default function GpuWorkspace({
             !state.chatGroups.length && (
               <EmptyWorkspace
                 teamName={data.team?.name}
-                admin={data.user.admin}
+                admin={!!data.user?.admin}
               />
             )}
           {allocationTab === "history" && historyError && (
@@ -871,7 +871,7 @@ export default function GpuWorkspace({
                 <h3>
                   {group === "all"
                     ? "Pod dùng chung"
-                    : data.user.admin
+                    : !!data.user?.admin
                       ? "Pod riêng theo đội"
                       : "Pod riêng của đội bạn"}{" "}
                   <small>({items.length})</small>
@@ -888,7 +888,7 @@ export default function GpuWorkspace({
               </section>
             );
           })}
-          {data.user.admin && (
+          {!!data.user?.admin && (
             <p className="gpu-hint">
               Chi phí là ước tính theo đơn giá × thời gian quan sát, có thể khác
               hóa đơn Runpod. Dừng Pod vẫn có phí volume; thu hồi Pod xóa dữ
@@ -897,7 +897,7 @@ export default function GpuWorkspace({
           )}
         </section>
       )}
-      {data.user.admin && (
+      {!!data.user?.admin && (
         <section className="panel gpu-panel">
           <label>
             Nhà cung cấp khi cấp phát
@@ -915,15 +915,15 @@ export default function GpuWorkspace({
           </label>
         </section>
       )}
-      {active && data.user.admin && chatProvider === "groq" && (
+      {active && !!data.user?.admin && chatProvider === "groq" && (
         <fieldset className="gpu-config-fieldset" disabled={busy}>
           <GroqAdmin data={data} refresh={load} />
         </fieldset>
       )}
-      {state && state.runpodMode !== "disabled" && data.user.admin && (
+      {state && state.runpodMode !== "disabled" && !!data.user?.admin && (
         <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
-      {state && data.user.admin && chatProvider === "runpod" && (
+      {state && !!data.user?.admin && chatProvider === "runpod" && (
         <fieldset className="gpu-config-fieldset" disabled={state.runpodMode !== "enabled"}>
           <section className="panel gpu-panel">
             <h2>

@@ -1,5 +1,7 @@
 # Dữ liệu chính trên Supabase
 
+**Auth 06/11/2026:** mã mới hỗ trợ Supabase Auth theo cờ cấu hình; tài khoản lịch sử giữ nguyên, liên kết Google từ phiên đã đăng nhập. Xem [truy cập công khai và Auth](PUBLIC_ACCESS_AUTH.md). Ghi chú “không chuyển sang Supabase Auth” bên dưới mô tả cutover 05/11, không phải hạn chế tích hợp mới.
+
 **Cập nhật mã 06/11/2026:** core/session/rate limit và Groq runtime đã chuyển SQL; Runpod/Jupyter-only/Hub giữ backend Redis và có chế độ bật/đang ngừng/tắt. Xem [vận hành runtime hiện hành](REDIS_SQL_RUNTIME.md). Các biên bản cutover 05/11 bên dưới là lịch sử của giai đoạn hybrid ban đầu, không dùng để suy rằng Groq/session hiện vẫn bắt buộc Redis.
 
 Phương án đã được người dùng duyệt ngày 05/11/2026. Project `olpai-arena` (`prgbpkscymbihbhtando`), Singapore, Supabase Free. Theo dõi trạng thái cutover trong phần biên bản cuối tệp; không suy mode đang chạy từ Git.

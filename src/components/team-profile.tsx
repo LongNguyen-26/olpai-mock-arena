@@ -1,9 +1,10 @@
 "use client";
+import { useState } from "react";
 import { LogOut, Plus, Send, ShieldCheck, Users } from "lucide-react";
 import { api, type ViewProps } from "./arena-client";
 export async function signOut() {
   await api("auth/logout", {});
-  window.location.href = "/login";
+  window.location.href = "/";
 }
 export function TeamView({ data, busy, action }: ViewProps) {
   return (
@@ -26,7 +27,7 @@ export function TeamView({ data, busy, action }: ViewProps) {
                 <span>
                   <b>
                     {m.name}
-                    {m.id === data.user.id ? " (bạn)" : ""}
+                    {m.id === data.user?.id ? " (bạn)" : ""}
                   </b>
                   <small>
                     {m.username.includes("@") ? m.username : `@${m.username}`}
@@ -182,15 +183,28 @@ export function TeamView({ data, busy, action }: ViewProps) {
   );
 }
 export function ProfileView({ data, busy, action }: ViewProps) {
+  const [linking,setLinking] = useState(false), [error,setError] = useState("");
+  async function linkGoogle() {
+    setLinking(true); setError("");
+    try {
+      const result = await api("auth/google",{link:true,next:"/#settings"});
+      window.location.assign(result.url);
+    } catch(error) { setError(error instanceof Error ? error.message : "Không thể liên kết Google."); setLinking(false); }
+  }
   return (
     <section className="panel narrow-panel">
       <h2>Tài khoản</h2>
       <p>
-        {data.user.name} ·{" "}
-        {data.user.username.includes("@")
-          ? data.user.username
-          : `@${data.user.username}`}
+        {data.user?.name} ·{" "}
+        {data.user?.username.includes("@") ? data.user.username : `@${data.user?.username}`}
       </p>
+      {data.auth?.supabase && <div className="auth-connections">
+        <h3>Phương thức đăng nhập</h3>
+        <p>{data.authLinked ? "Tài khoản đã liên kết với Supabase. Đội và lịch sử bài nộp được giữ trong tài khoản này." : "Liên kết Google để đăng nhập nhanh vào chính tài khoản này, giữ nguyên đội và lịch sử bài nộp."}</p>
+        {data.auth.google && !data.authLinked && <button type="button" className="btn" disabled={linking} onClick={linkGoogle}>{linking ? "Đang mở Google…" : "Liên kết Google"}</button>}
+        {error && <p className="alert error" role="alert">{error}</p>}
+      </div>}
+      {data.user?.authMethod === "supabase" && <p className="auth-password-help">Nếu bạn chỉ đăng nhập bằng Google và chưa có mật khẩu, hãy dùng <a href="/login?mode=forgot">Quên mật khẩu</a> để tạo mật khẩu cho email của mình.</p>}
       <form
         onSubmit={(e) => {
           e.preventDefault();

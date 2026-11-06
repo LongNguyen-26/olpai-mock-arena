@@ -6,6 +6,8 @@ Xem [triển khai và vận hành Render](docs/RENDER_DEPLOYMENT.md): cấu hìn
 
 Xem [vận hành Supabase, backup và rollback](docs/SUPABASE_DATABASE.md). Chuyển mode không tự chuyển dữ liệu; production chỉ mở ghi sau import và đối chiếu.
 
+Khách có thể xem vòng luyện, đề đã công bố và BXH. Dữ liệu, nộp bài, đội và Workspace yêu cầu đăng nhập. Xem [quyền truy cập và Supabase Auth / Google / Resend](docs/PUBLIC_ACCESS_AUTH.md) trước khi bật xác thực mới.
+
 Chatbot hỗ trợ [Groq API với key riêng của từng admin](docs/GROQ_CHATBOT.md), chọn model và cấp riêng/chung theo vòng luyện.
 
 Thí sinh sử dụng Trợ lý AI với [lịch sử chung của đội theo vòng luyện](docs/CHAT_HISTORY.md), token còn lại và bộ đếm ký tự. Lịch sử được giữ sau khi vòng kết thúc.

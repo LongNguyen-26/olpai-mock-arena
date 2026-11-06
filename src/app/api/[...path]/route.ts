@@ -1,15 +1,15 @@
+import { handleAuth, changeExternalPassword } from "@/lib/auth-handlers";
+import { authOptions } from "@/lib/supabase-auth";
+import { roundVisible } from "@/lib/round-visibility";
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { registrationName, loginName } from "@/lib/auth-input";
+import { loginName } from "@/lib/auth-input";
 import { db, key, serverNow, storage } from "@/lib/db";
 import {
   ApiError,
   checkPassword,
-  createSession,
   getUser,
   hashPassword,
-  logout,
   rateLimit,
   requireAdmin,
   requireUser,
@@ -33,11 +33,11 @@ import { taskStatements } from "@/lib/statements";
 import { canRead } from "@/lib/domain";
 import { guardedRoundActions, roundControlSchema } from "@/lib/round-control";
 import { SubmissionError } from "@/lib/judge";
-import type { Submission, User } from "@/lib/types";
+import type { Submission } from "@/lib/types";
 import { readSubmissionFile } from "@/lib/submission-storage";
 import { adminRoster, deleteRosterEntry } from "@/lib/admin-roster";
 import { usingPostgres } from "@/lib/sql";
-import { readUser,readUserId,readSubmission,createSqlUser,changeSqlPassword } from "@/lib/entity-repository";
+import { readUser,readUserId,readSubmission,changeSqlPassword } from "@/lib/entity-repository";
 import { assertWritesAllowed } from "@/lib/write-control";
 import { manageRound, roundManagementSchema } from "@/lib/round-management";
 export const runtime = "nodejs";
@@ -84,92 +84,30 @@ async function handle(
     const selectedRound = () =>
       z.string().uuid().parse(new URL(req.url).searchParams.get("round"));
     if (req.method === "POST") sameOrigin(req);
-    if (route === "auth/register" && req.method === "POST") {
-      const value = z
-        .object({
-          username: registrationName,
-          name: z.string().trim().min(2).max(60),
-          password: z.string().min(10).max(128),
-        })
-        .parse(await payload(req));
-      await rateLimit(
-        `register:${req.headers.get("x-forwarded-for")?.split(",")[0] ?? "local"}`,
-        10,
-        3600,
-      );
-      const user: User = {
-        ...value,
-        username: value.username.toLowerCase(),
-        password: await hashPassword(value.password),
-        id: randomUUID(),
-        teamId: null,
-        createdAt: Date.now(),
-      };
-      const created = usingPostgres()?await createSqlUser(user):await db().eval<unknown[], number>(
-        `if redis.call('EXISTS',KEYS[1])==1 then return 0 end;redis.call('SET',KEYS[1],ARGV[1]);redis.call('SET',KEYS[2],ARGV[2]);return 1`,
-        [key(`username:${user.username}`), key(`user:${user.id}`)],
-        [user.id, JSON.stringify(user)],
-      );
-      if (!created) throw new ApiError("Tên đăng nhập đã được sử dụng.", 409);
-      await createSession(user.id);
-      return json({ ok: true });
-    }
-    if (route === "auth/login" && req.method === "POST") {
-      const value = z
-        .object({
-          username: loginName,
-          password: z.string().max(128),
-        })
-        .parse(await payload(req));
-      await rateLimit(
-        `login:ip:${req.headers.get("x-forwarded-for")?.split(",")[0] ?? "local"}`,
-        60,
-        900,
-      );
-      await rateLimit(`login:${value.username.toLowerCase()}`, 15, 900);
-      const id = await readUserId(value.username.toLowerCase());
-      const user = id ? await readUser(id) : null;
-      // Run a password KDF for unknown users as well.
-      const valid = await checkPassword(
-        value.password,
-        user?.password ?? `${"0".repeat(32)}:${"0".repeat(128)}`,
-      );
-      if (!user || !valid)
-        throw new ApiError("Tên đăng nhập hoặc mật khẩu không đúng.", 401);
-      await createSession(user.id);
-      return json({ ok: true });
-    }
-    if (route === "auth/logout" && req.method === "POST") {
-      await logout();
-      return json({ ok: true });
-    }
+    if (route.startsWith("auth/") && req.method === "POST")
+      return await handleAuth(req, route, await payload(req));
+    if (route === "auth/options" && req.method === "GET") return json(authOptions());
     if (route === "me" && req.method === "GET")
       return json({ user: await getUser() });
+    if (route === "arena" && req.method === "GET")
+      return json(await snapshot(await getUser(), new URL(req.url).searchParams.get("round") ?? undefined));
+    if (route === "statement" && req.method === "GET") {
+      const viewer = await getUser();
+      const contest = await getContest(selectedRound());
+      if (!roundVisible(contest, !!viewer?.admin)) throw new ApiError("Không tìm thấy vòng luyện.",404);
+      const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
+      if (!canRead(contest, now, "statement", !!viewer?.admin))
+        throw new ApiError("Đề chỉ mở khi buổi thi bắt đầu.", 403);
+      if (!pkg) throw new ApiError("Chưa nạp đề.", 404);
+      return json({ tasks: taskStatements(pkg) });
+    }
     const user = await requireUser();
     if (route === "admin/roster") {
       await requireAdmin();
       if (req.method === "GET") return json(await adminRoster(user));
-      const value = z
-        .object({ kind: z.enum(["team", "contestant"]), id: z.string().uuid() })
-        .parse(await payload(req));
+      const value = z.object({ kind: z.enum(["team", "contestant"]), id: z.string().uuid() }).parse(await payload(req));
       await rateLimit(`admin:delete:${user.id}`, 20, 60);
       return json(await deleteRosterEntry(user, value.kind, value.id));
-    }
-    if (route === "arena" && req.method === "GET")
-      return json(
-        await snapshot(
-          user,
-          new URL(req.url).searchParams.get("round") ?? undefined,
-        ),
-      );
-    if (route === "statement" && req.method === "GET") {
-      const contest = await getContest(selectedRound());
-      await requireRegistration(user, contest);
-      const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
-      if (!canRead(contest, now, "statement", user.admin))
-        throw new ApiError("Đề chỉ mở khi buổi thi bắt đầu.", 403);
-      if (!pkg) throw new ApiError("Chưa nạp đề.", 404);
-      return json({ tasks: taskStatements(pkg) });
     }
     if (route === "download" && req.method === "GET") {
       const resource = new URL(req.url).searchParams.get("asset");
@@ -273,6 +211,10 @@ async function handle(
         .parse(await payload(req));
       await rateLimit(`password:${user.id}`, 5, 900);
       const record = await readUser(user.id);
+      if (record?.password === "external:supabase") {
+        await changeExternalPassword(user.id,record.username,value.current,value.password);
+        return json({ok:true});
+      }
       if (!record || !(await checkPassword(value.current, record.password)))
         throw new ApiError("Mật khẩu hiện tại không đúng.");
       const hash = await hashPassword(value.password);

@@ -74,11 +74,11 @@ export function OverviewView({ data, phase, now, go }: Props) {
       ? Math.max(0, Math.ceil((target - now) / 1000))
       : c.publicSeconds + c.privateSeconds;
   const mySubs = data.submissions.filter(
-      (s) => s.teamId === data.user.teamId && s.status !== "invalid",
+      (s) => s.teamId === data.user?.teamId && s.status !== "invalid",
     ),
     myRank = data.leaderboard[
       phase === "private" || phase === "ended" ? "private" : "public"
-    ]?.find((r) => r.teamId === data.user.teamId);
+    ]?.find((r) => r.teamId === data.user?.teamId);
   return (
     <>
       <section className="hero">
@@ -110,9 +110,9 @@ export function OverviewView({ data, phase, now, go }: Props) {
           </div>
           <button
             className="btn orange-btn"
-            onClick={() => go(data.user.admin ? "admin" : "statement")}
+            onClick={() => go(data.user?.admin ? "admin" : "statement")}
           >
-            {data.user.admin ? "Quản trị vòng luyện" : "Vào làm bài"}
+            {data.user?.admin ? "Quản trị vòng luyện" : "Xem đề thi"}
             <ArrowRight size={18} />
           </button>
         </div>
@@ -143,14 +143,14 @@ export function OverviewView({ data, phase, now, go }: Props) {
       <div className="stat-grid">
         <Stat
           icon={<Users size={21} />}
-          label={data.user.admin ? "Đội tham gia" : "Đội của bạn"}
+          label={!data.user || data.user.admin ? "Đội tham gia" : "Đội của bạn"}
           value={
-            data.user.admin
+            !data.user || data.user.admin
               ? String(data.teamCount)
               : (data.team?.name ?? "Chưa có đội")
           }
           caption={
-            data.user.admin
+            !data.user || data.user.admin
               ? `${data.participantCount} thí sinh`
               : data.team
                 ? `${data.team.members.length}/3 thành viên`
@@ -166,14 +166,14 @@ export function OverviewView({ data, phase, now, go }: Props) {
         <Stat
           icon={<Trophy size={21} />}
           label={
-            data.user.admin
+            data.user?.admin
               ? "Bài nộp hợp lệ"
               : phase === "private" || phase === "ended"
                 ? "Điểm private"
                 : "Điểm public"
           }
           value={
-            data.user.admin
+            data.user?.admin
               ? String(
                   data.submissions.filter(
                     (s) => s.status !== "invalid" && !s.adminTest,
@@ -484,7 +484,7 @@ export function BoardView({ data }: Props) {
                 data.leaderboard[board]!.map((r) => (
                   <tr
                     key={r.teamId}
-                    className={r.teamId === data.user.teamId ? "my-team" : ""}
+                    className={r.teamId === data.user?.teamId ? "my-team" : ""}
                   >
                     <td>
                       <span className={`rank rank-${r.rank}`}>
