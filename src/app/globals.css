@@ -3025,15 +3025,97 @@ td .filename {
 .round-filters,.scoring-options{display:flex;align-items:end;flex-wrap:wrap;gap:12px}
 .round-filters{margin:0 0 16px}.round-filters label,.scoring-options label{display:grid;gap:5px;color:#475e6b;font-size:12px;font-weight:650}
 .round-filters input,.round-filters select,.scoring-options select{background:white;border:1px solid #cbd8dc;border-radius:8px;padding:8px 12px;color:#243e49;min-height:38px}
-.round-index{display:grid;gap:0;border:1px solid #d9e2e5;border-radius:12px;background:#fff;overflow:clip}
-.round-index:empty{display:none}.round-index:not(:empty)+.empty-round-filter{display:none}
-.round-index .index-row{position:relative;display:grid;grid-template-columns:minmax(140px,1fr) minmax(115px,168px) minmax(75px,100px) auto;gap:8px 18px;align-items:center;background:white;border:0;border-radius:0;border-bottom:1px solid #e5ebed;box-shadow:none;min-height:70px;padding:13px 18px;color:#283e49}
-.round-index .index-row:has(.index-management){grid-template-columns:minmax(140px,1fr) minmax(110px,155px) minmax(75px,92px) auto auto}
-.round-index .index-row:last-child{border-bottom:0}.index-live{box-shadow:inset 3px 0 #16866c!important}
-.index-title{display:flex;align-items:baseline;gap:8px}.round-index .index-title h2{font-size:16px;line-height:1.35;margin:0}.index-title a{color:inherit;text-decoration:none}.index-title a:hover{text-decoration:underline}
-.index-hidden{font-size:11px;color:#8f471e}.index-status,.index-count{font-size:12px}.index-status strong{color:#385762}.index-live .index-status strong{color:#157058}
-.index-row small,.index-row .round-source,.score-extra{display:block;font-size:11px;line-height:1.5;color:#576e79;margin:2px 0 0;font-weight:450}
-.index-tasks{display:flex;flex-wrap:wrap;gap:3px 12px;padding:0;list-style:none;margin:5px 0 0;font-size:12px}.index-tasks b{font-size:10px;color:#5d7180}
-.index-management{font-size:12px}.index-management summary{cursor:pointer;color:#365965;font-weight:650;padding:8px 0}.index-management[open]{grid-column:1/-1}.index-management .round-admin-actions{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:6px 0}
+.round-index {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  max-width: 1100px;
+  gap: clamp(16px, 2vw, 28px);
+}
+.round-index:empty, .round-index:not(:empty) + .empty-round-filter { display: none; }
+
+.index-row {
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 1;
+  min-width: 0;
+  overflow: clip;
+  border: 1px solid #d3dfe1;
+  border-radius: 19px;
+  background: #fff;
+  box-shadow: 0 3px 12px #203e4b09;
+  color: #1c343f;
+}
+.index-cover {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  aspect-ratio: 2.5;
+  background: #fbf7ee;
+}
+.index-cover span {
+  flex: 1;
+  min-width: 0;
+  background-position: center;
+  background-size: cover;
+}
+.index-body { padding: 17px 22px 13px; flex: 1 0 auto; }
+.index-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.index-status strong, .index-hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: #edf1f3;
+  color: #415762;
+  line-height: 1.5;
+  font-size: 11px;
+  font-weight: 650;
+}
+.index-status strong::before { content: ""; background: currentColor; width: 6px; height: 6px; border-radius: 50%; }
+.index-live .index-status strong { color: #106455; background: #e1f3ec; }
+.index-hidden { color: #88461f; background: #fff1e4; }
+.index-title h2 { margin: 0; font-size: clamp(18px, 1.65vw, 24px); line-height: 1.23; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.index-title a { color: inherit; text-decoration: none; }
+.index-title a:hover { text-decoration: underline; }
+.index-row .round-source, .index-meta, .score-extra {
+  display: block;
+  color: #546975;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 450;
+}
+.index-row .round-source { margin: 4px 0 0; }
+.index-tasks { display: grid; gap: 3px; list-style: none; margin: 12px 0 0; padding: 0; }
+.index-tasks li { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.index-tasks b { color: #45676a; font-size: 10px; letter-spacing: .04em; }
+.index-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 11px; }
+.index-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 13px 22px;
+  border-top: 1px solid #e2e9e9;
+}
+.index-count, .index-count span { display: flex; align-items: center; flex-wrap: wrap; }
+.index-count { gap: 5px 12px; font-size: 12px; color: #405761; }
+.index-count span { gap: 5px; }
+.index-count svg { color: #627f85; }
+.index-enter { margin-left: auto; }
+.index-management { padding: 0 22px; border-top: 1px solid #e2e9e9; background: #f7faf9; font-size: 12px; }
+.index-management summary { width: fit-content; padding: 9px 0; color: #345861; cursor: pointer; font-weight: 650; }
+.index-management .round-admin-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 1px 0 12px; }
+.index-row:has(.index-management[open]) { aspect-ratio: auto; }
+@media (max-width: 900px) {
+  .round-index { grid-template-columns: minmax(0, 1fr); max-width: 570px; }
+  .round-filters input { max-width: min(220px, 80vw); }
+}
+@media (max-width: 480px) {
+  .index-body { padding: 14px 16px 12px; }
+  .index-footer { padding: 11px 16px; }
+  .index-management { padding: 0 16px; }
+}
 .score-note,.scoring-settings{margin:12px 0;padding:12px 15px;border:1px solid #dbe5e9;border-radius:10px;background:#f7fafb;font-size:13px}.score-note small,.scoring-settings p small{display:block;line-height:1.55}.scoring-settings legend{font-weight:700}.score-extra{font-variant-numeric:tabular-nums;white-space:nowrap}
-@media(max-width:810px){.round-index .index-row,.round-index .index-row:has(.index-management){grid-template-columns:minmax(0,1fr) auto;gap:6px 12px}.index-info{grid-column:1/-1}.index-status,.index-count{grid-row:2}.index-go{grid-column:2;grid-row:3;justify-self:end}.index-management{grid-column:1;grid-row:3}.index-management[open]{grid-row:4}.round-filters input{max-width: min(220px,80vw)}}

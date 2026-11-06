@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" preserveAspectRatio="xMidYMid slice">
+  <defs><pattern id="print" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".65" fill="#29333c" opacity=".13"/></pattern></defs>
+  <rect width="240" height="180" fill="#65a3a3"/>
+  <circle cx="178" cy="45" r="28" fill="#ffdca0"/><path fill="#447f84" d="M0 82h26V55h25v31h22V63h21v87H0zm171 12h21V66h24v13h24v72h-69z"/><path fill="#305c63" d="M0 147h240v33H0z"/><path fill="#f9e2ba" d="M56 55h128v92H56z"/><path fill="#35525b" d="M63 95h52v41H63zm68 0h39v52h-39z"/><path d="M69 99h39v28H69zm68 0h26v24h-26z" fill="#80b8b5"/><path fill="#eb8862" d="M55 59h130l8 23H46z"/><path d="m65 59-6 23h14l5-23zm26 0-3 23h14l2-23zm27 0v23h14l-2-23zm25 0 3 23h14l-4-23zm26 0 6 23h13l-8-23z" fill="#fff0ce"/><path d="M46 82h147v5q-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-7 7-14 0-4 3-7 0z" fill="#cd6f51"/><path fill="#31595b" d="M46 142h12l-2 12h-8zm137-4h13l-2 16h-9z"/><g fill="#387568"><ellipse cx="52" cy="133" rx="7" ry="12"/><ellipse cx="189" cy="129" rx="9" ry="15"/></g>
+  <rect width="240" height="180" fill="url(#print)"/>
+</svg>
