@@ -46,6 +46,6 @@ Backup SQL gồm ánh xạ đang hoạt động trong `sqlRuntime.auth_identitie
 
 `npm run typecheck`; `npx tsx --test --test-concurrency=1 tests/*.test.ts`; `npm run build`.
 
-`npx tsx --env-file=.env --env-file=.local/supabase-runtime.env scripts/qa-public-auth.ts` dùng SQL thật trong namespace QA mới, Supabase Auth giả lập; không gửi email/Google thật, không tạo GPU. Tự dọn dữ liệu. `--keep` giữ server localhost 3113/3114 cho browser; Ctrl+C dọn namespace.
+`npx tsx --env-file=.env --env-file=.local/supabase-runtime.env scripts/qa-public-auth.ts` dùng SQL thật trong namespace QA mới, Supabase Auth giả lập; không gửi email/Google thật, không tạo GPU. Tự dọn dữ liệu. `--keep` giữ server localhost 3113/3114 cho browser; dừng sạch bằng POST `http://127.0.0.1:3114/__qa/stop` (hoặc Ctrl+C trong terminal tương tác).
 
 Nguồn: [Supabase Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [PKCE](https://supabase.com/docs/guides/auth/sessions/pkce-flow), [SMTP](https://supabase.com/docs/guides/auth/auth-smtp), [Resend + Supabase](https://resend.com/docs/send-with-supabase-smtp).

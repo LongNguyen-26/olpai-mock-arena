@@ -27,8 +27,10 @@ async function main() {
   const identities:Record<string,ProviderUser>={new:newIdentity,collision,recovery};
   const session=(user:ProviderUser)=>({access_token:`qa-${user.id}`,refresh_token:"qa-refresh-token",token_type:"bearer",expires_in:3600,user});
   const challenges=new Map<string,string>();
+  let stopQA: (()=>void) | undefined;
   const provider=createServer(async(req,res)=>{
     try {
+      if(req.method==="POST" && req.url==="/__qa/stop") { res.writeHead(200);res.end("QA stopping");stopQA?.();return; }
       const chunks:Buffer[]=[]; for await(const c of req) chunks.push(Buffer.from(c));
       const body=chunks.length?JSON.parse(Buffer.concat(chunks).toString()):{};
       const url=new URL(req.url!,"http://localhost");
@@ -124,7 +126,7 @@ async function main() {
     await writeFile(".local/public-auth-browser-fixture.json",JSON.stringify({namespace:ns,base,round,hidden,waiting,legacyUsername:legacy.username,legacyPassword},null,2));
     const proof={result:"PASS",checks,realSQL:true,authProvider:"mock",sentEmails:0,paidResources:0};
     await writeFile(".local/public-auth-qa-result.json",JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
-    if(process.argv.includes("--keep")){console.log("Local QA ready at "+base);await new Promise<void>(resolve=>process.once("SIGINT",()=>resolve()));}
+    if(process.argv.includes("--keep")){console.log("Local QA ready at "+base);await new Promise<void>(resolve=>{stopQA=resolve;process.once("SIGINT",resolve);});}
   } finally {
     app.kill();provider.close();
     assert.equal(namespace(),ns);assert.ok(ns.startsWith("arena:qa:public-auth:"));

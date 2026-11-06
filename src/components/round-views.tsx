@@ -174,14 +174,14 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
         <Stat
           icon={<Trophy size={21} />}
           label={
-            data.user?.admin
+            !data.user ? "Điểm dẫn đầu public" : data.user.admin
               ? "Bài nộp hợp lệ"
               : phase === "private" || phase === "ended"
                 ? "Điểm private"
                 : "Điểm public"
           }
           value={
-            data.user?.admin
+            !data.user ? fmt(data.leaderboard.public[0]?.total) : data.user.admin
               ? String(
                   data.submissions.filter(
                     (s) => s.status !== "invalid" && !s.adminTest,

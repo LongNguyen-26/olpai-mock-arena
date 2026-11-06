@@ -18,7 +18,21 @@ async function main() {
   assert.ok(page.headers.has("rndr-id"), "Expected Render response");
   assert.equal(page.headers.has("x-vercel-id"), false);
   assert.ok((await page.text()).includes("<title>OlpAI Arena</title>"));
-  assert.equal((await request("/api/arena")).status, 401);
+  assert.equal((await request("/")).status, 200, "Guest homepage");
+  const publicResponse = await request("/api/arena");
+  assert.equal(publicResponse.status, 200, "Public round catalogue");
+  const publicCatalogue = await publicResponse.json();
+  assert.equal(publicCatalogue.user, null);
+  for (const name of ["assets", "submissions", "invites", "registrations", "teams", "packages"]) assert.deepEqual(publicCatalogue[name], []);
+  for (const round of publicCatalogue.rounds) {
+    const response = await request("/api/arena?round=" + encodeURIComponent(round.id));
+    assert.equal(response.status, 200);
+    const guest = await response.json();
+    assert.equal(guest.user, null); assert.equal(guest.team, null);
+    for (const name of ["assets", "submissions", "invites", "registrations", "teams", "packages"]) assert.deepEqual(guest[name], []);
+    assert.equal((await request("/api/statement?round=" + encodeURIComponent(round.id))).status, guest.canReadStatement ? 200 : 403);
+    assert.equal((await request("/api/download?round=" + encodeURIComponent(round.id) + "&asset=guest-probe")).status, 401);
+  }
   assert.equal((await request("/api/workspace/state")).status, 401);
   if (process.argv.includes("--require-health")) {
     const health = await request("/api/health");
@@ -77,7 +91,7 @@ async function main() {
       assert.equal(prices.status, 200, "Stored Runpod credential works on Render");
     }
     console.log(JSON.stringify({
-      result: "PASS", base, render: true, login: true, protectedApis: true,
+      result: "PASS", base, render: true, login: true, publicBrowsing: true, protectedApis: true,
       roundCount: catalog.rounds.length, workspaceCount: workspace.workspaces.length,
       ownedManualConfigurationsDecrypted: checkedConfigurations,
       runpodMode: workspace.runpodMode ?? "enabled",
