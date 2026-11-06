@@ -326,3 +326,12 @@
 - Export/import/verify SQL thật sang namespace restore riêng giữ các auth identity đang hoạt động. Migration `20261106135314` bật RLS; anon/authenticated không đọc được, backend theo namespace. Supabase security advisor không có lint.
 - Không gửi email thật, không đăng nhập Google thật, không tạo Pod. Google provider của project còn tắt ở lần kiểm tra; production giữ `ARENA_AUTH_MODE=legacy` cho tới khi Google/Resend/redirect được người vận hành cấu hình và xác minh. Hướng dẫn: `docs/PUBLIC_ACCESS_AUTH.md`.
 
+# Giao diện khách, tên Google và mẫu email — 07/11/2026
+
+- Bỏ banner/ghi chú khách theo yêu cầu; nhãn Khách/OlpAI Arena, nút tạo tài khoản trắng ở header. Màn hình yêu cầu đăng nhập có tiêu đề/nút lớn, dữ liệu khóa có nền skeleton mờ không chứa asset thật. Ngày/giờ trong BXH và lịch sử nộp xếp hai dòng nhỏ; title chỉ gạch chân khi hover đúng chữ, hero nâng nhẹ/sáng viền và giữ nền.
+- Google mới được yêu cầu nhập tên một lần; chặn email làm tên, chặn thao tác riêng trước khi hoàn tất, giữ tên qua đăng nhập lại. Tài khoản cũ liên kết Google giữ ID/đội/tên. Migration `20261106200126` chỉ bổ sung trạng thái hoàn tất tên, không đổi quyền hoặc nội dung người dùng.
+- TypeScript/build qua; 113 unit test qua tuần tự. HTTP/SQL thật trong namespace QA riêng + Supabase Auth giả lập qua các luồng cũ, onboarding, profile gate, reset mật khẩu và thu hồi session. Backup/restore SQL giữ trạng thái tên; unit test đọc được hàng backup ba cột trước onboarding.
+- Playwright desktop 1440×1000 và mobile 390×844 kiểm tra header/nhãn, không tràn ngang, hover nền/card/title, cột ngày, Google không điền sẵn tên và giữ tên tự chọn, gửi lại email sau 60 giây. Hủy dialog không gửi request; chấp nhận gửi đúng một request. Có một 429 dự kiến vì dùng lại email recovery trong khoảng giới hạn; lần kiểm tra UI sau dùng địa chỉ QA khác. Không gửi thư thật hoặc tạo Pod.
+- Hai mẫu HTML Confirm sign up/Reset password và README tại `docs/email-templates/`; gói bàn giao `output/email-templates/OlpAI_Arena_Supabase_Email_Templates.zip`. Đã xem preview desktop/mobile cho cả hai, dùng URL minh họa. Mẫu chưa được tự dán vào Supabase; người dùng sửa Source theo nhu cầu. Preview trình duyệt không chứng minh hiển thị giống nhau ở mọi mail client.
+- Advisor không báo lỗi RLS cho bảng ánh xạ; còn cảnh báo Auth [Leaked Password Protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) đang tắt trong cấu hình hiện có. Chưa thay chính sách hoặc gói dịch vụ.
+

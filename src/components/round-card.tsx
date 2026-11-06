@@ -67,7 +67,7 @@ export default function RoundCard({
         {registration === "pending" && <span className="card-registration">Chờ duyệt</span>}
         {r.hidden && <span className="index-hidden">Đã ẩn</span>}
       </div>
-      <div className="index-title"><h2><a href={`/?round=${encodeURIComponent(r.id)}#overview`} onClick={e => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onEnter(); } }}>{r.title}</a></h2></div>
+      <div className="index-title"><h2><a href={`/?round=${encodeURIComponent(r.id)}#overview`} onClick={e => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onEnter(); } }}><span className="index-title-text">{r.title}</span></a></h2></div>
       {admin && <small className="round-source">{r.packageTitle}</small>}
       {!!tasks.length && <ul className="index-tasks" aria-label="Tên tác vụ">
         {tasks.map(t => <li key={t.id}><b>TV{t.id}</b> {t.title}</li>)}

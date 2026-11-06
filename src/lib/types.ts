@@ -10,7 +10,7 @@ export interface User {
   teamId: string | null;
   createdAt: number;
 }
-export type SafeUser = Omit<User, "password"> & { admin: boolean; authMethod?: "legacy" | "supabase" };
+export type SafeUser = Omit<User, "password"> & { admin: boolean; authMethod?: "legacy" | "supabase"; needsName?: boolean };
 export interface Team {
   id: string;
   name: string;

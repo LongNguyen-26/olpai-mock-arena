@@ -7,7 +7,7 @@ import { ApiError } from "./api-error";
 import { loginName, registrationName } from "./auth-input";
 import { authReturnPath } from "./auth-navigation";
 import { authCookieOptions, authOptions, authOrigin, providerError, supabaseAuth } from "./supabase-auth";
-import { identitySubject, resolveIdentity } from "./auth-identities";
+import { completeIdentityName, identitySubject, resolveIdentity } from "./auth-identities";
 import { createSqlUser, readUser, readUserId } from "./entity-repository";
 import { db, key } from "./db";
 import { namespace, query, usingPostgres } from "./sql";
@@ -21,6 +21,15 @@ const json = (value: unknown) => NextResponse.json(value, { headers: { "Cache-Co
 const password = z.string().min(10).max(128);
 export async function handleAuth(req: Request, route: string, value: unknown) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+  if (route === "auth/profile") {
+    const user = await getUser();
+    if (!user) throw new ApiError("Vui lòng đăng nhập.",401);
+    if (!user.needsName) throw new ApiError("Tên tài khoản đã được hoàn tất.",409);
+    await rateLimit(`profile:${user.id}`,10,900);
+    const input = z.object({name:z.string()}).parse(value);
+    await completeIdentityName(user.id,input.name);
+    return json({ok:true});
+  }
   if (route === "auth/logout") {
     await logout();
     const jar = await cookies();
@@ -74,7 +83,7 @@ export async function handleAuth(req: Request, route: string, value: unknown) {
       providerError(result.error);
       if (!result.data.user) throw new ApiError("Email hoặc mật khẩu không đúng.",401);
       const local = await resolveIdentity(result.data.user);
-      await createSession(local.id); return json({ok:true});
+      await createSession(local.id); return json({ok:true,needsName:local.needsName});
     }
     await checkPassword(input.password, `${"0".repeat(32)}:${"0".repeat(128)}`);
     throw new ApiError("Tên đăng nhập hoặc mật khẩu không đúng.",401);

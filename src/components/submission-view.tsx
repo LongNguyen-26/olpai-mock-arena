@@ -10,7 +10,7 @@ import {
   Send,
   UploadCloud,
 } from "lucide-react";
-import { endpoint, fmt, tableDate, type ViewProps } from "./arena-client";
+import { endpoint, fmt, tableDate, tableTime, when, type ViewProps } from "./arena-client";
 import type { Phase, Split, TaskId } from "@/lib/types";
 import { canRead, submissionAccess } from "@/lib/domain";
 type Result = {
@@ -293,7 +293,7 @@ export default function SubmitView({
                 <th>Bộ kiểm thử</th>
                 <th>Điểm</th>
                 <th>Trạng thái</th>
-                <th title="Thời điểm nộp bài (UTC+7)">Ngày</th>
+                <th className="table-date-heading" title="Thời điểm nộp bài (UTC+7)">Ngày</th>
               </tr>
             </thead>
             <tbody>
@@ -340,7 +340,7 @@ export default function SubmitView({
                         </span>
                       )}
                     </td>
-                    <td className="table-date"><time dateTime={new Date(s.createdAt).toISOString()}>{tableDate(s.createdAt)}</time></td>
+                    <td className="table-date"><time title={when(s.createdAt)} dateTime={new Date(s.createdAt).toISOString()}><span>{tableDate(s.createdAt)}</span><small>{tableTime(s.createdAt)}</small></time></td>
                   </tr>
                 ))
               ) : (

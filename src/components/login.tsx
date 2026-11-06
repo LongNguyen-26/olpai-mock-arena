@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Clock3, Users, Layers3, MailCheck } from "lucide-react";
 type Mode = "login" | "register" | "forgot" | "reset" | "confirmation";
 export default function Login({ options, next, initialMode, initialError }: {
@@ -7,6 +7,14 @@ export default function Login({ options, next, initialMode, initialError }: {
 }) {
   const [mode,setMode] = useState<Mode>(["register","forgot","reset"].includes(initialMode) ? initialMode as Mode : "login");
   const [busy,setBusy] = useState(false), [error,setError] = useState(initialError), [notice,setNotice] = useState(""), [email,setEmail] = useState("");
+  const [resendReadyAt,setResendReadyAt] = useState(0), [clock,setClock] = useState(Date.now);
+  const resendCooldown = Math.max(0,Math.ceil((resendReadyAt-clock)/1000));
+  function startResendCooldown() { const now=Date.now();setClock(now);setResendReadyAt(now+60000); }
+  useEffect(()=>{
+    if (mode !== "confirmation" || resendReadyAt <= Date.now()) return;
+    const timer = setInterval(()=>{const now=Date.now();setClock(now);if(now>=resendReadyAt)clearInterval(timer);},1000);
+    return ()=>clearInterval(timer);
+  },[resendReadyAt,mode]);
   function change(mode: Mode) { setMode(mode); setError(""); setNotice(""); }
   async function request(route:string,value:unknown) {
     const res = await fetch(`/api/auth/${route}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)});
@@ -19,10 +27,10 @@ export default function Login({ options, next, initialMode, initialError }: {
     const values = Object.fromEntries(new FormData(e.currentTarget));
     try {
       const data = await request(mode,{...values,next});
-      if (mode === "register" && data.confirmationRequired) { setEmail(String(values.username)); setMode("confirmation"); }
+      if (mode === "register" && data.confirmationRequired) { setEmail(String(values.username)); setMode("confirmation"); startResendCooldown(); }
       else if (mode === "forgot") setNotice("Nếu email có tài khoản xác thực, bạn sẽ nhận được liên kết đặt lại mật khẩu. Hãy kiểm tra cả thư rác và mở liên kết trên trình duyệt này.");
       else if (mode === "reset") { setMode("login"); setNotice("Đã đổi mật khẩu. Hãy đăng nhập bằng mật khẩu mới."); }
-      else window.location.assign(next);
+      else window.location.assign(data.needsName ? `/onboarding?next=${encodeURIComponent(next)}` : next);
     } catch(e) { setError(e instanceof Error ? e.message : "Không thể kết nối."); }
     finally { setBusy(false); }
   }
@@ -32,8 +40,9 @@ export default function Login({ options, next, initialMode, initialError }: {
     catch(e) { setError(e instanceof Error ? e.message : "Không thể mở Google."); setBusy(false); }
   }
   async function resend() {
+    if (busy || resendCooldown || !window.confirm(`Gửi lại email xác nhận đến ${email}? Hãy kiểm tra hộp thư và thư rác trước khi gửi lại.`)) return;
     setBusy(true);setError("");
-    try { await request("resend",{username:email,next}); setNotice("Đã yêu cầu gửi lại email. Hãy dùng liên kết mới nhất trên trình duyệt này."); }
+    try { await request("resend",{username:email,next}); startResendCooldown(); setNotice("Đã yêu cầu gửi lại email. Hãy dùng liên kết mới nhất trên trình duyệt này."); }
     catch(e) { setError(e instanceof Error ? e.message : "Không thể gửi email."); }
     finally { setBusy(false); }
   }
@@ -63,7 +72,7 @@ export default function Login({ options, next, initialMode, initialError }: {
       {notice && <div role="status" className="alert auth-notice">{notice}</div>}
       {mode === "confirmation" ? <div className="confirmation-content">
         <MailCheck size={38}/><p>Mở liên kết trong email trên chính trình duyệt này để xác nhận và tiếp tục. Kiểm tra thư rác nếu chưa thấy email.</p>
-        <button className="btn primary wide" disabled={busy} onClick={resend}>{busy ? "Đang gửi…" : "Gửi lại email xác nhận"}</button>
+        <div className="confirmation-resend"><span>Chưa thấy thư sau khi kiểm tra thư rác?</span><button type="button" className="text-button resend-confirmation" disabled={busy || resendCooldown>0} onClick={resend}>{busy ? "Đang gửi…" : resendCooldown>0 ? `Gửi lại sau ${resendCooldown}s` : "Gửi lại email xác nhận"}</button></div>
         <button className="text-button" disabled={busy} onClick={()=>change("login")}>Quay lại đăng nhập</button>
       </div> : <form onSubmit={send}>
         {register && <label>Họ và tên<input name="name" required minLength={2} maxLength={60} placeholder="Nguyễn Minh Anh" autoComplete="name"/></label>}

@@ -4,6 +4,7 @@ import {
   BookOpen,
   CheckCircle2,
   ArrowLeft,
+  ArrowRight,
   Cpu,
   Database,
   LayoutDashboard,
@@ -31,6 +32,7 @@ import ArenaLoading from "./arena-loading";
 import AdminRoster from "./admin-roster";
 import RoundCard from "./round-card";
 import AuthRequired from "./auth-required";
+import LockedResources from "./locked-resources";
 import { loginHref, publicSections } from "@/lib/auth-navigation";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
@@ -369,9 +371,9 @@ export default function Arena() {
               {data.user?.name.slice(0, 1).toUpperCase() ?? "K"}
             </span>
             <span>
-              <b>{data.user?.name ?? "Khách tham quan"}</b>
+              <b>{data.user?.name ?? "Khách"}</b>
               <small>
-                {guest ? "Khám phá OlpAI Arena" : isAdmin ? "Quản trị viên" : (data.team?.name ?? "Chưa có đội")}
+                {guest ? "OlpAI Arena" : isAdmin ? "Quản trị viên" : (data.team?.name ?? "Chưa có đội")}
               </small>
             </span>
             <Settings2 size={16} />
@@ -401,7 +403,10 @@ export default function Arena() {
             )}
           </div>
           <div className="topbar-right">
-            {guest && <a className="btn primary small-btn" href={loginHref(returnPath)}>Đăng nhập</a>}
+            {guest && <div className="guest-auth-actions">
+              <a className="btn primary small-btn" href={loginHref(returnPath)}>Đăng nhập <ArrowRight size={15}/></a>
+              <a className="btn small-btn guest-register" href={loginHref(returnPath,true)}>Tạo tài khoản</a>
+            </div>}
             {c && (
               <span className={`live-indicator ${open ? "is-live" : ""}`}>
                 <i />
@@ -451,10 +456,6 @@ export default function Arena() {
               <h1>{labels[section]}</h1>
               {inside && <p>{c.title}</p>}
             </div>
-          </div>}
-          {guest && section === "rounds" && <div className="guest-banner">
-            <div><strong>Khám phá trước, tham gia khi bạn sẵn sàng.</strong><p>Xem các vòng luyện, đề đã công bố và bảng xếp hạng. Đăng nhập để tải dữ liệu và luyện tập cùng đội.</p></div>
-            <a className="btn" href={loginHref(returnPath, true)}>Tạo tài khoản</a>
           </div>}
           {needsLogin && <AuthRequired section={section} next={returnPath} />}
           {section === "rounds" && (
@@ -554,6 +555,7 @@ export default function Arena() {
           {inside && section === "overview" && <OverviewView {...views} />}{" "}
           {inside && section === "statement" && <StatementView {...views} />}{" "}
           {inside && !guest && data.entered && section === "data" && <DataView {...views} />}{" "}
+          {inside && !guest && !data.entered && section === "data" && <LockedResources title="Dữ liệu đang khóa" text="Đăng ký tham gia vòng luyện và chờ được duyệt để tải tài nguyên khi mở phát."/>}
           {inside && data.entered && section === "submit" && (
             <SubmitView key={c.id} {...views} />
           )}{" "}

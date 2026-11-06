@@ -32,6 +32,8 @@ Kiểm tra thật bằng email do người vận hành kiểm soát: nhận thư
 
 ## Tài khoản và quyền
 
+Từ bản giao diện 07/11/2026, tài khoản Google được đưa tới `/onboarding` để tự nhập tên ở lần đầu. Không dùng tên tài khoản Google hay phần trước `@` trong email làm tên tự động. Tên đã chọn được chuẩn hóa khoảng trắng và giữ cho những lần sau; tài khoản chưa hoàn tất tên bị chặn thao tác riêng ở server. Tài khoản Arena cũ chủ động liên kết Google giữ tên đã có. Tài khoản Google được tạo trước bản này sẽ được hỏi tên một lần vào lần xác thực tiếp theo.
+
 Tài khoản cũ giữ hash scrypt, ID, đội, bài nộp và admin. Đăng nhập mật khẩu cũ tiếp tục hoạt động. Sau khi Google được mở, vào **Tài khoản → Liên kết Google**; callback phải còn đúng phiên tài khoản đã bắt đầu. Không tự ghép theo email vì email lịch sử chưa xác minh. Google trùng email cũ sẽ hướng dẫn đăng nhập mật khẩu cũ rồi liên kết.
 
 Tài khoản Supabase mới chỉ được tạo trong Arena sau xác thực thành công với email đã xác minh. Không sao chép mật khẩu vào Arena. `arena.auth_identities` ánh xạ Supabase subject với Arena user; backend-only, RLS theo namespace. Role/admin/team vẫn lấy từ Arena, không lấy từ `user_metadata` hoặc client.
@@ -41,6 +43,14 @@ Phiên Arena dùng cookie HttpOnly/Secure/SameSite=Lax, TTL 7 ngày như trướ
 Quên mật khẩu qua email dành cho tài khoản mới dùng Supabase. Tài khoản lịch sử vẫn dùng mật khẩu cũ sau khi liên kết Google; không reset scrypt qua email lịch sử chưa xác minh. Tài khoản chỉ có Google có thể dùng quên mật khẩu để tạo mật khẩu Supabase nếu email provider bật.
 
 Backup SQL gồm ánh xạ đang hoạt động trong `sqlRuntime.auth_identities`; import sau users. Backup này không xuất kho mật khẩu/refresh token của `auth.users`; chuyển Supabase project cần kế hoạch Auth riêng. Công cụ hiện tại chặn rollback SQL runtime sang Redis production. Không đổi mode database để chữa Auth.
+
+Ánh xạ có thêm `needs_name` và `name_confirmed_at` để lưu bước nhập tên. Khi đọc backup cũ có ba cột, công cụ bổ sung mặc định `false/null`; backup mới giữ cả hai trường. Quyền admin/đội vẫn được lấy từ các bảng Arena như trước.
+
+## Mẫu email và khôi phục
+
+Mã nguồn HTML tiếng Việt ở [email-templates](email-templates/README.md), gồm Confirm sign up và Reset password. Giữ nguyên `{{ .ConfirmationURL }}` khi dán vào Supabase. Cả hai loại thư được gửi bởi SMTP Resend hiện có. Thay mẫu chỉ là dán Source/Subject trong Supabase; không đặt Resend key vào web.
+
+Ở màn hình chờ xác nhận, nút gửi lại là liên kết nhỏ, chờ 60 giây và hỏi xác nhận trước khi gửi. Server vẫn giới hạn tần suất độc lập với bộ đếm giao diện. Phần dữ liệu mờ chỉ có khung minh họa, không chứa tên tệp, dữ liệu hoặc đường dẫn tải thật.
 
 ## QA
 

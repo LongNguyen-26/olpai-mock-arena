@@ -32,6 +32,7 @@ export async function GET(req: Request) {
       const local = await resolveIdentity(result.data.user,flow.mode === "link" ? current!.id : undefined);
       await createSession(local.id);
       destination = authReturnPath(flow.next);
+      if (local.needsName) destination = `/onboarding?next=${encodeURIComponent(destination)}`;
     }
   } catch (error) {
     destination = `/login?error=${encodeURIComponent(error instanceof ApiError ? error.message : "Liên kết đã hết hạn hoặc được mở trên trình duyệt khác. Hãy đăng nhập hoặc gửi lại email.")}`;

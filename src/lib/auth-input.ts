@@ -1,4 +1,8 @@
 import { z } from "zod";
+export const profileName = z.string().trim().transform(value => value.replace(/\s+/gu, " ")).pipe(
+  z.string().min(2, "Tên cần có ít nhất 2 ký tự.").max(60, "Tên tối đa 60 ký tự.")
+    .refine(value => !value.includes("@") && !/[\p{Cc}\p{Cf}]/u.test(value), "Hãy nhập tên hiển thị, không dùng địa chỉ email."),
+);
 
 export const registrationName = z
   .string()

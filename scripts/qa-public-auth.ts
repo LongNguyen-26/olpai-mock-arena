@@ -22,9 +22,9 @@ async function main() {
   process.env.ARENA_DATABASE_MODE="postgres"; process.env.ARENA_RUNPOD_MODE="disabled";
   const ns=namespace(),base="http://localhost:3113",checks:string[]=[];
   const legacyPassword="QA-only-password-12345",legacy={id:randomUUID(),username:"legacy@example.test",name:"QA legacy",password:await hashPassword(legacyPassword),teamId:null,createdAt:Date.now()};
-  const identity=(email:string,id=randomUUID()):ProviderUser=>({id,aud:"authenticated",role:"authenticated",email,email_confirmed_at:new Date().toISOString(),created_at:new Date().toISOString(),app_metadata:{provider:"google",providers:["google"]},user_metadata:{full_name:"QA verified user",admin:true},identities:[]});
-  const newIdentity=identity("new@example.test"), collision=identity(legacy.username), recovery=identity("recovery@example.test");
-  const identities:Record<string,ProviderUser>={new:newIdentity,collision,recovery};
+  const identity=(email:string,id=randomUUID(),provider="google"):ProviderUser=>({id,aud:"authenticated",role:"authenticated",email,email_confirmed_at:new Date().toISOString(),created_at:new Date().toISOString(),app_metadata:{provider,providers:[provider]},user_metadata:{name:provider==="email"?"QA email":undefined,full_name:"QA Google auto name",admin:true},identities:[]});
+  const newIdentity=identity("new@example.test",undefined,"email"), collision=identity(legacy.username), recovery=identity("recovery@example.test",undefined,"email"), google=identity("google@example.test"), browserGoogle=identity("browsergoogle@example.test");
+  const identities:Record<string,ProviderUser>={new:newIdentity,collision,recovery,google,"google-browser":browserGoogle};
   const session=(user:ProviderUser)=>({access_token:`qa-${user.id}`,refresh_token:"qa-refresh-token",token_type:"bearer",expires_in:3600,user});
   const challenges=new Map<string,string>();
   let stopQA: (()=>void) | undefined;
@@ -34,6 +34,11 @@ async function main() {
       const chunks:Buffer[]=[]; for await(const c of req) chunks.push(Buffer.from(c));
       const body=chunks.length?JSON.parse(Buffer.concat(chunks).toString()):{};
       const url=new URL(req.url!,"http://localhost");
+      if(url.pathname.endsWith("/authorize")) {
+        challenges.set("google-browser",url.searchParams.get("code_challenge")??"");
+        assert.equal(url.searchParams.get("redirect_to"),base+"/auth/callback");
+        res.writeHead(303,{Location:base+"/auth/callback?code=google-browser"});res.end();return;
+      }
       let status=200,result:unknown={};
       if(url.pathname.endsWith("/signup")) { challenges.set("signup",body.code_challenge); result={user:newIdentity,session:null}; }
       else if(url.pathname.endsWith("/recover")) { challenges.set("recovery",body.code_challenge); result={}; }
@@ -108,6 +113,25 @@ async function main() {
     await request("/api/auth/logout",{});
     const unconfirmed=await request("/api/auth/login",{username:"unconfirmed@example.test",password:legacyPassword});assert.equal(unconfirmed.status,400);assert.equal(jar.has("arena-session"),false);
     checks.push("email signup has no session before confirmation; PKCE confirmation restores destination");
+    const googleStart=await (await request("/api/auth/google",{next:`/?round=${round}#data`})).json();
+    challenges.set("google",new URL(googleStart.url).searchParams.get("code_challenge")!);
+    const googleCallback=await request("/auth/callback?code=google");
+    assert.equal(new URL(googleCallback.headers.get("location")!).pathname,"/onboarding");
+    const pendingProfile=(await (await request("/api/me")).json()).user;
+    assert.equal(pendingProfile.needsName,true);assert.equal(pendingProfile.name,"Thí sinh");
+    assert.equal((await request("/api/team",{action:"create",name:"Must not create"})).status,403);
+    assert.equal((await request("/api/auth/profile",{name:"google@example.test"})).status,400);
+    assert.equal((await request("/api/auth/profile",{name:"  Nguyễn   Minh Anh  "})).status,200);
+    const completed=(await (await request("/api/me")).json()).user;
+    assert.equal(completed.name,"Nguyễn Minh Anh");assert.equal(completed.needsName,false);assert.equal(completed.id,pendingProfile.id);
+    assert.equal((await request("/api/auth/profile",{name:"Cannot overwrite"})).status,409);
+    await request("/api/auth/logout",{});
+    const googleAgain=await (await request("/api/auth/google",{next:`/?round=${round}#data`})).json();
+    challenges.set("google",new URL(googleAgain.url).searchParams.get("code_challenge")!);
+    const returning=await request("/auth/callback?code=google");assert.equal(new URL(returning.headers.get("location")!).hash,"#data");
+    assert.equal((await (await request("/api/me")).json()).user.name,"Nguyễn Minh Anh");
+    await request("/api/auth/logout",{});
+    checks.push("Google onboarding requires a user-entered name, protects private actions and preserves the chosen name on later logins");
     const existing=await resolveIdentity(identity("collision2@example.test"));
     const dangerous=identity(legacy.username);
     await assert.rejects(()=>resolveIdentity(dangerous),/tài khoản Arena hiện có/);

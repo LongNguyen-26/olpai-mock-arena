@@ -1,5 +1,6 @@
 "use client";
 import { ScoreNote } from "./score-settings";
+import LockedResources from "./locked-resources";
 import { scoreLabel } from "@/lib/score-display";
 import { useEffect, useState } from "react";
 import {
@@ -28,6 +29,7 @@ import {
   fmt,
   when,
   tableDate,
+  tableTime,
   type ViewProps,
 } from "./arena-client";
 import { contestEnd, submissionAccess } from "@/lib/domain";
@@ -344,7 +346,7 @@ export function StatementView({ data, go, report, statementTask, openTask }: Pro
 export function DataView({ data }: Props) {
   if (!data.canReadStatement)
     return (
-      <Locked
+      <LockedResources
         title="Dữ liệu chưa mở"
         text="Đề và dữ liệu sẽ mở khi admin bắt đầu."
       />
@@ -436,7 +438,7 @@ export function BoardView({ data }: Props) {
                 ))}
                 <th>Tổng điểm</th>
                 <th>Số bài nộp</th>
-                <th title="Lần nộp muộn nhất trong các bài đạt điểm tốt nhất của từng tác vụ (UTC+7)">Ngày</th>
+                <th className="table-date-heading" title="Lần nộp muộn nhất trong các bài đạt điểm tốt nhất của từng tác vụ (UTC+7)">Ngày</th>
               </tr>
             </thead>
             <tbody>
@@ -461,7 +463,7 @@ export function BoardView({ data }: Props) {
                     ))}
                     <td className="total-score mono">{fmt(r.total)}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(r.extraTotal)}</small>}</td>
                     <td>{r.submitted}</td>
-                    <td className="table-date"><time dateTime={new Date(r.lastAt).toISOString()}>{tableDate(r.lastAt)}</time></td>
+                    <td className="table-date"><time title={when(r.lastAt)} dateTime={new Date(r.lastAt).toISOString()}><span>{tableDate(r.lastAt)}</span><small>{tableTime(r.lastAt)}</small></time></td>
                   </tr>
                 ))
               ) : (

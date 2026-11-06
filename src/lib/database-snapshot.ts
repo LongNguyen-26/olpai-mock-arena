@@ -86,7 +86,7 @@ export const importColumns:Record<string,string[]>={
   sessions:["token_hash","user_id","expires_at"],rate_counters:["id","count","expires_at"],
   runtime_leases:["id","token","expires_at"],runtime_signals:["id","value","expires_at"],
   chat_lanes:["group_id","run_id","audience","served_at"],submission_files:["id","gzip"],
-  auth_identities:["subject","user_id","created_at"],
+  auth_identities:["subject","user_id","created_at","needs_name","name_confirmed_at"],
 };
 type Plan={tables:Record<string,unknown[][]>;issues:string[];configuration:{templatesShared:boolean};counts:Record<string,number>};
 export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
@@ -154,7 +154,8 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
       else if(r.expiresAt===null&&!/^(user:|username:|teams$|code:|invites:|admins?$|packages$|rounds$|submission-file:|gpu:(active|workspaces$|chat-groups$|drain|templates:shared:ready|templates:version)|sql:|database:)/.test(k)) add("legacy_archive",k,r.type,JSON.stringify(r.value),r.expiresAt);
     }
   }
-  for(const [table,rows] of Object.entries(snapshot.sqlRuntime??{})) {
+  for(const [table,savedRows] of Object.entries(snapshot.sqlRuntime??{})) {
+    const rows = table === "auth_identities" && Array.isArray(savedRows) ? savedRows.map(row=>Array.isArray(row)&&row.length===3?[...row,false,null]:row) : savedRows;
     if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
     tables[table]=rows;
   }
@@ -194,7 +195,7 @@ export async function importSnapshot(snapshot:DatabaseSnapshot,allowProduction=f
   return {targetNamespace:target,sourceNamespace:snapshot.sourceNamespace,counts:plan.counts,elapsedMs:Date.now()-started};
 }
 const jsonColumns=new Set(["configuration","payload","result","report"]);
-const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at","count","served_at"]);
+const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at","count","served_at","name_confirmed_at"]);
 export async function verifySnapshot(snapshot:DatabaseSnapshot) {
   const plan=planSnapshot(snapshot),tables:Record<string,unknown>={},mismatches:string[]=[];
   for(const [table,columns] of Object.entries(importColumns)) {

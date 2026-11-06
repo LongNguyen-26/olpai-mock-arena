@@ -13,6 +13,7 @@ import { ApiError } from "./api-error";
 import { readUser } from "./entity-repository";
 import { usingPostgres } from "./sql";
 import { sessionUser, saveSession, removeSession, consumeCounter } from "./sql-runtime";
+import { identityNeedsName } from "./auth-identities";
 export { ApiError } from "./api-error";
 const scrypt = promisify(scryptCallback);
 export async function hashPassword(password: string) {
@@ -39,7 +40,8 @@ export async function getUser(): Promise<SafeUser | null> {
   ]);
   if (!user) return null;
   const { password: _password, ...safe } = user;
-  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id), authMethod: user.password === "external:supabase" ? "supabase" : "legacy" };
+  const external = user.password === "external:supabase";
+  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id), authMethod: external ? "supabase" : "legacy", needsName: external && usingPostgres() ? await identityNeedsName(id) : false };
 }
 export async function createSession(id: string) {
   const token = randomBytes(32).toString("base64url");
@@ -65,6 +67,7 @@ export async function logout() {
 export async function requireUser() {
   const user = await getUser();
   if (!user) throw new ApiError("Vui lòng đăng nhập.", 401);
+  if (user.needsName) throw new ApiError("Vui lòng hoàn tất tên hiển thị trước khi tiếp tục.",403);
   return user;
 }
 export async function requireAdmin() {

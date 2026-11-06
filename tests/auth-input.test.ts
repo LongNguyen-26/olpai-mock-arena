@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { registrationName, loginName } from "../src/lib/auth-input";
+import { registrationName, loginName, profileName } from "../src/lib/auth-input";
 import { templateSchema, defaultTemplate } from "../src/lib/workspace-domain";
 
 test("new accounts use canonical email addresses including addresses longer than legacy usernames", () => {
@@ -25,6 +25,10 @@ test("existing usernames and new email accounts can both log in", () => {
     "student.long.email@example.edu.vn",
   );
   assert.equal(loginName.safeParse(" ").success, false);
+});
+test("Google display names are entered explicitly, normalized and reject email or invisible controls",()=>{
+  assert.equal(profileName.parse("  Nguyễn   Minh Anh  "),"Nguyễn Minh Anh");
+  for (const name of [""," ","A","person@example.com","Nguyễn\u200BAnh","Tên".repeat(30)]) assert.equal(profileName.safeParse(name).success,false);
 });
 test("service-specific templates retain legacy compatibility and reject unknown services", () => {
   const template = {
