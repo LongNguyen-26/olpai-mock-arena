@@ -68,7 +68,11 @@ async function main() {
       checkedConfigurations++;
     }
     // Reading GPU prices decrypts the existing admin credential, without allocating a Pod.
-    if (workspace.hasCredential) {
+    if (workspace.runpodMode === "disabled") {
+      const prices = await request("/api/workspace/prices", { headers: { Cookie: cookie } });
+      assert.equal(prices.status, 503, "Runpod is intentionally disabled");
+      assert.equal((await request("/api/workspace/groq/credential", { headers: { Cookie: cookie } })).status, 200, "Groq configuration independent of Runpod");
+    } else if (workspace.hasCredential) {
       const prices = await request("/api/workspace/prices", { headers: { Cookie: cookie } });
       assert.equal(prices.status, 200, "Stored Runpod credential works on Render");
     }
@@ -76,7 +80,8 @@ async function main() {
       result: "PASS", base, render: true, login: true, protectedApis: true,
       roundCount: catalog.rounds.length, workspaceCount: workspace.workspaces.length,
       ownedManualConfigurationsDecrypted: checkedConfigurations,
-      storedRunpodCredentialVerified: !!workspace.hasCredential,
+      runpodMode: workspace.runpodMode ?? "enabled",
+      storedRunpodCredentialVerified: workspace.runpodMode !== "disabled" && !!workspace.hasCredential,
       activeWorkspaceCount: workspace.workspaces.filter((w: { status: string }) => !["terminated", "failed"].includes(w.status)).length,
       actualPodEnvironmentInspected: false, podOrRoundMutations: 0,
     }));

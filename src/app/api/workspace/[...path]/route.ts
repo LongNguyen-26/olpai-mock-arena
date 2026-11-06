@@ -50,6 +50,7 @@ import {
   retryWorkspace,
 } from "@/lib/workspaces";
 import { assertWritesAllowed } from "@/lib/write-control";
+import { requireRunpod } from "@/lib/runtime-mode";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -88,6 +89,9 @@ async function handle(
     const path = (await context.params).path.join("/"),
       url = new URL(req.url);
     const id = () => z.string().uuid().parse(url.searchParams.get("id"));
+    if (path.startsWith("worker/") || path.startsWith("hub/") || path.startsWith("manual/") ||
+        ["manifest","launch","deploy","retry","sync","control","prices","gpu-resources","metrics","group/create","group/deploy","worker-drain"].includes(path))
+      requireRunpod(["deploy","retry","launch","group/create","group/deploy","manual/prepare","hub/authorize"].includes(path));
     if(req.method==="POST"||["manifest","hub/authorize","launch"].includes(path)) await assertWritesAllowed();
     if (path === "hub/redeem" && req.method === "POST") {
       const p = z
@@ -205,6 +209,7 @@ async function handle(
         .parse(await payload(req));
       await rateLimit(`gpu:hub:${user.id}`, 60, 60);
       if (path === "hub/teams") {
+        if (p.action === "grant") requireRunpod(true);
         await requireAdmin();
         return json(
           await changeHubTeam(
@@ -218,6 +223,7 @@ async function handle(
         );
       }
       if (path === "hub/server") {
+        if (p.action === "start") requireRunpod(true);
         await requireAdmin();
         return json(
           await changeHubServer(
@@ -230,6 +236,7 @@ async function handle(
           ),
         );
       }
+      if (p.action === "request") requireRunpod(true);
       if (p.teamId && p.teamId !== user.teamId)
         throw new ApiError("Không được đăng ký thay team khác.", 403);
       const { w, c } = await hubContext(user, p.id, p.teamId);
@@ -542,6 +549,7 @@ async function handle(
         );
       }
       if (path === "control") {
+        if (["start","resume"].includes(String(v.action))) requireRunpod(true);
         const p = z
           .object({
             id: z.string().uuid(),

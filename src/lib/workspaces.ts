@@ -60,7 +60,8 @@ import {
 } from "./chat-queue";
 import { readTemplates, saveSharedTemplate } from "./workspace-templates";
 import { workspaceDeployment } from "./workspace-config";
-import { usingPostgres } from "./sql";
+import { usingPostgres, sqlTransaction, namespace } from "./sql";
+import { runpodAvailable, runpodMode, requireRunpod } from "./runtime-mode";
 import { readTeam, readTeams, readRounds } from "./entity-repository";
 import {
   readGpuCredential,
@@ -235,7 +236,7 @@ async function workspaceStateSnapshot(user: SafeUser, view: WorkspaceList) {
   };
   const [chatGroups, chatOperations, workspaces, teams] = await Promise.all([
     view === "history" ? [] : chatGroupViews(user),
-    user.admin && view !== "history"
+    runpodAvailable() && user.admin && view !== "history"
       ? Promise.all(
           all
             .filter((w) => hasService(w, "llm") && w.status !== "terminated")
@@ -281,7 +282,7 @@ async function workspaceStateSnapshot(user: SafeUser, view: WorkspaceList) {
               : null;
           }
           if (!roundVisible(c, user.admin)) return null;
-          const w = await currentRun(record, c);
+          const w = runpodAvailable() ? await currentRun(record, c) : record;
           let registered = true;
           try {
             if (!isShared(w) || isTeamHub(w))
@@ -290,22 +291,23 @@ async function workspaceStateSnapshot(user: SafeUser, view: WorkspaceList) {
             registered = false;
           }
           const worker =
-            w.status !== "terminated" && hasService(w, "llm")
+            runpodAvailable() && w.status !== "terminated" && hasService(w, "llm")
               ? await db().get<ChatWorker>(workerKey(w.id))
               : null;
           const access = workspaceAccess(w, c, now, user.admin, registered);
-          const hub = isTeamHub(w)
+          const hub = runpodAvailable() && isTeamHub(w) && w.status !== "terminated"
             ? await hubView(w, user, now, c.chatEpoch ?? 0)
             : undefined;
           const notebook = hub?.teams.find((t) => t.teamId === user.teamId);
           return {
             ...workspaceView(await withChatPolicy(w), now, user.admin),
             ...access,
+            notebookEnabled: runpodAvailable() && access.notebookEnabled,
             ...(isTeamHub(w)
               ? {
                   hub,
                   notebookEnabled:
-                    access.notebookEnabled &&
+                    runpodAvailable() && access.notebookEnabled &&
                     hubBound(w) &&
                     (user.admin ||
                       !!(
@@ -337,6 +339,7 @@ async function workspaceStateSnapshot(user: SafeUser, view: WorkspaceList) {
       : [],
   ]);
   return {
+    runpodMode: runpodMode(),
     chatGroups,
     chatOperations,
     workspaces: workspaces
@@ -461,6 +464,7 @@ export async function deployWorkspace(
 ) {
   const scope = options.scope ?? "team",
     services = options.services ?? "both";
+  requireRunpod(true);
   if (!user.admin) throw new ApiError("Chỉ admin được cấp GPU.", 403);
   const allocationId = options.requestId ?? randomUUID();
   const existing = await readWorkspaceRecord(allocationId);
@@ -658,7 +662,7 @@ export async function deployWorkspace(
     if (legacyId && (!legacy || legacy.roundId === roundId))
       checks.push(activeKey(team!.id));
   }
-  const reserved = await runtimeEval<unknown[], number>(
+  const reserve = () => runtimeEval<unknown[], number>(
     `${WORKSPACE_TEAM_ELIGIBILITY_LUA}
      if redis.call('EXISTS',KEYS[#KEYS-2])==1 then return 2 end
      if ARGV[6]~='' and not eligible(ARGV[6],ARGV[7],ARGV[8]) then return 3 end
@@ -682,6 +686,13 @@ export async function deployWorkspace(
       registrationKey(c),
     ],
   );
+  const reserved = usingPostgres() ? await sqlTransaction(async client => {
+    if (services !== "jupyter") {
+      const occupied = await client.query("select 1 from arena.runtime_history where ns=$1 and kind='chat-group' and round_id=$2 and payload->>'provider'='groq' and coalesce((payload->>'retired')::boolean,false)=false and payload->>'scope'=$3 and coalesce(payload->>'teamId','all')=$4 limit 1", [namespace(), roundId, scope, scope === "all" ? "all" : teamId]);
+      if (occupied.rowCount) throw new ApiError("Phạm vi/vòng này đã có Chatbot Groq.", 409);
+    }
+    return reserve();
+  }, true) : await reserve();
   if (reserved === 2)
     return workspaceView(await getWorkspace(id), await serverNow());
   if (reserved === 3)

@@ -13,6 +13,8 @@ import { getContest } from "./rounds";
 import { requireWorkspaceTeam } from "./workspace-teams";
 import { readTeam, readAdminIds } from "./entity-repository";
 import { chatQueueSummary } from "./chat-queue";
+import { usingPostgres, namespace, sqlTransaction, sqlNow } from "./sql";
+import { putSqlHistory } from "./sql-chat";
 import type { SafeUser } from "./types";
 
 const policySchema = z.object({
@@ -80,7 +82,7 @@ export async function createGroqChatbot(user: SafeUser, input: z.infer<typeof gr
       const team = teamId ? await readTeam(teamId) : null;
       if (!team?.members.length) throw new ApiError("Chọn đội có thành viên.");
       await requireWorkspaceTeam(team, c);
-      const legacyId = await db().get<string>(key(`gpu:active:${teamId}`));
+      const legacyId = usingPostgres() ? null : await db().get<string>(key(`gpu:active:${teamId}`));
       if (legacyId) {
         const legacy = await getWorkspace(legacyId);
         if (legacy.roundId === v.roundId && legacy.status !== "terminated") throw new ApiError("Đội đã có Pod cung cấp dịch vụ. Hãy kiểm tra cấu hình cũ trước.", 409);
@@ -90,6 +92,19 @@ export async function createGroqChatbot(user: SafeUser, input: z.infer<typeof gr
       groq: { ...model, parallel: v.parallel, requestsPerMinute: v.requestsPerMinute }, roundId: v.roundId, runId: c.id,
       scope: v.scope, teamId: teamId ?? null, workspaceIds: [], template: { id: v.id, name: v.name, ...v.policy },
       contextWindowTokens: model.contextWindow, paused: false, createdAt: await serverNow() };
+    if (usingPostgres()) return sqlTransaction(async client => {
+      const old = await readGroupRecord(v.id);
+      if (old) {
+        if (old.ownerId === user.id && old.allocationFingerprint === JSON.stringify(v)) return { id: old.id };
+        throw new ApiError("Mã cấp phát đã được dùng cho cấu hình khác.", 409);
+      }
+      const occupied = await client.query(`select 1 from arena.runtime_history where ns=$1 and round_id=$2 and (
+        (kind='chat-group' and coalesce((payload->>'retired')::boolean,false)=false and payload->>'scope'=$3 and coalesce(payload->>'teamId','all')=$4)
+        or (kind='workspace' and status not in ('terminated','failed') and coalesce(payload->>'scope','team')=$3 and coalesce(payload->>'teamId','all')=$4 and coalesce(payload->>'services','both') in ('llm','both'))) limit 1`, [namespace(), g.roundId, g.scope, g.teamId ?? "all"]);
+      if (occupied.rowCount) throw new ApiError("Phạm vi/vòng này đã có Chatbot. Hãy đóng cấu hình cũ trước.", 409);
+      await putSqlHistory(client, "chat-group", g.id, { ...g, allocationFingerprint: JSON.stringify(v) }, await sqlNow(client));
+      return { id: g.id };
+    }, true);
     const reservation = key(`gpu:active:v2:${g.scope}:${g.teamId ?? "all"}:${g.roundId}:llm`);
     const result = await runtimeEval<string[], string>(`
       local old=redis.call('GET',KEYS[2]);if old then local g=cjson.decode(old);if g.ownerId==ARGV[3] and g.allocationFingerprint==ARGV[4] then return 'ok' end;return 'duplicate' end

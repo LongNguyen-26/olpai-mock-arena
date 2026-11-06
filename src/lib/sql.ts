@@ -35,7 +35,7 @@ function pool() {
   }
   return result;
 }
-export async function sqlTransaction<T>(fn: (client: PoolClient) => Promise<T>, write = false, bootstrap = false): Promise<T> {
+export async function sqlTransaction<T>(fn: (client: PoolClient) => Promise<T>, write: boolean | "runtime" = false, bootstrap = false): Promise<T> {
   const ns = namespace(), current = context.getStore();
   if (current) {
     if (current.ns !== ns) throw new Error("Cannot switch namespace within a transaction");
@@ -46,15 +46,13 @@ export async function sqlTransaction<T>(fn: (client: PoolClient) => Promise<T>, 
   let committed = false;
   try {
     await client.query("BEGIN");
-    await client.query("select set_config('arena.namespace',$1,true)", [ns]);
-    await client.query("set local statement_timeout='10s'");
-    await client.query("set local lock_timeout='5s'");
-    // Preserve JS double round-trips for scores and ranking tie-breaks.
-    await client.query("set local extra_float_digits=3");
+    await client.query("select set_config('arena.namespace',$1,true),set_config('statement_timeout','10s',true),set_config('lock_timeout','5s',true),set_config('extra_float_digits','3',true)", [ns]);
     // One short namespace lock orders policy changes and Redis runtime gates.
     // Never hold this transaction while calling Runpod/Blob or doing inference.
     if (write) {
-      await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [ns]);
+      // Runtime operations share the policy fence, then lock their own group.
+      // Policy/reset writes retain the exclusive namespace lock.
+      await client.query(write === "runtime" ? "select pg_advisory_xact_lock_shared(hashtextextended($1,0))" : "select pg_advisory_xact_lock(hashtextextended($1,0))", [ns]);
       const state=await client.query("select maintenance,imported_at from arena.state where ns=$1",[ns]);
       if(!bootstrap&&!ns.startsWith("arena:qa:")&&!state.rows[0]?.imported_at) throw new ApiError("Database chưa được chuyển và đối chiếu. Chưa mở ghi.",503);
       if(state.rows[0]?.maintenance) throw new ApiError("Hệ thống đang chuyển dữ liệu. Vui lòng thử lại sau.",503);

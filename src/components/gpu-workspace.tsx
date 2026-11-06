@@ -82,6 +82,9 @@ export default function GpuWorkspace({
     [syncWarning, setSyncWarning] = useState(""),
     [mutating, setBusy] = useState(false);
   const busy = mutating || !verified;
+  useEffect(() => {
+    if (state?.runpodMode === "disabled") setChatProvider("groq");
+  }, [state?.runpodMode]);
   const [apiKey, setApiKey] = useState(""),
     [template, setTemplate] = useState<WorkspaceTemplate | null>(null),
     [teamId, setTeamId] = useState(""),
@@ -317,6 +320,7 @@ export default function GpuWorkspace({
       !active ||
       !data.user.admin ||
       !state?.hasCredential ||
+      state.runpodMode === "disabled" ||
       chatProvider !== "runpod"
     )
       return;
@@ -347,7 +351,7 @@ export default function GpuWorkspace({
   // Refresh shared and private Pods, not just the first allocation.
   useEffect(() => {
     const ids = syncIds ? syncIds.split(",") : [];
-    if (!active || !ids.length) return;
+    if (!active || !ids.length || state?.runpodMode === "disabled") return;
     let current = true;
     let running = false;
     const refresh = async () => {
@@ -380,7 +384,7 @@ export default function GpuWorkspace({
       current = false;
       clearInterval(timer);
     };
-  }, [active, syncIds, load, data.user.admin]);
+  }, [active, syncIds, load, data.user.admin, state?.runpodMode]);
   async function run(fn: () => Promise<unknown>, message: string) {
     if (mutating || !verified) return;
     setBusy(true);
@@ -634,7 +638,7 @@ export default function GpuWorkspace({
           w={w}
           observedNow={state!.serverNow}
           admin={data.user.admin}
-          canManage={canManage && (!isTeamHub(w) || !!w.hub?.canManage)}
+          canManage={canManage && state?.runpodMode !== "disabled" && (!isTeamHub(w) || !!w.hub?.canManage)}
           retry={() =>
             void run(async () => {
               retryRequests.current[w.id] ||= crypto.randomUUID();
@@ -732,6 +736,11 @@ export default function GpuWorkspace({
               second: "2-digit",
             })}
           </span>
+        </p>
+      )}
+      {state && state.runpodMode !== "enabled" && (
+        <p className="alert" role="status">
+          {state.runpodMode === "disabled" ? "GPU/Jupyter đang tạm ngừng. Các chatbot đã cấp và lịch sử vẫn có thể truy cập." : "GPU/Jupyter đang ngừng nhận cấp phát mới; các tác vụ cũ đang được hoàn tất."}
         </p>
       )}
       {loadError && (
@@ -898,7 +907,7 @@ export default function GpuWorkspace({
                 setChatProvider(e.target.value as "runpod" | "groq")
               }
             >
-              <option value="runpod">
+              <option value="runpod" disabled={!!state && state.runpodMode !== "enabled"}>
                 Runpod · GPU, JupyterLab và Chatbot
               </option>
               <option value="groq">Groq · Chatbot qua API</option>
@@ -911,11 +920,11 @@ export default function GpuWorkspace({
           <GroqAdmin data={data} refresh={load} />
         </fieldset>
       )}
-      {state && data.user.admin && (
+      {state && state.runpodMode !== "disabled" && data.user.admin && (
         <ChatWorkerOperations state={state} busy={busy} run={run} />
       )}
       {state && data.user.admin && chatProvider === "runpod" && (
-        <>
+        <fieldset className="gpu-config-fieldset" disabled={state.runpodMode !== "enabled"}>
           <section className="panel gpu-panel">
             <h2>
               <ShieldCheck size={21} />
@@ -1324,7 +1333,7 @@ export default function GpuWorkspace({
               </form>
             </section>
           </div>
-        </>
+        </fieldset>
       )}
     </div>
   );

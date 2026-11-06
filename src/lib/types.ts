@@ -114,7 +114,7 @@ export interface Submission {
   bytes: number;
   sha256: string;
   path: string;
-  fileStorage?: "redis";
+  fileStorage?: "redis" | "postgres";
   note: string;
   status?: "accepted" | "invalid";
   error?: string;

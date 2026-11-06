@@ -23,6 +23,7 @@ export async function putApiCredential(owner: string, value: ApiCredential | nul
 // Serializes credential changes and allocation. Pending jobs fence key rotation.
 // No inference or provider network call is made while holding this lock.
 export async function withGroqOwnerLock<T>(owner: string, fn: () => Promise<T>) {
+  if (usingPostgres()) return sqlTransaction(async () => fn(), true);
   const k = key(`api:credential-lock:groq:${owner}`), token = randomUUID();
   let acquired = false;
   for (let attempt = 0; attempt < 10; attempt++) {

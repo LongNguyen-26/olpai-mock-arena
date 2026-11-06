@@ -129,7 +129,8 @@ export async function syncRuntimeHistory(limit=20) {
 }
 export async function readRuntimeHistory<T>(kind:string,id?:string):Promise<T[]> {
   return memoRead(`history:${kind}:${id??""}`,async()=>{
-  await syncRuntimeHistory();
+  // Reads stay independent of the optional Runpod Redis backend. Runtime
+  // writes drain their markers; explicit replay is an operational concern.
   const rows=await query(`select payload from arena.runtime_history where ns=$1 and kind=$2 and ($3::text is null or id=$3)
     and (expires_at is null or expires_at>floor(extract(epoch from clock_timestamp())*1000)) order by observed_at desc`,[namespace(),kind,id??null]);
   return rows.map(r=>r.payload as T);

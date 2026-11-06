@@ -193,7 +193,7 @@ export async function submit(
   let accepted: string;
   try {
   // Scoring/upload can outlive the route's initial migration gate.
-  if(await db().get(key("database:write-freeze"))) throw new ApiError("Hệ thống đang chuyển dữ liệu. Vui lòng thử lại sau.",503);
+  if(!usingPostgres() && await db().get(key("database:write-freeze"))) throw new ApiError("Hệ thống đang chuyển dữ liệu. Vui lòng thử lại sau.",503);
   accepted = usingPostgres() ? await commitSqlSubmission(record,roundId,nonce) : await db().eval<unknown[], string>(
     "if redis.call('EXISTS',KEYS[9])==1 then return 'frozen' end;"+SUBMIT_SCRIPT,
     [

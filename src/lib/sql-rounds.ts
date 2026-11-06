@@ -23,13 +23,21 @@ export async function archiveSqlRun(client:PoolClient,c:Contest) {
   await client.query("insert into arena.runs(ns,id,round_id,configuration) values($1,$2,$3,$4) on conflict(ns,id) do update set configuration=excluded.configuration",[namespace(),c.id,c.roundId??null,JSON.stringify(c)]);
 }
 export async function getSqlContest(id?:string):Promise<Contest> {
-  return memoRead(`contest:${id??"__legacy__"}`,()=>sqlTransaction(async client=>{
+  return memoRead(`contest:${id??"__legacy__"}`,async()=>{
+    const snapshot=await sqlTransaction(async client=>{
+      const c=await readRound(id);
+      if(!c || !roundVisible(c,true)) throw new ApiError("Không tìm thấy vòng luyện.",404);
+      return { c, current:applyPrivateTransition(c,await sqlNow(client)) };
+    });
+    if(snapshot.c===snapshot.current)return snapshot.current;
+    return sqlTransaction(async client=>{
     const c=await readRound(id);
     if(!c || !roundVisible(c,true)) throw new ApiError("Không tìm thấy vòng luyện.",404);
     const current=applyPrivateTransition(c,await sqlNow(client));
-    if(current!==c && !await db().get(key("database:write-freeze"))) { await putSqlRound(client,current); await bumpRevision(client); }
+    if(current!==c) { await putSqlRound(client,current); await bumpRevision(client); }
     return current;
-  },true));
+    },true);
+  });
 }
 export async function createSqlRound(title:string,packageId:string) {
   return sqlTransaction(async client=>{

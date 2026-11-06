@@ -2,6 +2,10 @@ import type { ChatTemplate } from "./chat-policy";
 import type { GroqConfiguration } from "./groq";
 import { readApiCredential } from "./api-credentials";
 import { runtimeEval } from "./runtime-authority";
+import { usingPostgres, sqlTransaction, namespace, sqlNow } from "./sql";
+import { putSqlHistory } from "./sql-chat";
+import { runtimeSignal } from "./sql-runtime";
+import { runpodAvailable, requireRunpod } from "./runtime-mode";
 import { randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -80,7 +84,10 @@ export async function accessChatGroup(user: SafeUser, id: string) {
   }
   return { group, c };
 }
-export async function createChatGroup(
+export async function createChatGroup(...args: Parameters<typeof createRunpodChatGroup>): Promise<ChatGroup> {
+  return usingPostgres() ? sqlTransaction(() => createRunpodChatGroup(...args), true) : createRunpodChatGroup(...args);
+}
+async function createRunpodChatGroup(
   user: SafeUser,
   v: {
     id: string;
@@ -90,8 +97,13 @@ export async function createChatGroup(
     roundId: string;
     templateId: string;
   },
-) {
+): Promise<ChatGroup> {
   if (!user.admin) throw new ApiError("Chỉ admin được tạo nhóm.", 403);
+  requireRunpod(true);
+  if (usingPostgres()) {
+    const occupied = await sqlTransaction(async client => (await client.query("select 1 from arena.runtime_history where ns=$1 and kind='chat-group' and round_id=$2 and payload->>'provider'='groq' and coalesce((payload->>'retired')::boolean,false)=false and payload->>'scope'=$3 and coalesce(payload->>'teamId','all')=$4 limit 1", [namespace(), v.roundId, v.scope, v.scope === "all" ? "all" : v.teamId])).rowCount);
+    if (occupied) throw new ApiError("Phạm vi/vòng này đã có Chatbot Groq.", 409);
+  }
   const existing = await readGroupRecord(v.id);
   if (existing) {
     if (
@@ -157,6 +169,20 @@ export async function controlChatGroup(
   action: "pause" | "resume" | "retire",
 ) {
   const g = await getChatGroup(id);
+  if (usingPostgres() && g.provider === "groq") return sqlTransaction(async client => {
+    const current = (await client.query("select payload from arena.runtime_history where ns=$1 and kind='chat-group' and id=$2", [namespace(), id])).rows[0]?.payload as ChatGroup;
+    if (!user.admin || current.ownerId !== user.id) throw new ApiError("Nhóm thuộc quản trị viên khác.", 403);
+    if (current.retired && action !== "retire") throw new ApiError("Nhóm đã đóng.", 409);
+    if (action === "retire") {
+      const pending = await client.query("select 1 from arena.runtime_history where ns=$1 and kind='chat-job' and payload->>'groupId'=$2 and status in ('queued','claimed','running','uncertain') and (expires_at is null or expires_at>$3) limit 1", [namespace(), id, await sqlNow(client)]);
+      if (pending.rowCount) throw new ApiError("Nhóm còn request chưa hoàn tất.", 409);
+      current.retired = true;
+    }
+    current.paused = action !== "resume";
+    await putSqlHistory(client, "chat-group", id, current as unknown as Record<string, unknown>, await sqlNow(client));
+    return { ok: true };
+  }, true);
+  requireRunpod(action === "resume");
   if (!user.admin || g.ownerId !== user.id)
     throw new ApiError("Nhóm thuộc quản trị viên khác.", 403);
   let currentRun = g.runId;
@@ -213,8 +239,9 @@ export async function chatGroupViews(user: SafeUser) {
         }
         const { group: g, c } = result;
         if (g.retired) return null;
+        if (g.provider !== "groq" && !runpodAvailable()) return null;
         const [workers, members] = await Promise.all([
-          chatWorkers(g.provider === "groq" ? [`groq:${g.id}`] : g.workspaceIds),
+          usingPostgres() && g.provider === "groq" ? Promise.resolve([]) : chatWorkers(g.provider === "groq" ? [`groq:${g.id}`] : g.workspaceIds),
           Promise.all(g.workspaceIds.map(getWorkspace)),
         ]);
         const apiReady = g.provider === "groq" && (await readAdminIds()).includes(g.ownerId) && !!await readApiCredential(g.ownerId);
@@ -267,7 +294,7 @@ export async function chatGroupViews(user: SafeUser) {
                   (sum, w) => sum + (w.podId ? w.meterRate : 0),
                   0,
                 ),
-                providerError: g.provider === "groq" ? await db().get<string>(key(`groq:error:${g.id}`)) : null,
+                providerError: g.provider === "groq" ? usingPostgres() ? await runtimeSignal(`groq:error:${g.id}`) : await db().get<string>(key(`groq:error:${g.id}`)) : null,
                 queue: await chatQueueSummary(`group:${id}`, c.id),
               }
             : {}),

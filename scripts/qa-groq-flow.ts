@@ -1,8 +1,8 @@
-/** Real Supabase + Redis in an isolated namespace; all Groq inference is mocked. */
+/** Real Supabase without Redis in an isolated namespace; Groq inference is mocked. */
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { db, key } from "../src/lib/db";
+import { sqlChatJob } from "../src/lib/sql-chat";
 import { namespace, query, sqlTransaction, closeSqlPools } from "../src/lib/sql";
 import { createSqlUser, saveSqlPackage, readUser } from "../src/lib/entity-repository";
 import { sqlTeamAction } from "../src/lib/sql-teams";
@@ -18,6 +18,8 @@ import type { ContestPackage, User, SafeUser } from "../src/lib/types";
 
 async function main() {
   process.env.ARENA_DATABASE_MODE = "postgres";
+  process.env.ARENA_RUNPOD_MODE = "disabled";
+  delete process.env.UPSTASH_REDIS_REST_URL; delete process.env.UPSTASH_REDIS_REST_TOKEN;
   process.env.ARENA_NAMESPACE = `arena:qa:groq:${randomUUID()}`;
   process.env.GPU_WORKSPACE_ENCRYPTION_KEY = randomBytes(32).toString("base64");
   await mkdir(".local",{recursive:true});await writeFile(".local/groq-qa-active.json",JSON.stringify({namespace:namespace()}));
@@ -72,10 +74,10 @@ async function main() {
     await pumpGroqGroup(input.id,true); assert.equal(calls,1);
     checks.push("duplicate prompts execute once; provider usage replaces conservative reservation");
     if(process.argv.includes("--smoke")) {
-      const [,rateKeys]=await db().scan(0,{match:key("groq:rate:*") ,count:100});
-      assert.ok(rateKeys.length>0);const counts=await db().mget<number[]>(...rateKeys);
-      assert.equal(counts.reduce((sum,n)=>sum+Number(n),0),1,"Idle slots must not consume provider RPM");
-      const proof={result:"PASS",checks:[...checks,"empty queue and unused slots consume no provider RPM"],realSupabase:true,realRedis:true,mockedGroqRequests:calls};
+      const rates=await query("select count from arena.rate_counters where ns=$1 and id like $2",[ns,"groq:rate:%"]);
+      assert.ok(rates.length>0);
+      assert.equal(rates.reduce((sum,r)=>sum+Number(r.count),0),1,"Idle slots must not consume provider RPM");
+      const proof={result:"PASS",checks:[...checks,"empty queue and unused slots consume no provider RPM"],realSupabase:true,realRedis:false,mockedGroqRequests:calls};
       await writeFile(".local/groq-smoke-result.json",JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));return;
     }
 
@@ -95,7 +97,7 @@ async function main() {
     behavior="429";
     const retrySession=randomUUID(),retryId=randomUUID();await enqueueChat(member,undefined,retrySession,retryId,"Rate limit",input.id,c.id);await pumpGroqGroup(input.id,true);
     result=await readQueuedChat(member,undefined,retrySession,input.id);assert.equal(result.session.inputTokens,0);assert.equal(result.session.outputTokens,0);
-    assert.equal((await db().get<ChatJob>(jobKey(retryId)))?.status,"queued");
+    assert.equal((await sqlChatJob(retryId))?.status,"queued");
     behavior="ok";await new Promise(r=>setTimeout(r,1100));await pumpGroqGroup(input.id,true);
     assert.equal((await readQueuedChat(member,undefined,retrySession,input.id)).session.messages.length,2);
     checks.push("429 refunds reservation and retries through key-wide backoff");
@@ -104,11 +106,11 @@ async function main() {
     checks.push("definite provider rejection consumes no token budget");
     behavior="429";const boundedId=randomUUID();await enqueueChat(member,undefined,randomUUID(),boundedId,"Bounded retry",input.id,c.id);
     for(let n=0;n<3;n++){await new Promise(r=>setTimeout(r,1100));await pumpGroqGroup(input.id,true);}
-    assert.equal((await db().get<ChatJob>(jobKey(boundedId)))?.status,"failed");checks.push("persistent 429 stops after three definite rejections");
+    assert.equal((await sqlChatJob(boundedId))?.status,"failed");checks.push("persistent 429 stops after three definite rejections");
     await new Promise(r=>setTimeout(r,1100));
 
     behavior="timeout";const uncertainId=randomUUID(),uncertainSession=randomUUID();await enqueueChat(member,undefined,uncertainSession,uncertainId,"Timeout",input.id,c.id);await pumpGroqGroup(input.id,true);
-    const before=calls;await pumpGroqGroup(input.id,true);assert.equal(calls,before);assert.equal((await db().get<ChatJob>(jobKey(uncertainId)))?.status,"uncertain");
+    const before=calls;await pumpGroqGroup(input.id,true);assert.equal(calls,before);assert.equal((await sqlChatJob(uncertainId))?.status,"uncertain");
     await assert.rejects(()=>settleUncertain(other,uncertainId),/quản trị viên khác/);await settleUncertain(admin,uncertainId);
     checks.push("lost acknowledgements keep reservation and never rerun inference; settlement is owner-only");
     behavior="late";const lateSession=randomUUID();await enqueueChat(member,undefined,lateSession,randomUUID(),"Late response",input.id,c.id);
@@ -121,14 +123,13 @@ async function main() {
     const snapshot=await sqlTransaction(()=>exportSqlSnapshot(),true),plan=planSnapshot(snapshot);
     assert.equal(plan.counts.api_credentials,1);assert.equal(plan.tables.api_credentials[0][0],a.id);assert.ok(!JSON.stringify(snapshot).includes("gsk_fake_second_key_for_qa"));
     checks.push("safe key deletion/replacement and encrypted SQL backup round-trip");
-    const proof={result:"PASS",namespace:ns,checks,realSupabase:true,realRedis:true,mockedGroqRequests:calls,realGroqRequests:0};
+    const proof={result:"PASS",namespace:ns,checks,realSupabase:true,realRedis:false,mockedGroqRequests:calls,realGroqRequests:0};
     await mkdir(".local",{recursive:true});await writeFile(".local/groq-qa-result.json",JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
   } finally {
     late?.();globalThis.fetch=original;assert.equal(namespace(),ns);assert.ok(ns.startsWith("arena:qa:groq:"));
-    const tables=["team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","api_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
+    const tables=["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","api_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
     await sqlTransaction(async client=>{for(const t of tables)await client.query(`delete from arena.${t} where ns=$1`,[ns]);},true);
-    let cursor="0";const keys:string[]=[];do{const [next,found]=await db().scan(cursor,{match:ns+":*",count:100});keys.push(...found);cursor=String(next);}while(cursor!=="0");
-    for(const k of keys)assert.ok(k.startsWith(ns+":"));for(let i=0;i<keys.length;i+=100)await db().del(...keys.slice(i,i+100));await closeSqlPools();
+    await closeSqlPools();
   }
 }
 main().catch(e=>{console.error(e instanceof Error?e.stack:"Groq QA failed");process.exitCode=1;});

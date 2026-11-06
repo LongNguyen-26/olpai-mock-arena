@@ -7,7 +7,7 @@ import { namespace,sqlTransaction,sqlNow,query } from "./sql";
 import type { Contest,ContestPackage,Submission,Team,User } from "./types";
 
 export interface SnapshotRecord { key:string; type:string; value:unknown; expiresAt:number|null }
-export interface DatabaseSnapshot { version:1; sourceNamespace:string; exportedAt:number; freezeId:string|null; records:SnapshotRecord[]; checksum:string }
+export interface DatabaseSnapshot { version:1; sourceNamespace:string; exportedAt:number; freezeId:string|null; records:SnapshotRecord[]; sqlRuntime?:Record<string,unknown[][]>; checksum:string }
 export function canonical(value:unknown):string {
   if(Array.isArray(value)) return "["+value.map(canonical).join(",")+"]";
   if(value&&typeof value==="object") return "{"+Object.entries(value).sort(([a],[b])=>a.localeCompare(b,"en")).map(([k,v])=>JSON.stringify(k)+":"+canonical(v)).join(",")+"}";
@@ -83,6 +83,9 @@ export const importColumns:Record<string,string[]>={
   gpu_templates:["store","id","name","revision","configuration"],gpu_credentials:["owner_id","ciphertext"],api_credentials:["owner_id","provider","configuration"],
   runtime_history:["kind","id","round_id","run_id","owner_id","status","payload","expires_at","observed_at"],
   audit_events:["id","kind","payload","created_at"],legacy_archive:["source_key","redis_type","payload","expires_at"],
+  sessions:["token_hash","user_id","expires_at"],rate_counters:["id","count","expires_at"],
+  runtime_leases:["id","token","expires_at"],runtime_signals:["id","value","expires_at"],
+  chat_lanes:["group_id","run_id","audience","served_at"],submission_files:["id","gzip"],
 };
 type Plan={tables:Record<string,unknown[][]>;issues:string[];configuration:{templatesShared:boolean};counts:Record<string,number>};
 export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
@@ -150,6 +153,10 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
       else if(r.expiresAt===null&&!/^(user:|username:|teams$|code:|invites:|admins?$|packages$|rounds$|submission-file:|gpu:(active|workspaces$|chat-groups$|drain|templates:shared:ready|templates:version)|sql:|database:)/.test(k)) add("legacy_archive",k,r.type,JSON.stringify(r.value),r.expiresAt);
     }
   }
+  for(const [table,rows] of Object.entries(snapshot.sqlRuntime??{})) {
+    if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
+    tables[table]=rows;
+  }
   return {tables,issues,configuration:{templatesShared:!!value("gpu:templates:shared:ready")},counts:Object.fromEntries(Object.entries(tables).map(([k,v])=>[k,v.length]))};
 }
 async function bulkInsert(client:PoolClient,table:string,columns:string[],rows:unknown[][]) {
@@ -165,8 +172,13 @@ export async function importSnapshot(snapshot:DatabaseSnapshot,allowProduction=f
   if(plan.issues.length) throw new Error(`Import preflight found ${plan.issues.length} relationship issues. No data imported.`);
   if(!target.startsWith("arena:qa:")&&!target.startsWith("arena:stage:")) {
     if(!allowProduction||target!==snapshot.sourceNamespace||!snapshot.freezeId) throw new Error("Production import needs a verified write freeze and explicit --production");
-    const freeze=parse(await rawRedis().get(`${target}:database:write-freeze`));
-    if(freeze?.id!==snapshot.freezeId) throw new Error("Source write freeze changed");
+    if(snapshot.sqlRuntime) {
+      const state=(await query("select maintenance,configuration from arena.state where ns=$1",[target]))[0];
+      if(!state?.maintenance||state.configuration.runtimeFreezeId!==snapshot.freezeId)throw new Error("Source SQL write freeze changed");
+    } else {
+      const freeze=parse(await rawRedis().get(`${target}:database:write-freeze`));
+      if(freeze?.id!==snapshot.freezeId) throw new Error("Source write freeze changed");
+    }
   }
   const started=Date.now();
   await sqlTransaction(async client=>{
@@ -181,13 +193,14 @@ export async function importSnapshot(snapshot:DatabaseSnapshot,allowProduction=f
   return {targetNamespace:target,sourceNamespace:snapshot.sourceNamespace,counts:plan.counts,elapsedMs:Date.now()-started};
 }
 const jsonColumns=new Set(["configuration","payload","result","report"]);
-const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at"]);
+const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at","count","served_at"]);
 export async function verifySnapshot(snapshot:DatabaseSnapshot) {
   const plan=planSnapshot(snapshot),tables:Record<string,unknown>={},mismatches:string[]=[];
   for(const [table,columns] of Object.entries(importColumns)) {
     const rows=await query(`select ${columns.join(",")} from arena.${table} where ns=$1`,[namespace()]);
-    const expected=plan.tables[table].map(row=>row.map((v,i)=>jsonColumns.has(columns[i])&&typeof v==="string"?JSON.parse(v):v));
-    const actual=rows.map(r=>columns.map(c=>numericColumns.has(c)&&!(table==="gpu_templates"&&c==="revision")&&r[c]!==null?Number(r[c]):r[c]));
+    const normalize=(c:string,v:unknown)=>Buffer.isBuffer(v)?"\\x"+v.toString("hex"):numericColumns.has(c)&&!(table==="gpu_templates"&&c==="revision")&&v!==null?Number(v):v;
+    const expected=plan.tables[table].map(row=>row.map((v,i)=>normalize(columns[i],jsonColumns.has(columns[i])&&typeof v==="string"?JSON.parse(v):v)));
+    const actual=rows.map(r=>columns.map(c=>normalize(c,r[c])));
     const digest=(items:unknown[])=>checksum(items.map(canonical).sort());
     const match=rows.length===expected.length&&digest(actual)===digest(expected);
     tables[table]={expected:expected.length,actual:rows.length,match};if(!match)mismatches.push(table);

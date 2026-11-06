@@ -24,6 +24,9 @@ services:
         value: arena:v1
       - key: ARENA_DATABASE_MODE
         value: postgres
+      # Runpod (including Jupyter-only/Hub) keeps Redis when re-enabled.
+      - key: ARENA_RUNPOD_MODE
+        value: disabled
       - key: ARENA_DATABASE_URL
         sync: false
       - key: GPU_WORKSPACE_PUBLIC_URL

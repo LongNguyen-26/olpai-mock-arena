@@ -8,7 +8,7 @@ import { createSqlUser,readUser,readTeams,readSubmissions,saveSqlPackage,readReg
 import { sqlTeamAction } from "../src/lib/sql-teams";
 import { createRound,registerRound,control,getContest } from "../src/lib/rounds";
 import { commitSqlSubmission } from "../src/lib/sql-rounds";
-import { runtimeEval,readRuntimeHistory,readChatContext,readChatJob } from "../src/lib/runtime-authority";
+import { runtimeEval,readRuntimeHistory,readChatContext,readChatJob,syncRuntimeHistory } from "../src/lib/runtime-authority";
 import { exportSqlSnapshot,restoreBusinessToRedis } from "../src/lib/database-rollback";
 import { saveEncryptedSnapshot,loadEncryptedSnapshot,planSnapshot } from "../src/lib/database-snapshot";
 import { encryptSecret } from "../src/lib/workspace-crypto";
@@ -21,6 +21,7 @@ import type { User,SafeUser,Submission,ContestPackage } from "../src/lib/types";
 async function main() {
   assert.ok(process.env.ARENA_DATABASE_URL,"Use --env-file=.local/supabase-runtime.env");
   process.env.ARENA_DATABASE_MODE="postgres";
+  process.env.ARENA_RUNPOD_MODE="enabled";
   process.env.ARENA_NAMESPACE=`arena:qa:sql:${randomUUID()}`;
   process.env.GPU_WORKSPACE_ENCRYPTION_KEY=randomBytes(32).toString("base64");
   process.env.GPU_WORKSPACE_PUBLIC_URL="https://qa.example.test";
@@ -132,6 +133,8 @@ async function main() {
       throw new Error("QA simulated lost SQL transaction");
     },true),/QA simulated/);
     assert.ok(await db().hlen(key("sql:runtime:pending"))>0);
+    // SQL reads no longer depend on Redis. Replay belongs to Runpod operations.
+    await syncRuntimeHistory();
     assert.equal((await readRuntimeHistory<{error:string}>("workspace",w.id))[0].error,"QA replay marker");
     assert.equal(await db().hlen(key("sql:runtime:pending")),0);
     checks.push("runtime changes survive SQL rollback through idempotent history replay");
@@ -170,7 +173,7 @@ async function main() {
     console.log(JSON.stringify(proof));
   } finally {
     assert.ok(namespace()===ns&&ns.startsWith("arena:qa:sql:"));
-    const tables=["team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","api_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
+    const tables=["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","team_members","team_invites","admins","users","teams","packages","rounds","runs","registrations","announcements","submissions","submission_quotas","requests","gpu_templates","gpu_credentials","api_credentials","runtime_history","audit_events","legacy_archive","migration_runs","state"];
     await sqlTransaction(async client=>{for(const t of tables) await client.query(`delete from arena.${t} where ns=$1`,[ns]);},true);
     let cursor="0";const keys:string[]=[];do{const [next,found]=await db().scan(cursor,{match:ns+":*",count:100});keys.push(...found);cursor=String(next);}while(cursor!=="0");
     for(const k of keys) assert.ok(k.startsWith(ns+":"));

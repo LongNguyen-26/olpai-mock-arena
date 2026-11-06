@@ -24,6 +24,9 @@ import { hasService } from "./workspace-options";
 import type { Contest, SafeUser, User } from "./types";
 import { applyPrivateTransition } from "./domain";
 import { ROUND_POLICY_LUA } from "./round-policy-lua";
+import { usingPostgres, sqlTransaction, namespace } from "./sql";
+import { sqlChatContext, sqlChatJob, sqlChatSummary, sqlEnqueueChat, sqlGroqAction, sqlSettleUncertain } from "./sql-chat";
+import { requireRunpod } from "./runtime-mode";
 
 export const QUEUE_PROTOCOL = 2;
 export const supportedQueueProtocol = (protocol: number) =>
@@ -98,7 +101,7 @@ export function workerJobIds(worker: ChatWorker | null | undefined) {
     ),
   ];
 }
-interface Target {
+export interface Target {
   id: string;
   groupId?: string;
   workspaceId?: string;
@@ -192,6 +195,7 @@ export async function resolveChatTarget(
     };
   }
   const { w, c } = await accessWorkspace(user, id!);
+  requireRunpod(true);
   if (!hasService(w, "llm"))
     throw new ApiError("Pod này không cung cấp Chatbot.", 409);
   if (w.chatGroupId) return resolveChatTarget(user, undefined, w.chatGroupId);
@@ -267,14 +271,16 @@ export async function readQueuedChat(
   groupId?: string,
 ) {
   const t = await resolveChatTarget(user, id, groupId);
-  await reconcileChat(t.id, t.c.id);
+  const sqlGroq = usingPostgres() && t.provider === "groq";
+  if (sqlGroq) await sqlChatSummary(t.groupId!, t.c.id);
+  else { requireRunpod(); await reconcileChat(t.id, t.c.id); }
   let [session, workers, now] = await Promise.all([
-    readChatContext<ChatSession>(sessionStore(t, user, sessionId)),
-    chatWorkers(t.workerIds),
+    sqlGroq ? sqlChatContext(sessionStore(t, user, sessionId)) : readChatContext<ChatSession>(sessionStore(t, user, sessionId)),
+    sqlGroq ? Promise.resolve([] as ChatWorker[]) : chatWorkers(t.workerIds),
     serverNow(),
   ]);
   if (
-    session?.pending &&
+    !sqlGroq && session?.pending &&
     !(await db().exists(jobKey(session.pending.requestId)))
   ) {
     session = await script<ChatSession>(
@@ -324,6 +330,13 @@ export async function enqueueChat(
 ) {
   const t = await resolveChatTarget(user, id, groupId),
     now = await serverNow();
+  if (usingPostgres() && t.provider === "groq") {
+    const result = await sqlEnqueueChat(t, user, sessionId, requestId, content, expectedRunId);
+    const { wakeGroqGroup } = await import("./groq-runner");
+    wakeGroqGroup(t.groupId!);
+    return result;
+  }
+  requireRunpod(true);
   if (expectedRunId && expectedRunId !== t.c.id)
     throw new ApiError(
       "Vòng luyện vừa thay đổi. Hãy tải lại trước khi gửi.",
@@ -377,7 +390,7 @@ export async function enqueueChat(
     createdAt: now,
     updatedAt: now,
   };
-  const result = await script<string>(
+  const commit = (pendingLimit: number) => script<string>(
     `
  local j=cjson.decode(ARGV[4]);local old=read(KEYS[1]);if old then if old.fingerprint~=j.fingerprint then return 'duplicate' end;return 'ok' end
  if j.groupId then local g=read(p..':gpu:chat-group:'..j.groupId);if not g or g.paused or g.retired then return 'policy' end end
@@ -386,14 +399,20 @@ export async function enqueueChat(
  if s.pending then return 'session' end
  s.conversation=s.conversation or cjson.decode(ARGV[6]);s.conversation.policy=cjson.decode(ARGV[6]).policy
  if s.exhausted or s.inputTokens+s.outputTokens>=tonumber(ARGV[5]) then return 'tokens' end
- if tonumber(redis.call('GET',j.counterKey) or '0')>=4 then return 'team' end
+ if tonumber(redis.call('GET',j.counterKey) or '0')>=tonumber(ARGV[7]) then return 'team' end
  table.insert(s.messages,{role='user',content=j.content});s.pending={requestId=j.id,reserved=0};s.error=nil;s.limitNotice=nil
  write(j.sessionKey,s);redis.call('SADD',p..':gpu:conversations:'..j.roundId..':'..j.audience,j.sessionKey);write(KEYS[1],j);redis.call('INCR',j.counterKey);redis.call('EXPIRE',j.counterKey,ttl)
  redis.call('ZADD',j.activeKey,now,j.id);redis.call('EXPIRE',j.activeKey,ttl);enqueue(j);return 'ok'`,
     [jobKey(requestId)],
     [JSON.stringify(j), t.template.sessionTokenLimit, JSON.stringify({sessionId,roundId:t.roundId,runId:t.c.id,target:t.id,audience,teamId:user.teamId,
-      createdAt:now,updatedAt:now,title:conversationTitle(content),policy:chatPolicyView(t.template)})],
+      createdAt:now,updatedAt:now,title:conversationTitle(content),policy:chatPolicyView(t.template)}), pendingLimit],
   );
+  const result = usingPostgres() ? await sqlTransaction(async client => {
+    const sqlPending = Number((await client.query(`select count(*) as n from arena.runtime_history j join arena.runtime_history g
+      on g.ns=j.ns and g.kind='chat-group' and g.id=j.payload->>'groupId' and g.payload->>'provider'='groq'
+      where j.ns=$1 and j.kind='chat-job' and j.run_id=$2 and j.payload->>'audience'=$3 and j.status in ('queued','claimed','running','uncertain') and (j.expires_at is null or j.expires_at>$4)`, [namespace(), j.runId, audience, now])).rows[0].n);
+    return commit(Math.max(0, 4 - sqlPending));
+  }, true) : await commit(4);
   const errors: Record<string, string> = {
     duplicate: "Mã request đã được sử dụng.",
     policy: "Chatbot đã khóa hoặc quyền truy cập đã thay đổi.",
@@ -465,9 +484,11 @@ export async function workerAction(
   v: WorkerRequest,
   authorization: string | null,
 ) {
+  requireRunpod();
   return performWorkerAction(action, v, await authenticatedWorker(v.workspaceId, authorization));
 }
 export async function groqQueueAction(action: string, v: WorkerRequest, groupId: string) {
+  if (usingPostgres()) return sqlGroqAction(action, v, groupId);
   const g = await getChatGroup(groupId);
   if (g.provider !== "groq" || !g.groq || g.retired) throw new ApiError("Chatbot Groq không hoạt động.", 403);
   if (!(await readAdminIds()).includes(g.ownerId) || !await readApiCredential(g.ownerId)) throw new ApiError("Dịch vụ Chatbot chưa sẵn sàng.", 409);
@@ -678,6 +699,7 @@ async function performWorkerAction(action: string, v: WorkerRequest, binding: {
 }
 
 export async function chatQueueSummary(target: string, run: string) {
+  if (usingPostgres() && target.startsWith("group:") && (await getChatGroup(target.slice(6))).provider === "groq") return sqlChatSummary(target.slice(6), run);
   await reconcileChat(target, run);
   const ids = await db().zrange<string[]>(activeJobsKey(target, run), 0, 255);
   const jobs = ids.length
@@ -702,6 +724,11 @@ export async function chatQueueSummary(target: string, run: string) {
 }
 export async function settleUncertain(user: SafeUser, requestId: string) {
   if (!user.admin) throw new ApiError("Chỉ admin được đối soát request.", 403);
+  if (usingPostgres()) {
+    const j = await sqlChatJob(requestId);
+    if (j?.groupId && (await getChatGroup(j.groupId)).provider === "groq") return sqlSettleUncertain(user, j);
+  }
+  requireRunpod();
   const j = await db().get<ChatJob>(jobKey(requestId));
   if (!j) throw new ApiError("Không tìm thấy request.", 404);
   const t = await resolveChatTarget(user, j.workspaceId, j.groupId);

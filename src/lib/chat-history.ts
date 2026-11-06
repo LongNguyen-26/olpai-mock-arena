@@ -7,7 +7,6 @@ import { getContest } from "./rounds";
 import { readTeam } from "./entity-repository";
 import { roundVisible } from "./round-visibility";
 import { readQueuedChat } from "./chat-queue";
-import { syncRuntimeHistory } from "./runtime-authority";
 import { conversationRef, parseConversationRef, contestantSession, chatPolicyView } from "./chat-conversation";
 import type { ChatSession } from "./workspace-domain";
 import type { SafeUser } from "./types";
@@ -54,7 +53,6 @@ export async function chatHistory(user: SafeUser, id?: string, groupId?: string,
   }
   let rows: Row[];
   if (usingPostgres()) {
-    await syncRuntimeHistory();
     rows = await query(`select kind,id,payload,observed_at from arena.runtime_history
       where ns=$1 and kind in ('chat-session','chat-group-session') and round_id=$2
       and payload->'conversation'->>'audience'=$3
@@ -84,7 +82,6 @@ export async function readConversation(user: SafeUser, ref: string, id?: string,
   if (!location) throw new ApiError("Không tìm thấy cuộc trò chuyện.",404);
   let row: Row | undefined;
   if (usingPostgres()) {
-    await syncRuntimeHistory();
     row = (await query(`select kind,id,payload,observed_at from arena.runtime_history where ns=$1 and kind=$2 and id=$3
       and round_id=$4 and payload->'conversation'->>'audience'=$5`,[namespace(),...location,ctx.roundId,ctx.audience]))[0] as Row | undefined;
   } else {
@@ -98,7 +95,7 @@ export async function readConversation(user: SafeUser, ref: string, id?: string,
       const live=await readQueuedChat(user,id,m.sessionId,groupId);
       return {...live,readOnly:!live.policyOpen,conversationId:ref,sessionId:m.sessionId};
     }
-    catch(e) { if(!(e instanceof ApiError)||![403,404,409].includes(e.status))throw e; }
+    catch(e) { if(!(e instanceof ApiError)||![403,404,409,503].includes(e.status))throw e; }
   }
   const policy=m.policy??{sessionTokenLimit:Math.max(2000,row.payload.inputTokens+row.payload.outputTokens),inputTokenLimit:1800,outputTokenLimit:1024};
   return {admin:user.admin,readOnly:true,provider:undefined,model:"Trợ lý AI",tokenAccounting:undefined,

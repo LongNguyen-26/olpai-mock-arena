@@ -214,7 +214,7 @@ async function handle(
         : null;
       if (!s || !s.path || (!user.admin && s.teamId !== user.teamId))
         throw new ApiError("Không tìm thấy bản nộp.", 404);
-      if (s.fileStorage === "redis") {
+      if (s.fileStorage === "redis" || s.fileStorage === "postgres") {
         const bytes = await readSubmissionFile(s);
         const filename = encodeURIComponent(s.filename).replace(
           /['()*]/g,

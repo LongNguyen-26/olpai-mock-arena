@@ -1,7 +1,8 @@
 import { namespace,query,sqlNow } from "./sql";
 import { syncRuntimeHistory } from "./runtime-authority";
 import { readTeams,userFromRow,submissionFromRow } from "./entity-repository";
-import { exportRedisSnapshot,rawRedis,checksum,canonical,type DatabaseSnapshot,type SnapshotRecord } from "./database-snapshot";
+import { exportRedisSnapshot,rawRedis,checksum,canonical,importColumns,type DatabaseSnapshot,type SnapshotRecord } from "./database-snapshot";
+import { runpodAvailable } from "./runtime-mode";
 
 export function businessKey(suffix:string) {
   return /^(admin|admins|teams|rounds|packages|contest|package|admin:deletions)$/.test(suffix)||
@@ -11,9 +12,21 @@ export function businessKey(suffix:string) {
 /** Produce a Redis-compatible business snapshot from the current SQL authority.
  * Runtime records and files are copied from Redis, never reset to an old backup. */
 export async function exportSqlSnapshot():Promise<DatabaseSnapshot> {
-  await syncRuntimeHistory(10000);
-  const ns=namespace(),base=await exportRedisSnapshot(ns),prefix=ns+":";
-  const records=base.records.filter(r=>!businessKey(r.key.slice(prefix.length)));
+  const ns=namespace(),prefix=ns+":";
+  if(runpodAvailable()) {
+    const maintenance=(await query("select maintenance from arena.state where ns=$1",[ns]))[0]?.maintenance;
+    if(!maintenance) await syncRuntimeHistory(10000);
+    else if(await rawRedis().hlen(ns+":sql:runtime:pending"))throw new Error("Replay Runpod pending history before freezing for backup");
+  }
+  const base=runpodAvailable()?await exportRedisSnapshot(ns):{records:[] as SnapshotRecord[],freezeId:null};
+  const groqIds=(await query("select id from arena.runtime_history where ns=$1 and kind='chat-group' and payload->>'provider'='groq'",[ns])).map(r=>String(r.id));
+  const records=base.records.filter(r=>{
+    const suffix=r.key.slice(prefix.length);
+    if(businessKey(suffix))return false;
+    if(groqIds.some(id=>suffix===`gpu:chat-group:${id}`||suffix.startsWith(`gpu:chat-group:${id}:`)))return false;
+    if(suffix.startsWith("gpu:job:")) {const v=typeof r.value==="string"?JSON.parse(r.value):r.value;if(v?.groupId&&groqIds.includes(v.groupId))return false;}
+    return true;
+  });
   const string=(suffix:string,value:unknown,expiresAt:number|null=null)=>records.push({key:prefix+suffix,type:"string",value:typeof value==="string"?value:JSON.stringify(value),expiresAt});
   const hash=(suffix:string,values:Record<string,unknown>)=>{if(Object.keys(values).length)records.push({key:prefix+suffix,type:"hash",value:Object.fromEntries(Object.entries(values).map(([k,v])=>[k,typeof v==="string"?v:JSON.stringify(v)])),expiresAt:null});};
   const set=(suffix:string,values:string[])=>{if(values.length)records.push({key:prefix+suffix,type:"set",value:values,expiresAt:null});};
@@ -73,7 +86,13 @@ export async function exportSqlSnapshot():Promise<DatabaseSnapshot> {
   const audit=await query("select * from arena.audit_events where ns=$1 order by created_at",[ns]),deletions:Record<string,unknown>={};
   for(const a of audit)if(a.payload?.kind&&a.payload?.id)deletions[`${a.payload.kind}:${a.payload.id}`]=a.payload;
   hash("admin:deletions",deletions);
-  const payload={version:1 as const,sourceNamespace:ns,exportedAt:now,freezeId:base.freezeId,records:records.sort((a,b)=>a.key.localeCompare(b.key,"en"))};
+  const sqlRuntime:Record<string,unknown[][]>={};
+  for(const table of ["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files"]) {
+    const columns=importColumns[table];
+    sqlRuntime[table]=(await query(`select ${columns.join(",")} from arena.${table} where ns=$1`,[ns])).map(row=>columns.map(column=>Buffer.isBuffer(row[column])?"\\x"+row[column].toString("hex"):row[column]));
+  }
+  const stateFreeze=(await query("select configuration->>'runtimeFreezeId' as id from arena.state where ns=$1",[ns]))[0]?.id;
+  const payload={version:1 as const,sourceNamespace:ns,exportedAt:now,freezeId:stateFreeze??base.freezeId,records:records.sort((a,b)=>a.key.localeCompare(b.key,"en")),sqlRuntime};
   return {...payload,checksum:checksum(payload)};
 }
 function hashEntries(value:unknown):[string,unknown][] {
@@ -86,6 +105,7 @@ function normalizedRecord(r:SnapshotRecord,prefix:string) {
 }
 export async function restoreBusinessToRedis(snapshot:DatabaseSnapshot,target:string,production=false) {
   const qa=/^arena:qa:[a-zA-Z0-9:_-]+$/.test(target);
+  if(!qa&&snapshot.sqlRuntime)throw new Error("SQL runtime snapshots require SQL restoration; legacy Redis business restore cannot roll back Groq/session/file state");
   if(!qa&&(!production||target!==snapshot.sourceNamespace||!snapshot.freezeId))throw new Error("Restore requires a frozen production snapshot and explicit production approval");
   const redis=rawRedis(),prefix=target+":";
   if(!qa) {

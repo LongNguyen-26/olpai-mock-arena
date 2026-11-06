@@ -13,6 +13,8 @@ import { runtimeEval } from "./runtime-authority";
 import { chatbotOpen } from "./workspace-domain";
 import type { ChatPolicy } from "./chat-policy";
 import { initializeGroqRunner, groqRunnerState } from "./groq-runner-state";
+import { acquireLease, releaseLease, consumeCounter, refundCounter, runtimeSignal, saveRuntimeSignal, clearRuntimeSignal, cleanupSqlRuntime } from "./sql-runtime";
+import { sqlActiveGroqJobs } from "./sql-chat";
 
 type Result = Awaited<ReturnType<typeof groqComplete>>;
 type ApiJob = ChatJob & { apiResult?: Result };
@@ -21,6 +23,10 @@ const inFlight = new Set<string>();
 const safeMessage = (e: unknown) => e instanceof GroqError ? e.message : "Chưa hoàn tất xử lý Groq. Vui lòng thử lại sau hoặc báo admin.";
 
 async function applyResult(g: ChatGroup, v: WorkerRequest, result: Result) {
+  if (usingPostgres()) {
+    await groqQueueAction("persist-result", { ...v, ...result }, g.id);
+    return groqQueueAction("complete", { ...v, ...result }, g.id);
+  }
   // Persist the result before finalizing. Replays only finalize this result;
   // they never call inference again, even after a process restart.
   await runtimeEval(`local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local j=cjson.decode(raw)
@@ -33,24 +39,25 @@ async function runSlot(g: ChatGroup, slot: number) {
   const local = `${g.id}:${slot}`;
   if (inFlight.has(local) || !g.groq) return;
   inFlight.add(local);
-  const leaseKey = key(`groq:executor:${local}`), token = randomUUID();
+  const leaseKey = usingPostgres() ? `groq:executor:${local}` : key(`groq:executor:${local}`), token = randomUUID();
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let rateKey: string | undefined, counted = false, sent = false;
   try {
-    if (!await db().set(leaseKey, token, { nx: true, ex: 180 })) return;
+    if (!(usingPostgres() ? await acquireLease(leaseKey, token, 180) : await db().set(leaseKey, token, { nx: true, ex: 180 }))) return;
     const credential = await readApiCredential(g.ownerId);
     if (!credential || !await groqOwnerActive(g.ownerId)) return;
     const apiKey = decryptSecret(credential.ciphertext);
     const rateId = createHash("sha256").update(apiKey).digest("hex");
-    const cooldownKey = key(`groq:cooldown:${rateId}`);
-    if (await db().exists(cooldownKey)) return;
+    const cooldownKey = usingPostgres() ? `groq:cooldown:${rateId}` : key(`groq:cooldown:${rateId}`);
+    if (usingPostgres() ? await runtimeSignal(cooldownKey) : await db().exists(cooldownKey)) return;
     const c = await getContest(g.roundId);
     const q = await chatQueueSummary(`group:${g.id}`, c.id);
     if (!q.queued) return;
     // Aggregate all chatbots using this key/model. A 429 applies a key-wide
     // cooldown; Groq remains authoritative for organization-wide token limits.
-    rateKey = key(`groq:rate:${rateId}:${g.groq.id}:${Math.floor(Date.now() / 60_000)}`);
-    const allowed = await db().eval<number[], number>(`local n=tonumber(redis.call('GET',KEYS[1]) or '0');if n>=tonumber(ARGV[1]) then return 0 end;n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],60) end;return 1`, [rateKey], [g.groq.requestsPerMinute]);
+    rateKey = `groq:rate:${rateId}:${g.groq.id}:${Math.floor(Date.now() / 60_000)}`;
+    if (!usingPostgres()) rateKey = key(rateKey);
+    const allowed = usingPostgres() ? await consumeCounter(rateKey, 60, g.groq.requestsPerMinute) : await db().eval<number[], number>(`local n=tonumber(redis.call('GET',KEYS[1]) or '0');if n>=tonumber(ARGV[1]) then return 0 end;n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],60) end;return 1`, [rateKey], [g.groq.requestsPerMinute]);
     if (!allowed) return;
     counted = true;
     let v: WorkerRequest = { workspaceId: `groq:${g.id}`, protocol: 2, ready: true,
@@ -78,21 +85,28 @@ async function runSlot(g: ChatGroup, slot: number) {
       result = await groqComplete(apiKey, g.groq.id, messages, Math.min(prepared.maxTokens, g.groq.maxCompletionTokens));
     } catch (error) {
       const message = safeMessage(error);
-      await db().set(key(`groq:error:${g.id}`), message, { ex: 3600 });
+      if (usingPostgres()) await saveRuntimeSignal(`groq:error:${g.id}`, message, 3600);
+      else await db().set(key(`groq:error:${g.id}`), message, { ex: 3600 });
       if (error instanceof GroqError && error.kind === "rate_limit") {
-        await db().set(cooldownKey, true, { ex: error.retryAfter });
+        if (usingPostgres()) await saveRuntimeSignal(cooldownKey, "true", error.retryAfter);
+        else await db().set(cooldownKey, true, { ex: error.retryAfter });
         // A documented 429 rejects inference. Its reservation may be refunded.
         await groqQueueAction("api-requeue", { ...v, safeError: message }, g.id);
       } else await groqQueueAction(error instanceof GroqError && error.kind === "rejected" ? "api-rejected" : "api-uncertain", { ...v, safeError: message }, g.id);
       return;
     }
     await applyResult(g, v, result);
-    await db().del(key(`groq:error:${g.id}`));
+    if (usingPostgres()) await clearRuntimeSignal(`groq:error:${g.id}`);
+    else await db().del(key(`groq:error:${g.id}`));
   } finally {
     if (heartbeat) clearInterval(heartbeat);
     inFlight.delete(local);
-    if (counted && !sent && rateKey) await db().eval("if tonumber(redis.call('GET',KEYS[1]) or '0')>0 then return redis.call('DECR',KEYS[1]) end;return 0", [rateKey], []);
-    await db().eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end;return 0", [leaseKey], [token]);
+    if (counted && !sent && rateKey) {
+      if (usingPostgres()) await refundCounter(rateKey);
+      else await db().eval("if tonumber(redis.call('GET',KEYS[1]) or '0')>0 then return redis.call('DECR',KEYS[1]) end;return 0", [rateKey], []);
+    }
+    if (usingPostgres()) await releaseLease(leaseKey, token);
+    else await db().eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end;return 0", [leaseKey], [token]);
   }
 }
 
@@ -102,14 +116,13 @@ export async function pumpGroqGroup(id: string, strict = false) {
   const c = await getContest(g.roundId), now = await serverNow();
   const summary = await chatQueueSummary(`group:${id}`, c.id);
   if (!chatbotOpen({ runId: c.id, services: "llm" }, c, now)) return;
-  const ids = await db().zrange<string[]>(activeJobsKey(`group:${id}`, c.id), 0, 255);
-  for (const jobId of ids) {
-    const j = await db().get<ApiJob>(jobKey(jobId));
+  const pending = usingPostgres() ? await sqlActiveGroqJobs(id) : await Promise.all((await db().zrange<string[]>(activeJobsKey(`group:${id}`, c.id), 0, 255)).map(jobId => db().get<ApiJob>(jobKey(jobId))));
+  for (const j of pending) {
     if (j?.apiResult && ["running", "uncertain"].includes(j.status))
       await applyResult(g, { workspaceId: `groq:${id}`, protocol: 2, ready: true, fingerprint: `groq:${g.groq.id}`,
         capacity: g.groq.parallel, slot: j.slot, requestId: j.id, attempt: j.attempt }, j.apiResult);
   }
-  if (!summary.queued) return;
+  if (!summary.queued || g.paused) return;
   await Promise.allSettled(Array.from({ length: g.groq.parallel }, (_, slot) => runSlot(g, slot))).then(results => {
     const failed = results.find(r => r.status === "rejected");
     if (strict && failed?.status === "rejected") throw failed.reason;
@@ -118,7 +131,7 @@ export async function pumpGroqGroup(id: string, strict = false) {
 }
 export function startGroqRunner() {
   if (!initializeGroqRunner()) return;
-  let busy = false;
+  let busy = false, lastCleanup = 0;
   const tick = async () => {
     if (busy) return;
     busy = true;
@@ -126,10 +139,13 @@ export function startGroqRunner() {
     state.lastPollAt = Date.now();
     try {
       const ids = usingPostgres()
-        ? (await query("select id from arena.runtime_history where ns=$1 and kind='chat-group' and payload->>'provider'='groq' and coalesce((payload->>'retired')::boolean,false)=false", [namespace()])).map(r => String(r.id))
+        ? (await query(`select g.id from arena.runtime_history g where g.ns=$1 and g.kind='chat-group' and g.payload->>'provider'='groq'
+            and coalesce((g.payload->>'retired')::boolean,false)=false and (coalesce((g.payload->>'paused')::boolean,false)=false
+              or exists(select 1 from arena.runtime_history j where j.ns=g.ns and j.kind='chat-job' and j.payload->>'groupId'=g.id and j.status in ('queued','claimed','running','uncertain')))`, [namespace()])).map(r => String(r.id))
         : await readGroupIds();
       for (const id of ids) void pumpGroqGroup(id).catch(() => console.warn("Arena Groq group will reconcile pending work"));
       state.lastSuccessfulPollAt = Date.now();
+      if (usingPostgres() && Date.now() - lastCleanup > 3600_000) { lastCleanup = Date.now(); await cleanupSqlRuntime(); }
     }
     catch { console.warn("Arena Groq scheduler temporarily unavailable"); }
     finally { busy = false; }
@@ -137,4 +153,9 @@ export function startGroqRunner() {
   // Self-hosted Node worker; no GPU, paid worker service or browser lifetime dependency.
   const timer = setInterval(() => void tick(), 5000); timer.unref();
   void tick();
+}
+export function wakeGroqGroup(id: string) {
+  if (!groqRunnerState()) return;
+  const timer = setTimeout(() => void pumpGroqGroup(id).catch(() => console.warn("Arena Groq group will reconcile pending work")), 0);
+  timer.unref();
 }
