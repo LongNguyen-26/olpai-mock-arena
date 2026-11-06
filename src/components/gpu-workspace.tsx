@@ -700,8 +700,27 @@ export default function GpuWorkspace({
   return (
     <div className="gpu-workspace">
       <div className="gpu-workspace-head">
-        <div>
-          <p>Truy cập Chatbot và JupyterLab của đội tại đây.</p>
+        <div className="workspace-summary">
+          <p>{state?.runpodMode === "disabled" ? "GPU/Jupyter đang tạm ngừng. Bạn vẫn có thể mở chatbot đã cấp và xem lịch sử." : state?.runpodMode === "draining" ? "GPU/Jupyter đang hoàn tất tác vụ cũ và tạm ngừng cấp phát mới." : "Truy cập Chatbot và JupyterLab của đội tại đây."}</p>
+          {state && (
+            <p className="workspace-freshness" role="status">
+              {refreshing && <span className="loader" aria-hidden="true" />}
+              {refreshing
+                ? "Đang cập nhật trạng thái…"
+                : !verified
+                  ? "Đang hiển thị dữ liệu lần xem trước"
+                  : "Đã cập nhật"}
+              <span>
+                ·{" "}
+                {new Date(state.serverNow).toLocaleTimeString("vi-VN", {
+                  timeZone: "Asia/Ho_Chi_Minh",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </span>
+            </p>
+          )}
         </div>
         <div className="gpu-head-actions">
           {notice && (
@@ -719,30 +738,6 @@ export default function GpuWorkspace({
           </button>
         </div>
       </div>
-      {state && (
-        <p className="workspace-freshness" role="status">
-          {refreshing && <span className="loader" aria-hidden="true" />}
-          {refreshing
-            ? "Đang cập nhật trạng thái…"
-            : !verified
-              ? "Đang hiển thị dữ liệu lần xem trước"
-              : "Đã cập nhật"}
-          <span>
-            ·{" "}
-            {new Date(state.serverNow).toLocaleTimeString("vi-VN", {
-              timeZone: "Asia/Ho_Chi_Minh",
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            })}
-          </span>
-        </p>
-      )}
-      {state && state.runpodMode !== "enabled" && (
-        <p className="alert" role="status">
-          {state.runpodMode === "disabled" ? "GPU/Jupyter đang tạm ngừng. Các chatbot đã cấp và lịch sử vẫn có thể truy cập." : "GPU/Jupyter đang ngừng nhận cấp phát mới; các tác vụ cũ đang được hoàn tất."}
-        </p>
-      )}
       {loadError && (
         <div className="alert workspace-section-error" role="alert">
           <p>

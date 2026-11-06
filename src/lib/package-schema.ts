@@ -34,6 +34,7 @@ export const packageSchema = z
   .object({
     version: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
     title: z.string().min(3).max(100),
+    baselineScores: z.object({public:z.partialRecord(taskId,z.number().finite().nonnegative()),private:z.partialRecord(taskId,z.number().finite().nonnegative())}).optional(),
     arenaNumber: z.number().int().min(1).max(9999).optional(),
     edition: z.enum(["original", "standardized"]).optional(),
     statement: z.string().default(""),
@@ -44,7 +45,8 @@ export const packageSchema = z
           title: z.string().min(1),
           content: z.string().min(1),
           maxScore: z.number().positive().max(100).optional(),
-          columns: z.array(z.string().min(1)).min(2).optional(),
+          columns: z.array(z.string().min(1)).min(1).optional(),
+          zipJudge: z.enum(["dim-absa", "canal-recall"]).optional(),
           maxSubmissionBytes: z.number().int().min(1).max(4_000_000).optional(),
         }),
       )
@@ -100,6 +102,10 @@ export const packageSchema = z
     for (const t of pkg.tasks) {
       const s = pkg.judgeSpecs?.[t.id];
       const direct = pkg.directJudgeSpecs?.[t.id];
+      if (!t.zipJudge && t.columns?.length === 1) ctx.addIssue({code:"custom",message:"CSV requires at least two columns",path:["tasks",t.id]});
+      const members = t.zipJudge === "dim-absa" ? "subtask1.jsonl,subtask2.jsonl" : "prediction.csv";
+      if (t.zipJudge && (direct || s || t.maxScore !== 100 || t.id === "3" || t.columns?.join(",") !== members))
+        ctx.addIssue({code:"custom",message:"ZIP tasks require a single 100-point judge",path:["tasks",t.id]});
       if (direct && (s || direct.maxScore !== t.maxScore ||
         t.columns?.join(",") !== ({ "scaled-mae": "id,prediction", "multilabel-f1": "id,labels", "trimap-iou": "id,pet_rle,border_rle", "generation-chrf": "id,prediction" }[direct.kind])))
         ctx.addIssue({ code: "custom", message: "Task display must match the direct judge.", path: ["directJudgeSpecs", t.id] });

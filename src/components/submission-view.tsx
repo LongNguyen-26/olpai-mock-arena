@@ -1,4 +1,6 @@
 "use client";
+import { ScoreNote } from "./score-settings";
+import { scoreLabel } from "@/lib/score-display";
 import { useRef, useState } from "react";
 import {
   AlertCircle,
@@ -8,7 +10,7 @@ import {
   Send,
   UploadCloud,
 } from "lucide-react";
-import { endpoint, fmt, when, type ViewProps } from "./arena-client";
+import { endpoint, fmt, tableDate, type ViewProps } from "./arena-client";
 import type { Phase, Split, TaskId } from "@/lib/types";
 import { canRead, submissionAccess } from "@/lib/domain";
 type Result = {
@@ -55,6 +57,7 @@ export default function SubmitView({
         choices[0] ??
         "public");
   const open = admin || submissionAccess(c, now, split).accepting;
+  const measured=data.submissions.find(s=>s.id===result?.id);
   const count = data.submissions.filter(
     (s) =>
       s.teamId === data.user?.teamId &&
@@ -63,6 +66,8 @@ export default function SubmitView({
       s.status !== "invalid" &&
       !s.adminTest,
   ).length;
+  const selectedTask = data.tasks.find(t => t.id === task);
+  const zip = selectedTask?.submissionFormat === "zip";
   const quota = split === "private" ? c.privateLimit : c.publicLimit;
   async function send(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -103,11 +108,11 @@ export default function SubmitView({
               <UploadCloud size={22} />
               {admin ? "Nộp thử · Admin" : "Nộp bài"}
             </h2>
-            {(admin || choices.length > 0) && (
+            <div className="score-tools">{(admin || choices.length > 0) && (
               <span className="pill neutral submission-phase">
                 {split.toUpperCase()}
               </span>
-            )}
+            )}<ScoreNote data={data} split={split}/></div>
           </div>
           {choices.length > 0 && (
             <label className="submission-split-picker">
@@ -159,13 +164,14 @@ export default function SubmitView({
                 <p>{result.error}</p>
               ) : (
                 <strong className="result-score">
-                  {fmt(result.score)}
+                  {fmt(measured?.score ?? (data.scoreDisplay.primary==="raw"?result.score:null))}
                   <small>
                     {" "}
-                    / {data.tasks.find((t) => t.id === task)?.maxScore ??
+                    / {(data.scoreDisplay.primary==="raw"?data.tasks.find((t) => t.id === task)?.maxScore:100) ??
                       100}{" "}
                     điểm
                   </small>
+                  {data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(measured?.extraScore)}</small>}
                 </strong>
               )}
               {result.id && (
@@ -177,9 +183,7 @@ export default function SubmitView({
                       : "Đã lưu kết quả và cập nhật bảng xếp hạng."}
                 </p>
               )}
-              {result.metric != null && !result.error && (
-                <p>Chỉ số gốc: {result.metric.toFixed(6)}</p>
-              )}
+
               <button className="btn primary" onClick={() => setResult(null)}>
                 Nộp bài tiếp tục
                 <UploadCloud size={17} />
@@ -233,13 +237,14 @@ export default function SubmitView({
               </div>
               <label className="dropzone">
                 <UploadCloud size={32} />
-                <b>Chọn tệp CSV</b>
-                <span>UTF-8 · Tối đa {(data.tasks.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000) / 1_000_000} MB</span>
+                <b>Chọn tệp {zip ? "ZIP" : "CSV"}</b>
+                <span>{zip ? "ZIP · Giải nén tối đa 16 MiB" : "UTF-8"} · Tệp tải lên tối đa {(data.tasks.find((t) => t.id === task)?.maxSubmissionBytes ?? 3_000_000) / 1_000_000} MB</span>
                 <input
                   type="file"
                   name="file"
                   required
-                  accept=".csv,text/csv"
+                  key={task}
+                  accept={zip ? ".zip,application/zip" : ".csv,text/csv"}
                   onChange={() => {
                     nonce.current = crypto.randomUUID();
                   }}
@@ -257,7 +262,7 @@ export default function SubmitView({
         </section>
         <aside className="panel submit-help">
           <h3>Lưu ý nộp bài</h3>
-          <p>CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn.</p>
+          <p>{zip ? "Đặt các tệp dự đoán đúng tên ngay ở gốc ZIP của giai đoạn đang chọn." : "CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn."}</p>
           <p>Bài lỗi định dạng được lưu vào lịch sử và không trừ quota.</p>
           <p>
             Điểm mỗi tác vụ lấy bài hợp lệ cao nhất. Tổng điểm tối đa{" "}
@@ -283,11 +288,12 @@ export default function SubmitView({
           <table>
             <thead>
               <tr>
-                <th>Bản nộp/Thời gian</th>
+                <th>Bản nộp</th>
                 <th>Tác vụ</th>
                 <th>Bộ kiểm thử</th>
                 <th>Điểm</th>
                 <th>Trạng thái</th>
+                <th title="Thời điểm nộp bài (UTC+7)">Ngày</th>
               </tr>
             </thead>
             <tbody>
@@ -308,10 +314,7 @@ export default function SubmitView({
                       ) : (
                         <b className="filename">{s.filename}</b>
                       )}
-                      <small>
-                        {when(s.createdAt)}
-                        {s.adminTest ? " · Nộp thử admin" : ""}
-                      </small>
+                      {s.adminTest && <small>Nộp thử admin</small>}
                     </td>
                     <td>0{s.task}</td>
                     <td>
@@ -321,7 +324,7 @@ export default function SubmitView({
                         {s.split.toUpperCase()}
                       </span>
                     </td>
-                    <td className="submission-score">{fmt(s.score)}</td>
+                    <td className="submission-score">{fmt(s.score)}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(s.extraScore)}</small>}</td>
                     <td>
                       {s.status === "invalid" ? (
                         <>
@@ -337,11 +340,12 @@ export default function SubmitView({
                         </span>
                       )}
                     </td>
+                    <td className="table-date"><time dateTime={new Date(s.createdAt).toISOString()}>{tableDate(s.createdAt)}</time></td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <div className="empty">
                       <UploadCloud size={30} />
                       <b>Chưa có bài nộp</b>

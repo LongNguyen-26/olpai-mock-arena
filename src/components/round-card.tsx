@@ -1,15 +1,13 @@
 "use client";
 import {
   ArrowRight,
-  BookOpen,
-  Clock3,
-  Layers3,
-  Users,
   Play,
-  EyeOff,
+  Users,
+  Layers, CalendarDays, Timer, BadgeCheck, Trophy,
 } from "lucide-react";
 import RoundVisibilityButton from "./round-visibility-button";
-import { duration, type ArenaData, type Action } from "./arena-client";
+import { coverFor } from "@/lib/task-cover";
+import { duration, fmt, type ArenaData, type Action } from "./arena-client";
 import RoundManagementTools from "./round-management-tools";
 import { roundTiming } from "@/lib/round-presentation";
 
@@ -54,131 +52,41 @@ export default function RoundCard({
   const timing = roundTiming(r, now);
   const live = ["public", "private", "practice"].includes(timing.phase);
   const startAt = r.practice?.startAt ?? r.startAt;
-  return (
-    <article className={`panel round-card ${live ? "round-is-live" : ""}`}>
-      <a
-        className="round-card-link"
-        aria-label={`Vào ${r.title}`}
-        href={`/?round=${encodeURIComponent(r.id)}#overview`}
-        onClick={(e) => {
-          e.preventDefault();
-          onEnter();
-        }}
-      />
-      <div className="round-card-body">
-        <div className="round-card-heading">
-          <span className="round-emblem">
-            <Layers3 size={25} />
-          </span>
-          <span className={`pill round-phase ${live ? "green" : "neutral"}`}>
-            <i aria-hidden="true" />
-            {names[timing.phase]}
-          </span>
-          {r.registration?.status === "approved" && (
-            <span className="round-registration">
-              <i aria-hidden="true" />
-              Đã đăng ký
-            </span>
-          )}
-          {r.hidden && (
-            <span className="pill round-hidden-badge">
-              <EyeOff size={13} />
-              Đã ẩn
-            </span>
-          )}
-          {r.registration?.status === "pending" && (
-            <span className="round-registration pending">
-              Chờ duyệt đăng ký
-            </span>
-          )}
-        </div>
-        <h2>{r.title}</h2>
-        {admin && r.packageTitle && <p className="round-source"><b>Bộ đề nguồn:</b> {r.packageTitle}</p>}
-        {!!r.taskTitles?.length && <ul className="round-task-titles" aria-label="Các tác vụ">
-          {r.taskTitles.map(t => (
-            <li key={t.id}>
-              <span className="round-task-label">Tác vụ {t.id.padStart(2, "0")}</span>
-              <strong>{t.title.replace(/^Tác vụ\s*\d+\s*[-–—:·]?\s*/i, "")}</strong>
-            </li>
-          ))}
-        </ul>}
-        <div className="round-meta">
-          <span>
-            <Clock3 size={18} />
-            {r.practice
-              ? r.practice.endAt == null
-                ? "Luyện tập không giới hạn"
-                : "Luyện tập có thời hạn"
-              : r.unlimited
-                ? "Không giới hạn"
-                : `${(r.publicSeconds + r.privateSeconds) / 3600} giờ`}
-          </span>
-          <span>
-            <BookOpen size={18} />
-            {r.taskCount} tác vụ
-          </span>
-          <span>
-            <Users size={18} />
-            <b>{r.registrationCount}</b> thí sinh đăng ký
-          </span>
-        </div>
+  const tasks = r.showTaskTitles ? r.taskTitles ?? [] : [];
+  const covers = tasks.length ? tasks.map(t => coverFor(t.title)) : ["neutral"];
+  const registration = r.registration?.status;
+  return <article className={`index-row ${live ? "index-live" : ""}`}>
+    <div className="index-cover" aria-hidden="true">
+      {covers.map((cover, i) => <span key={i} style={{backgroundImage: `url(/round-covers/${cover}.svg)`}} />)}
+    </div>
+    <div className="index-body">
+      <div className="index-status">
+        <strong>{names[timing.phase]}</strong>
+        {live && timing.seconds != null && <span className="card-clock" aria-label={`Thời gian còn lại ${duration(timing.seconds)}`}><Timer size={15}/>{duration(timing.seconds)}</span>}
+        {registration === "approved" && <span className="card-registration"><BadgeCheck size={14}/>Đã đăng ký</span>}
+        {registration === "pending" && <span className="card-registration">Chờ duyệt</span>}
+        {r.hidden && <span className="index-hidden">Đã ẩn</span>}
       </div>
-      <div className="round-card-side">
-        <div className={`round-countdown ${live ? "is-live" : ""}`}>
-          <span>
-            {timing.phase === "waiting" ? "Sẵn sàng luyện tập" : timing.label}
-          </span>
-          <strong>
-            {timing.phase === "waiting"
-              ? "Chờ mở vòng"
-              : timing.phase === "ended"
-                ? "00:00:00"
-                : timing.seconds === null
-                  ? "Không giới hạn"
-                  : duration(timing.seconds)}
-          </strong>
-          {startAt != null && (
-            <p className="round-start">
-              Bắt đầu vào{" "}
-              <time dateTime={new Date(startAt).toISOString()}>
-                {startDateFormat.format(startAt)}
-              </time>
-            </p>
-          )}
-        </div>
-        <div className="round-card-footer">
-          <button className="btn primary" onClick={onEnter}>
-            {timing.phase === "ended" ? "Xem vòng luyện" : "Vào vòng luyện"}
-            <ArrowRight size={19} />
-          </button>
-        </div>
-        {admin && (
-          <div
-            className="round-admin-actions"
-            role="group"
-            aria-label={`Quản trị ${r.title}`}
-          >
-            {["waiting", "scheduled"].includes(timing.phase) && (
-              <button
-                type="button"
-                className="btn small-btn"
-                disabled={busy}
-                onClick={onStart}
-              >
-                <Play size={15} />
-                Bắt đầu
-              </button>
-            )}
-            <RoundVisibilityButton
-              hidden={r.hidden}
-              title={r.title}
-              busy={busy}
-              onChange={(value) => onVisibility?.(value)}
-            />
-            {action && <RoundManagementTools round={r} order={order} busy={busy} action={action} />}
-          </div>
-        )}
-      </div>
-    </article>
-  );
+      <div className="index-title"><h2><a href={`/?round=${encodeURIComponent(r.id)}#overview`} onClick={e => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onEnter(); } }}>{r.title}</a></h2></div>
+      {admin && <small className="round-source">{r.packageTitle}</small>}
+      {!!tasks.length && <ul className="index-tasks" aria-label="Tên tác vụ">
+        {tasks.map(t => <li key={t.id}><b>TV{t.id}</b> {t.title}</li>)}
+      </ul>}
+      {r.leader && r.leader.phase === timing.phase && <div className="card-leader">
+        <Trophy size={16}/><span>Nhất {r.leader.split === "private" ? "Private" : "Public"}</span><b>{r.leader.name}</b><strong>{fmt(r.leader.total)} điểm</strong>
+      </div>}
+    </div>
+    <footer className="index-footer">
+      <div className="index-count"><span className="card-date" title="Thời gian bắt đầu"><CalendarDays size={15}/>{startAt != null ? startDateFormat.format(startAt) : "Chưa đặt lịch"}</span><span><Users size={15}/>{r.registrationCount} thí sinh</span><span><Layers size={15}/>{r.taskCount} tác vụ</span></div>
+      <span className="btn small-btn index-enter" aria-hidden="true">Vào vòng <ArrowRight size={15}/></span>
+    </footer>
+    {admin && <details className="index-management"><summary>Quản trị</summary><div className="round-admin-actions">
+      {["waiting","scheduled"].includes(timing.phase) && <button className="btn small-btn" disabled={busy} onClick={onStart}><Play size={14}/>Bắt đầu</button>}
+      <RoundVisibilityButton hidden={r.hidden} title={r.title} busy={busy} onChange={v=>onVisibility?.(v)}/>
+      {action && <><button className="btn small-btn" disabled={busy} onClick={()=>void action("admin/control",{
+        action:"task-titles",show:!r.showTaskTitles,runId:r.runId,revision:r.revision,requestId:crypto.randomUUID()
+      },r.showTaskTitles?"Đã ẩn tên tác vụ.":"Đã hiện tên tác vụ.",r.id)}>{r.showTaskTitles?"Ẩn tên tác vụ":"Hiện tên tác vụ"}</button>
+      <RoundManagementTools round={r} order={order} busy={busy} action={action}/></>}
+    </div></details>}
+  </article>;
 }

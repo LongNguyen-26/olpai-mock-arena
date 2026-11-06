@@ -51,7 +51,7 @@ async function main() {
     await writeFile(file,JSON.stringify({namespace:namespace(),password,adminId:admin.id,studentId:student.id,roundIds:[]}));
     await createSqlUser(admin,"primary");await createSqlUser(student);
     const tasks:ContestPackage["tasks"]=[{id:"1",title:"Dự báo chuỗi thời gian",content:"Nội dung đề giả QA"},{id:"2",title:"Phân loại văn bản",content:"Nội dung đề giả QA"}];
-    const pkg=(version:string,importedAt:number):ContestPackage=>({version,title:"Bộ đề 01",statement:"",tasks,assets:[],judges:{"1":{public:"qa",private:"qa"},"2":{public:"qa",private:"qa"}},importedAt});
+    const pkg=(version:string,importedAt:number):ContestPackage=>({version,title:"Bộ đề 01",statement:"",tasks,...(version.endsWith("current")?{baselineScores:{public:{"1":20,"2":10},private:{"1":22,"2":12}}}:{}),assets:[],judges:{"1":{public:"qa",private:"qa"},"2":{public:"qa",private:"qa"}},importedAt});
     for(const p of [pkg("arena-01-clean-old",1),pkg("arena-01-standardized-first",1000),pkg("arena-01-standardized-current",2000)]) await saveSqlPackage(p);
     const a=await createRound("Vòng QA đang mở","arena-01-standardized-current");
     const b=await createRound("Vòng QA chờ mở","arena-01-clean-old");
@@ -89,13 +89,13 @@ async function main() {
     assert.match(fixture.namespace,/^arena:qa:catalogue:[\w-]+$/);
     process.env.ARENA_NAMESPACE=fixture.namespace;
     if(mode==="serve") {
-      const child=spawn(process.execPath,["node_modules/next/dist/bin/next","dev","--webpack","-p","3018"],{env:process.env,stdio:"inherit",windowsHide:true});
+      const child=spawn(process.execPath,["node_modules/next/dist/bin/next","start","-H","127.0.0.1","-p","3018"],{env:process.env,stdio:"inherit",windowsHide:true});
       child.on("exit",code=>{process.exitCode=code??1;});return;
     }
     assert.equal(mode,"cleanup");
     const ns=namespace();
     await sqlTransaction(async client=>{
-      for(const table of ["admins","registrations","users","packages","rounds","runs","requests","state"])
+      for(const table of ["sessions","rate_counters","admins","registrations","users","packages","rounds","runs","requests","state"])
         await client.query(`delete from arena.${table} where ns=$1`,[ns]);
     },true);
     let cursor="0";const keys:string[]=[];

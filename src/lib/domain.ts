@@ -166,7 +166,7 @@ export function visibleSubmission(s: Submission, _reveal = true) {
 }
 export function rankTeams(
   teams: { id: string; name: string }[],
-  submissions: Submission[],
+  submissions: Pick<Submission, "teamId" | "split" | "task" | "status" | "adminTest" | "score" | "secondary" | "createdAt">[],
   _selections: Record<string, string>,
   split: "public" | "private",
   taskIds: TaskId[] = ["1", "2"],

@@ -12,6 +12,7 @@ import { api, when, type ViewProps } from "./arena-client";
 import { phaseOf, privateStart, contestEnd } from "@/lib/domain";
 import RoundVisibilityButton from "./round-visibility-button";
 import RoundManagementTools from "./round-management-tools";
+import ScoreSettings from "./score-settings";
 import RoundAccessControls from "./round-access-controls";
 export default function RoundAdmin({ data, busy, action }: ViewProps) {
   const c = data.contest;
@@ -159,6 +160,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             )}
           </div>
         </div>
+        <ScoreSettings key={c.id+JSON.stringify(c.scoreDisplay)} data={data} busy={busy} action={action}/>
         <RoundAccessControls data={data} busy={busy} action={action} />
       </section>
       <section className="panel round-config-panel">

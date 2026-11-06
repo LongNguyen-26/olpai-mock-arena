@@ -1,3 +1,5 @@
+import { packageBaselines } from "./score-baselines";
+import { convertScore, defaultDisplay, scoreBoard, titlesVisible } from "./score-display";
 import { createHash, randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -23,7 +25,7 @@ import { getAdminIds } from "./admins";
 import { authOptions } from "./supabase-auth";
 import { identitySubject } from "./auth-identities";
 import { usingPostgres } from "./sql";
-import { readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
+import { readDirectoryScores, readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
 import { presentPackages } from "./package-presentation";
 import { getSqlContest, createSqlRound, registerSqlRound, reviewSqlRegistration, controlSqlRound } from "./sql-rounds";
 import type {
@@ -97,15 +99,33 @@ export async function snapshot(user: SafeUser | null, id?: string) {
     ),
   );
   const catalogue = admin ? await readPackageCatalogue() : {};
+  const leaderRounds = contests.filter((c): c is Contest => !!c && !id && roundVisible(c,admin) &&
+    !["waiting", "scheduled"].includes(phaseOf(c,now)));
   const summaries = await readPackageSummaries([...new Set([
     ...Object.keys(catalogue),
+    ...leaderRounds.flatMap(c => c.packageId ? [c.packageId] : []),
     ...contests.filter(c => c && roundVisible(c, admin) &&
-      (admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))))
+      (admin || titlesVisible(c,now)))
       .flatMap(c => c?.packageId ? [c.packageId] : []),
   ])]);
   const packages = admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
   const packageLabels = new Map((admin ? [...presentPackages(summaries), ...packages] : []).map(p => [p.id, p.title]));
   const packageMap = new Map(summaries.map(p => [p.id, p]));
+  const scoreRows = await readDirectoryScores(leaderRounds.map(c => c.id));
+  const leaders = new Map(leaderRounds.map(c => {
+    const phase = phaseOf(c, now);
+    const pkg = packageMap.get(c.packageId ?? "");
+    const taskIds: TaskId[] = pkg?.tasks.map(t => t.id) ?? ["1", "2"];
+    const rows = scoreRows.filter(s => s.runId === c.id);
+    const baselines = pkg && packageBaselines({...pkg,version:pkg.id});
+    const top = (split: "public" | "private") => {
+      const ranked = rankTeams(Object.values(teamsRaw), rows, {}, split, taskIds);
+      const first = scoreBoard(ranked, taskIds, c.scoreDisplay ?? defaultDisplay, baselines?.[split]).board[0];
+      return first ? { name: first.name, total: first.total, split, phase } : null;
+    };
+    const leader = phase === "public" ? top("public") : top("private") ?? (phase === "practice" ? top("public") : null);
+    return [c.id, leader] as const;
+  }));
   const rounds = contests.flatMap((c, i) =>
     c && roundVisible(c, admin)
       ? [
@@ -113,8 +133,10 @@ export async function snapshot(user: SafeUser | null, id?: string) {
             id: c.roundId ?? c.id,
             title: c.title,
             runId: c.id,
+            leader: leaders.get(c.id) ?? null,
             ...(admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
-            taskTitles: admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))
+            showTaskTitles: titlesVisible(c,now),
+            taskTitles: admin || titlesVisible(c,now)
               ? packageMap.get(c.packageId ?? "")?.tasks ?? [] : [],
             taskCount: c.taskCount ?? 2,
             phase: phaseOf(c, now),
@@ -178,6 +200,10 @@ export async function snapshot(user: SafeUser | null, id?: string) {
   const privateVisible =
     !!contest &&
     (admin || ["private", "practice", "ended"].includes(phase));
+  const display = contest?.scoreDisplay ?? defaultDisplay;
+  const baselines = packageBaselines(pkg);
+  const boardFor = (split:"public"|"private") => scoreBoard(rankTeams(Object.values(teams),rows,{},split,taskIds),taskIds,display,baselines?.[split]);
+  const publicBoard=boardFor("public"), privateBoard=privateVisible ? boardFor("private") : null;
   const roster = contest
     ? Object.values(
         await readRegistrations(contest),
@@ -193,6 +219,8 @@ export async function snapshot(user: SafeUser | null, id?: string) {
     user,
     auth: authOptions(),
     authLinked: user && authOptions().supabase ? !!(await identitySubject(user.id)) : false,
+    scoreDisplay:display,
+    baselineScores:baselines ? {public:baselines.public,private:privateVisible?baselines.private:null} : null,
     rounds,
     contest,
     registration,
@@ -204,7 +232,7 @@ export async function snapshot(user: SafeUser | null, id?: string) {
     ready: !!pkg,
     canReadStatement,
     taskIds,
-    maxScore: definitions.length
+    maxScore: display.primary !== "raw" ? 100*taskIds.length : definitions.length
       ? definitions.reduce((sum, t) => sum + (t.maxScore ?? 100), 0)
       : 200,
     tasks:
@@ -213,6 +241,7 @@ export async function snapshot(user: SafeUser | null, id?: string) {
             id: t.id,
             title: t.title,
             maxScore: t.maxScore ?? 100,
+            ...(t.zipJudge ? { submissionFormat: "zip" as const } : {}),
             maxSubmissionBytes: t.maxSubmissionBytes ?? 3_000_000,
             columns:
               t.columns ??
@@ -238,13 +267,14 @@ export async function snapshot(user: SafeUser | null, id?: string) {
     submissions: rows
       .filter((s) => !!user && (admin || s.teamId === user.teamId))
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((s) => visibleSubmission(s)),
+      .map(s=>{
+        const visible=visibleSubmission(s), top=(s.split==="private"?privateBoard:publicBoard)?.tops[s.task], base=baselines?.[s.split][s.task];
+        return {...visible,rawScore:visible.score,score:convertScore(visible.score,display.primary,top,base),extraScore:display.extra?convertScore(visible.score,display.extra,top,base):null};
+      }),
     selections: {},
     leaderboard: {
-      public: rankTeams(Object.values(teams), rows, {}, "public", taskIds),
-      private: privateVisible
-        ? rankTeams(Object.values(teams), rows, {}, "private", taskIds)
-        : null,
+      public: publicBoard.board,
+      private: privateBoard?.board ?? null,
     },
     announcements:
       contest && entered
@@ -376,7 +406,7 @@ export async function control(
       throw new ApiError("Vòng luyện vừa được cập nhật. Hãy tải lại.", 409);
     if (v.action === "practice-open" && !(await getPackage(c)))
       throw new ApiError("Chưa nạp bộ đề.", 409);
-    next = reduceRoundControl(c, v, now);
+    next = reduceRoundControl(c,v,now,v.action==="score-display" && !!packageBaselines(await getPackage(c)));
     const result = await db().eval<unknown[], string>(
       CONTROL_ROUND_SCRIPT,
       [roundKey(c), requestKey, key(`runs:${c.id}`)],

@@ -17,6 +17,12 @@ export const when = (n: number) =>
     day: "2-digit",
     month: "2-digit",
   });
+const tableDateFormat = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+export const tableDate = (timestamp: number) => tableDateFormat.format(timestamp);
 export const bytes = (n: number) =>
   n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1000).toFixed(1)} KB`;
 export const duration = (n: number) =>

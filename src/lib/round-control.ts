@@ -1,3 +1,4 @@
+import { alreadyOpened, scoreModes, defaultDisplay } from "./score-display";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "./auth";
@@ -12,6 +13,7 @@ import type { Contest } from "./types";
 
 const time = z.number().int().positive().max(8_640_000_000_000_000).nullable();
 export const guardedRoundActions = [
+  "task-titles", "score-display",
   "timing",
   "open-private",
   "private-policy",
@@ -24,6 +26,8 @@ export const guardedRoundActions = [
 ];
 export const roundControlSchema = z
   .discriminatedUnion("action", [
+    z.object({action:z.literal("task-titles"),show:z.boolean()}),
+    z.object({action:z.literal("score-display"),primary:z.enum(scoreModes),extra:z.enum(scoreModes).nullable(),confirmed:z.boolean()}),
     z.object({ action: z.literal("timing"), privateAt: time, endAt: time }),
     z.object({
       action: z.literal("open-private"),
@@ -80,6 +84,7 @@ export function resetRound(
 ): Contest {
   return {
     ...c,
+    everOpened: alreadyOpened(c,now),
     id: keepLeaderboard ? c.id : randomUUID(),
     startAt: null,
     privateAt: null,
@@ -101,6 +106,7 @@ export function reduceRoundControl(
   original: Contest,
   v: RoundControl,
   now: number,
+  baselineAvailable = false,
 ): Contest {
   const c = applyPrivateTransition(original, now),
     phase = phaseOf(c, now);
@@ -110,7 +116,15 @@ export function reduceRoundControl(
       throw new ApiError("Giờ kết thúc/thu hồi phải ở tương lai.", 409);
   };
   let next = { ...c };
-  if (v.action === "private-policy") {
+  if(v.action==="score-display") {
+    if(v.primary===v.extra) throw new ApiError("Hai cách hiển thị phải khác nhau.");
+    if(!baselineAvailable && [v.primary,v.extra].includes("baseline")) throw new ApiError("Bộ đề chưa có đủ điểm baseline.");
+    const current=c.scoreDisplay??defaultDisplay;
+    if((v.primary!==current.primary || v.extra!==current.extra) && alreadyOpened(c,now) && !v.confirmed)
+      throw new ApiError("Cần xác nhận thay đổi điểm sau lần mở vòng đầu tiên.",409);
+    next.scoreDisplay={primary:v.primary,extra:v.extra};
+  } else if(v.action==="task-titles") next.showTaskTitles=v.show;
+  else if (v.action === "private-policy") {
     if (!["waiting", "scheduled", "public"].includes(phase))
       throw new ApiError("Private đã bắt đầu; hãy chỉnh quyền hiện tại.", 409);
     next.privatePolicy = {

@@ -81,7 +81,10 @@ export const names = {
   ended: "Đã kết thúc",
 };
 export default function Arena() {
+  const [statementTask, setStatementTask] = useState("1");
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
+  const [roundQuery,setRoundQuery]=useState("");
+  const [roundFilter,setRoundFilter]=useState("all");
   const [slow, setSlow] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [data, setData] = useState<ArenaData | null>(null),
@@ -147,6 +150,7 @@ export default function Arena() {
     let active = true;
     const read = () => {
       const url = new URL(window.location.href);
+      setStatementTask(url.searchParams.get("task") ?? "1");
       selected.current = url.searchParams.get("round") ?? "";
       const s = url.hash.slice(1) as Section;
       setSection(s in labels ? s : selected.current ? "overview" : "rounds");
@@ -195,12 +199,15 @@ export default function Arena() {
   useEffect(() => {
     if (c) void load();
   }, [phase, load]);
-  function go(s: string, id = selected.current) {
+  function go(s: string, id = selected.current, task?: string) {
     if (!(s in labels)) return;
     selected.current = id;
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("round", id);
     else url.searchParams.delete("round");
+    if (s === "statement" && task) url.searchParams.set("task", task);
+    else url.searchParams.delete("task");
+    setStatementTask(task ?? "1");
     url.hash = s;
     window.history.pushState({}, "", url);
     setSection(s as Section);
@@ -243,6 +250,12 @@ export default function Arena() {
         }}
       />
     );
+  const visibleRounds = data.rounds.filter(r => {
+    const matchesName = r.title.toLocaleLowerCase("vi").includes(roundQuery.trim().toLocaleLowerCase("vi"));
+    const phase = phaseOf({...r,unlimited:r.unlimited}, clock+offset);
+    const group = phase==="ended" ? "ended" : ["waiting","scheduled"].includes(phase) ? "upcoming" : "live";
+    return matchesName && (roundFilter==="all" || roundFilter===group);
+  });
   const isAdmin = !!data.user?.admin,
     guest = !data.user,
     needsLogin = guest && !publicSections.has(section),
@@ -256,6 +269,8 @@ export default function Arena() {
       phase,
       now: clock + offset,
       go,
+      statementTask,
+      openTask: (task: string) => go("statement", selected.current, task),
       refresh: () => load(),
       report: setError,
     };
@@ -431,12 +446,12 @@ export default function Arena() {
               {toast}
             </div>
           )}
-          <div className="page-heading">
+          {section !== "rounds" && <div className="page-heading">
             <div>
               <h1>{labels[section]}</h1>
-              {inside && section !== "rounds" && <p>{c.title}</p>}
+              {inside && <p>{c.title}</p>}
             </div>
-          </div>
+          </div>}
           {guest && section === "rounds" && <div className="guest-banner">
             <div><strong>Khám phá trước, tham gia khi bạn sẵn sàng.</strong><p>Xem các vòng luyện, đề đã công bố và bảng xếp hạng. Đăng nhập để tải dữ liệu và luyện tập cùng đội.</p></div>
             <a className="btn" href={loginHref(returnPath, true)}>Tạo tài khoản</a>
@@ -444,8 +459,11 @@ export default function Arena() {
           {needsLogin && <AuthRequired section={section} next={returnPath} />}
           {section === "rounds" && (
             <>
-              <div className="round-grid">
-                {data.rounds.map((r) => (
+              <div className="round-filters"><label>Tìm vòng<input type="search" placeholder="Tên vòng luyện" value={roundQuery} onChange={e=>setRoundQuery(e.target.value)}/></label>
+                <label>Trạng thái<select value={roundFilter} onChange={e=>setRoundFilter(e.target.value)}><option value="all">Tất cả ({data.rounds.length})</option><option value="live">Đang mở</option><option value="upcoming">Chưa mở</option><option value="ended">Đã kết thúc</option></select></label>
+              </div>
+              <div className="round-index">
+                {visibleRounds.map((r) => (
                   <RoundCard
                     key={r.id}
                     round={r}
@@ -481,6 +499,7 @@ export default function Arena() {
                   />
                 ))}
               </div>
+              {data.rounds.length>0 && visibleRounds.length===0 && <p className="empty-round-filter">Không có vòng khớp với bộ lọc.</p>}
               {!data.rounds.length && (
                 <Locked
                   title="Chưa có vòng luyện"

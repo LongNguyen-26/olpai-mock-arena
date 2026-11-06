@@ -1171,7 +1171,10 @@
 .workspace-skeleton-grid { display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px; }
 .workspace-skeleton-grid i { height:110px; }
 .skeleton-field { width:100%;height:46px; }
-.workspace-freshness { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 18px;font-size:11px;color:#778591; }
+.workspace-summary { display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 16px;min-width:0; }
+.workspace-freshness { display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:#657785; }
+.workspace-freshness span { white-space:nowrap; }
+.gpu-workspace-head .btn { white-space:nowrap; }
 .workspace-freshness .loader { width:13px;height:13px; }
 .gpu-config-fieldset { border:0;padding:0;margin:0;min-width:0; }
 .workspace-section-error { margin:18px 0; }

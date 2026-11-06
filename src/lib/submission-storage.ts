@@ -13,7 +13,7 @@ export async function storeSubmissionFile(
 ): Promise<FileLocation> {
   try {
     await storage().put(path, bytes, {
-      contentType: "text/csv; charset=utf-8",
+      contentType: path.endsWith(".zip") ? "application/zip" : "text/csv; charset=utf-8",
       cache: "no-store",
     });
     return { path };

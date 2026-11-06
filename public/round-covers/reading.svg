@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" preserveAspectRatio="xMidYMid slice">
+  <defs><pattern id="print" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".65" fill="#29333c" opacity=".13"/></pattern></defs>
+  <rect width="240" height="180" fill="#f6d99b"/>
+  <circle cx="147" cy="83" r="57" fill="#efbd72"/><g transform="rotate(-9 120 90)"><path d="M44 47q40-9 77 7 34-15 75-6v91q-39-6-74 9-37-13-78-7z" fill="#91694e"/><path d="M49 40q43-6 72 10 32-17 70-9v89q-38-8-70 8-37-15-72-8z" fill="#fff5d9"/><path d="M121 50v88" stroke="#c4a777" stroke-width="2"/><path d="M60 65q23-3 48 6m-48 9q20-2 44 5m-44 10q23-2 48 7m24-32q20-8 47-7m-47 20q19-6 45-6m-45 21q23-7 47-6" fill="none" stroke="#997d58" stroke-width="3"/><path d="M130 79q20-7 47-7v9q-25 0-47 7" fill="#e79954" opacity=".65"/><path d="M158 40v27l7-5 6 3V39" fill="#4f867d"/></g>
+  <rect width="240" height="180" fill="url(#print)"/>
+</svg>
