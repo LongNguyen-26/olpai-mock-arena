@@ -317,4 +317,3 @@
 - Cutover chuyển 62 session còn hạn và một CSV dự phòng Redis sang SQL; byte/checksum khớp, backup mã hóa trước/sau lưu riêng `.local/`, không xóa Redis key. Sau phát hành giữ 46 user/245 bài; file: 244 Blob, một SQL; không có active job. Nhóm Groq có sẵn vẫn pause.
 - Smoke production PASS: đăng nhập/đọc/đăng xuất, năm vòng, 98 Workspace lịch sử, Groq configuration và danh sách năm model với credential thật; API Runpod trả 503 theo mode. Không gọi inference, không điều khiển Pod/vòng, chưa benchmark tải nhiều đội.
 - Xem `docs/REDIS_SQL_RUNTIME.md` trước vận hành. Runpod gồm Jupyter-only/Hub vẫn cần Redis khi bật; Vercel chưa thay đổi.
-
