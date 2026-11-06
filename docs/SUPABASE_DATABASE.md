@@ -1,12 +1,14 @@
 # Dữ liệu chính trên Supabase
 
+**Cập nhật mã 06/11/2026:** core/session/rate limit và Groq runtime đã chuyển SQL; Runpod/Jupyter-only/Hub giữ backend Redis và có chế độ bật/đang ngừng/tắt. Xem [vận hành runtime hiện hành](REDIS_SQL_RUNTIME.md). Các biên bản cutover 05/11 bên dưới là lịch sử của giai đoạn hybrid ban đầu, không dùng để suy rằng Groq/session hiện vẫn bắt buộc Redis.
+
 Phương án đã được người dùng duyệt ngày 05/11/2026. Project `olpai-arena` (`prgbpkscymbihbhtando`), Singapore, Supabase Free. Theo dõi trạng thái cutover trong phần biên bản cuối tệp; không suy mode đang chạy từ Git.
 
 ## Phân chia dữ liệu
 
 Supabase Postgres lưu tài khoản và hash scrypt, quyền admin, team/lời mời, catalogue, vòng/run/đăng ký, kết quả/quota/idempotency, thông báo, template và credential đã mã hóa, audit và lịch sử Workspace/chat. Không chuyển sang Supabase Auth và không giải mã rồi mã hóa lại credential khi import.
 
-Upstash Redis vẫn bắt buộc cho cookie session, rate limit, hàng đợi công bằng, reservation, lease/attempt/slot, trạng thái trực tiếp của agent/Hub, ticket một lần và cache hội thoại. Upstash Blob/Drive và CSV fallback đang ở Redis giữ vị trí hiện có. Không chuyển hoặc xóa tệp trong migration database.
+Tại cutover 05/11, Upstash Redis còn bắt buộc cho session/rate limit và mọi runtime. Migration runtime 06/11 tách core/Groq sang SQL và chuyển một CSV fallback; Redis chỉ còn cho nhánh Runpod khi bật. Blob/Drive giữ file chính; không xóa key Redis cũ.
 
 SQL là nguồn quyền khi `ARENA_DATABASE_MODE=postgres`. Lua đọc projection riêng dưới `sql:authority:*`, đồng bộ theo revision và khóa giao dịch SQL; không đọc quyền từ key nghiệp vụ Redis cũ. Không tự fallback về Redis khi SQL lỗi. Runtime giữ marker ghi bù lịch sử trong Redis, chỉ xóa marker sau SQL commit; context/budget có thể nạp lại từ SQL khi cache mất, không khởi chạy lại worker job đã mất lease.
 

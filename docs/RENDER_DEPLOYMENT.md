@@ -30,7 +30,7 @@ Các cập nhật tài liệu sau commit ứng dụng không yêu cầu build l�
 
 ## Kiến trúc và cấu hình
 
-Next.js chạy bằng Node web service, không dùng static export. API trình duyệt gọi đường dẫn tương đối trên host đang mở. Từ cutover 05/11/2026, Supabase Postgres lưu dữ liệu chính; Upstash Redis giữ session, hàng đợi, lease và runtime/cache; file nằm trên Upstash Blob/Drive. GPU/Jupyter/LLM vẫn chạy ở Runpod. Xem [database, backup và rollback](SUPABASE_DATABASE.md). Không có Vercel SDK, Vercel Blob, Edge Config hoặc Vercel Cron trong luồng ứng dụng hiện tại.
+Next.js chạy bằng Node web service, không dùng static export. API trình duyệt gọi đường dẫn tương đối trên host đang mở. Supabase Postgres lưu nghiệp vụ; mã 06/11 còn đưa session, limiter và Groq runtime sang SQL. Upstash Redis giữ runtime Runpod/Jupyter/Hub khi bật; file chính ở Blob/Drive, CSV fallback nhỏ ở SQL. Xem [runtime hiện hành](REDIS_SQL_RUNTIME.md) và [database/backup](SUPABASE_DATABASE.md). Không có Vercel SDK, Vercel Blob, Edge Config hoặc Vercel Cron trong luồng ứng dụng hiện tại.
 
 Không cần chuyển dữ liệu, seed lại, tạo database Render hoặc gắn persistent disk cho web. Không lưu dữ liệu nghiệp vụ lên filesystem của Free service.
 

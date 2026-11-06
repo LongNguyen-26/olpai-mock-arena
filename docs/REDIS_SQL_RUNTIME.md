@@ -40,7 +40,7 @@ node node_modules/tsx/dist/cli.mjs --env-file=.env --env-file=.local/supabase-ru
 
 Dry-run kiểm tra active runtime cả SQL/Redis và SHA-256 của CSV fallback. Apply yêu cầu đúng SQL freeze ID, tạo backup mã hóa trước/sau, sao chép session còn hạn, đổi pointer CSV sau lưu SQL và đối chiếu byte. **Không xóa bất kỳ key Redis nào**. Backup, khóa và proof nằm ở `.local/`, không đưa lên Git.
 
-Sau đó deploy code và env `ARENA_RUNPOD_MODE=disabled`; Redis credential có thể để trống khi không dùng Runpod. Giữ Blob token, SQL URL và khóa mã hóa nguyên vẹn. Smoke health/login/catalogue/Workspace/history/download rồi mở ghi đúng freeze ID:
+Sau đó deploy code và env `ARENA_RUNPOD_MODE=disabled`; Redis credential có thể để trống khi không dùng Runpod. Giữ Blob token, SQL URL và khóa mã hóa nguyên vẹn. Xác minh health/SHA trước khi mở ghi đúng freeze ID, rồi smoke đầy đủ Workspace/Groq (các GET có reconcile có thể bị chặn khi còn maintenance):
 
 ```powershell
 node node_modules/tsx/dist/cli.mjs --env-file=.env --env-file=.local/supabase-runtime.env scripts/database-migrate.ts unfreeze --source=arena:v1 --freeze-id=EXACT_ID --apply
@@ -67,4 +67,10 @@ Chưa đo tải nhiều đội đồng thời hoặc inference/GPU thật. Khôn
 
 ## Trạng thái phát hành
 
-Đang chuẩn bị cutover/deploy Render. Chưa đổi billing, không xóa Upstash database và không sửa Vercel. Biên bản production sẽ bổ sung sau khi xác minh SHA live và smoke thành công.
+**Đã phát hành trên Render ngày 06/11/2026**, application SHA `48a16ba5dbe152a1f1a7361a44c6a50b940cf20c`, deployment `dep-dbmk44etlv9c73b8esa0` ở trạng thái live. Health tên miền chính xác nhận `database=postgres`, `groqRuntime=postgres`, `runpodMode=disabled`; đã mở lại ghi bằng đúng freeze ID.
+
+Cutover sao chép 62 session còn hạn và chuyển một CSV fallback sang SQL, đối chiếu checksum/byte thành công; không xóa key Redis. Backup mã hóa trước/sau và proof ở `.local/`. Kiểm tra sau phát hành: 46 user, 245 submissions, 244 file trỏ Blob và một file SQL; maintenance false, không có job đang hoạt động, các namespace QA của lần này đã dọn.
+
+Smoke production PASS: login/logout và API được bảo vệ, năm vòng hiển thị, 98 Workspace lịch sử, Groq configuration và danh sách năm model bằng credential thật; không inference hoặc cấp Pod. File fallback thuộc run lịch sử nên không dùng HTTP download của run hiện hành để nghiệm thu; checksum/byte đã đối chiếu trực tiếp trong cutover. Giữ nguyên nhóm Groq đang pause; người dùng có thể resume khi cần.
+
+Redis credential được giữ trên Render để bật Runpod lại thuận tiện, nhưng core/Groq ở mode hiện tại không dùng chúng; đã chứng minh bằng QA không có hai biến Redis. Local `.env` được đặt cùng mode disabled. Không đổi billing, không xóa Upstash database và không sửa Vercel. Trước khi đưa Vercel trở lại phục vụ phải cấu hình cùng nguồn SQL và deploy code hiện hành.
