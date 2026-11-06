@@ -320,7 +320,7 @@
 # Truy cập khách và Auth — 06/11/2026
 
 - Ghép với main `882cca749230e6bb97080950779a5c13281b3d9a`, giữ catalogue, hiển thị điểm và bộ chấm ZIP mới.
-- TypeScript qua; 111 unit test qua tuần tự. Production build local qua với cache Turbopack tắt và một worker tạm thời vì ổ C/bộ nhớ hạn chế; `next.config.ts` được khôi phục, không phát hành cấu hình QA.
+- TypeScript qua; 111 unit test qua tuần tự. Ban đầu dùng cấu hình giảm cache/worker vì ổ C đầy; sau khi có dung lượng, `npm run build` nguyên gốc cũng qua. `next.config.ts` giữ nguyên, không phát hành cấu hình QA.
 - HTTP dùng Supabase SQL thật trong namespace QA riêng, Supabase Auth giả lập: trang chủ khách 200; đề/BXH xem công khai; ẩn/chưa công bố đúng quyền; API download/nộp/đội/Workspace/admin chặn khách; legacy login; Google linking giữ ID/đội; chặn email trùng và metadata role giả; signup không tạo phiên trước xác nhận; PKCE callback giữ đích; reset thu hồi session cũ; concurrent identity mapping không nhân đôi.
 - Playwright qua desktop 1440×1000 và mobile 390×844 trên bản merge: đề/BXH, màn hình yêu cầu đăng nhập, không gọi Workspace khi là khách, Google button trong chế độ QA, đăng ký chờ xác nhận, legacy login quay về dữ liệu, logout. Không lỗi page hoặc tràn ngang. Đã xem ảnh render desktop/mobile; ảnh ở `output/playwright/public-*.png`.
 - Export/import/verify SQL thật sang namespace restore riêng giữ các auth identity đang hoạt động. Migration `20261106135314` bật RLS; anon/authenticated không đọc được, backend theo namespace. Supabase security advisor không có lint.

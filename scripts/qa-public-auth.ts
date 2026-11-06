@@ -59,7 +59,7 @@ async function main() {
   const app=spawn(process.execPath,["node_modules/next/dist/bin/next","start","--port","3113"],{windowsHide:true,env:{...process.env,ARENA_AUTH_MODE:"supabase",ARENA_GOOGLE_AUTH_ENABLED:"true",ARENA_AUTH_ORIGIN:base,SUPABASE_URL:"http://127.0.0.1:3114",SUPABASE_PUBLISHABLE_KEY:"qa-publishable",GROQ_RUNNER_ENABLED:"false",RENDER:"false"},stdio:"ignore"});
   const jar=new Map<string,string>();
   async function request(path:string,value?:unknown,cookies=jar) {
-    const res=await fetch(base+path,{method:value===undefined?"GET":"POST",redirect:"manual",headers:{Origin:base,"Content-Type":"application/json",Cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join("; ")},...(value===undefined?{}:{body:JSON.stringify(value)})});
+    const res=await fetch(base+path,{method:value===undefined?"GET":"POST",redirect:"manual",headers:{Origin:base,"Content-Type":"application/json",Cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join("; ")},...(value==null?{}:{body:JSON.stringify(value)})});
     for(const cookie of res.headers.getSetCookie()) {const first=cookie.split(";")[0],i=first.indexOf("=");if(/max-age=0/i.test(cookie)||first.slice(i+1)==="")cookies.delete(first.slice(0,i));else cookies.set(first.slice(0,i),first.slice(i+1));}
     return res;
   }
@@ -99,7 +99,7 @@ async function main() {
     assert.equal((await (await request("/api/me")).json()).user.id,legacy.id);
     assert.equal((await (await request("/api/arena")).json()).user.admin,false);
     checks.push("legacy login and explicit Google linking preserve user/team and ignore metadata roles");
-    await request("/api/auth/logout",{});assert.equal(jar.has("arena-session"),false);
+    assert.equal((await request("/api/auth/logout",null)).status,200);assert.equal(jar.has("arena-session"),false);
     const registered=await request("/api/auth/register",{username:newIdentity.email,name:"QA email",password:legacyPassword,next:`/?round=${round}#data`});
     assert.equal((await registered.json()).confirmationRequired,true);assert.equal(jar.has("arena-session"),false);
     const confirmed=await request("/auth/callback?code=signup");assert.equal(confirmed.status,303);

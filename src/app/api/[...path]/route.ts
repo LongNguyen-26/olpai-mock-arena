@@ -85,7 +85,7 @@ async function handle(
       z.string().uuid().parse(new URL(req.url).searchParams.get("round"));
     if (req.method === "POST") sameOrigin(req);
     if (route.startsWith("auth/") && req.method === "POST")
-      return await handleAuth(req, route, await payload(req));
+      return await handleAuth(req, route, route === "auth/logout" ? {} : await payload(req));
     if (route === "auth/options" && req.method === "GET") return json(authOptions());
     if (route === "me" && req.method === "GET")
       return json({ user: await getUser() });
