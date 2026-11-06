@@ -1,4 +1,6 @@
 "use client";
+import { ScoreNote } from "./score-settings";
+import { scoreLabel } from "@/lib/score-display";
 import { useRef, useState } from "react";
 import {
   AlertCircle,
@@ -55,6 +57,7 @@ export default function SubmitView({
         choices[0] ??
         "public");
   const open = admin || submissionAccess(c, now, split).accepting;
+  const measured=data.submissions.find(s=>s.id===result?.id);
   const count = data.submissions.filter(
     (s) =>
       s.teamId === data.user.teamId &&
@@ -161,13 +164,14 @@ export default function SubmitView({
                 <p>{result.error}</p>
               ) : (
                 <strong className="result-score">
-                  {fmt(result.score)}
+                  {fmt(measured?.score ?? (data.scoreDisplay.primary==="raw"?result.score:null))}
                   <small>
                     {" "}
-                    / {data.tasks.find((t) => t.id === task)?.maxScore ??
+                    / {(data.scoreDisplay.primary==="raw"?data.tasks.find((t) => t.id === task)?.maxScore:100) ??
                       100}{" "}
                     điểm
                   </small>
+                  {data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(measured?.extraScore)}</small>}
                 </strong>
               )}
               {result.id && (
@@ -179,9 +183,7 @@ export default function SubmitView({
                       : "Đã lưu kết quả và cập nhật bảng xếp hạng."}
                 </p>
               )}
-              {result.metric != null && !result.error && (
-                <p>Chỉ số gốc: {result.metric.toFixed(6)}</p>
-              )}
+
               <button className="btn primary" onClick={() => setResult(null)}>
                 Nộp bài tiếp tục
                 <UploadCloud size={17} />
@@ -260,6 +262,7 @@ export default function SubmitView({
         </section>
         <aside className="panel submit-help">
           <h3>Lưu ý nộp bài</h3>
+          <ScoreNote data={data} split={split}/>
           <p>{zip ? "Đặt các tệp dự đoán đúng tên ngay ở gốc ZIP của giai đoạn đang chọn." : "CSV phải đúng cột, đầy đủ ID và đúng bộ kiểm thử đang chọn."}</p>
           <p>Bài lỗi định dạng được lưu vào lịch sử và không trừ quota.</p>
           <p>
@@ -324,7 +327,7 @@ export default function SubmitView({
                         {s.split.toUpperCase()}
                       </span>
                     </td>
-                    <td className="submission-score">{fmt(s.score)}</td>
+                    <td className="submission-score">{fmt(s.score)}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(s.extraScore)}</small>}</td>
                     <td>
                       {s.status === "invalid" ? (
                         <>

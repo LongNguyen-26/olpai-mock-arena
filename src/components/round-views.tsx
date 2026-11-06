@@ -1,4 +1,6 @@
 "use client";
+import { ScoreNote } from "./score-settings";
+import { scoreLabel } from "@/lib/score-display";
 import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
@@ -463,6 +465,7 @@ export function BoardView({ data }: Props) {
           {data.participantCount} thí sinh · {data.teamCount} đội
         </span>
       </div>
+      {(board==="public" || data.leaderboard.private) && <ScoreNote data={data} split={board}/>}
       {board === "private" && !data.leaderboard.private ? (
         <Locked title="Điểm private chưa được mở" />
       ) : (
@@ -496,10 +499,10 @@ export function BoardView({ data }: Props) {
                     </td>
                     {data.taskIds.map((id) => (
                       <td key={id} className="mono">
-                        {fmt(r.scores[id])}
+                        {fmt(r.scores[id])}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(r.extras[id])}</small>}
                       </td>
                     ))}
-                    <td className="total-score mono">{fmt(r.total)}</td>
+                    <td className="total-score mono">{fmt(r.total)}{data.scoreDisplay.extra && <small className="score-extra">{scoreLabel[data.scoreDisplay.extra]} · {fmt(r.extraTotal)}</small>}</td>
                     <td>{r.submitted}</td>
                   </tr>
                 ))

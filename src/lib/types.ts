@@ -39,6 +39,9 @@ export interface Contest {
   unlimited?: boolean;
   autoApprove?: boolean;
   hidden?: boolean;
+  showTaskTitles?: boolean;
+  everOpened?: boolean;
+  scoreDisplay?: import('./score-display').Display;
   deletedAt?: number;
   taskCount?: number;
   title: string;
@@ -86,6 +89,7 @@ export interface Registration {
   registeredAt: number;
 }
 export interface ContestPackage {
+  baselineScores?: import('./score-display').Baselines;
   version: string;
   title?: string;
   arenaNumber?: number;

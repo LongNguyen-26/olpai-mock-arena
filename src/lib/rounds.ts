@@ -1,3 +1,5 @@
+import { packageBaselines } from "./score-baselines";
+import { convertScore, defaultDisplay, scoreBoard, titlesVisible } from "./score-display";
 import { createHash, randomUUID } from "node:crypto";
 import { db, key, serverNow } from "./db";
 import { ApiError } from "./auth";
@@ -97,7 +99,7 @@ export async function snapshot(user: SafeUser, id?: string) {
   const summaries = await readPackageSummaries([...new Set([
     ...Object.keys(catalogue),
     ...contests.filter(c => c && roundVisible(c, user.admin) &&
-      (user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))))
+      (user.admin || titlesVisible(c,now)))
       .flatMap(c => c?.packageId ? [c.packageId] : []),
   ])]);
   const packages = user.admin ? presentPackages(summaries.filter(p => Object.hasOwn(catalogue, p.id))) : [];
@@ -111,7 +113,8 @@ export async function snapshot(user: SafeUser, id?: string) {
             title: c.title,
             runId: c.id,
             ...(user.admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
-            taskTitles: user.admin || ["public", "private", "practice", "ended"].includes(phaseOf(c, now))
+            showTaskTitles: titlesVisible(c,now),
+            taskTitles: user.admin || titlesVisible(c,now)
               ? packageMap.get(c.packageId ?? "")?.tasks ?? [] : [],
             taskCount: c.taskCount ?? 2,
             phase: phaseOf(c, now),
@@ -176,6 +179,10 @@ export async function snapshot(user: SafeUser, id?: string) {
     !!contest &&
     entered &&
     (user.admin || ["private", "practice", "ended"].includes(phase));
+  const display = contest?.scoreDisplay ?? defaultDisplay;
+  const baselines = packageBaselines(pkg);
+  const boardFor = (split:"public"|"private") => scoreBoard(rankTeams(Object.values(teams),rows,{},split,taskIds),taskIds,display,baselines?.[split]);
+  const publicBoard=boardFor("public"), privateBoard=privateVisible ? boardFor("private") : null;
   const roster = contest
     ? Object.values(
         await readRegistrations(contest),
@@ -189,6 +196,8 @@ export async function snapshot(user: SafeUser, id?: string) {
   ).length;
   return {
     user,
+    scoreDisplay:display,
+    baselineScores:baselines ? {public:baselines.public,private:privateVisible?baselines.private:null} : null,
     rounds,
     contest,
     registration,
@@ -200,7 +209,7 @@ export async function snapshot(user: SafeUser, id?: string) {
     ready: !!pkg,
     canReadStatement,
     taskIds,
-    maxScore: definitions.length
+    maxScore: display.primary !== "raw" ? 100*taskIds.length : definitions.length
       ? definitions.reduce((sum, t) => sum + (t.maxScore ?? 100), 0)
       : 200,
     tasks:
@@ -235,13 +244,14 @@ export async function snapshot(user: SafeUser, id?: string) {
     submissions: rows
       .filter((s) => user.admin || s.teamId === user.teamId)
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((s) => visibleSubmission(s)),
+      .map(s=>{
+        const visible=visibleSubmission(s), top=(s.split==="private"?privateBoard:publicBoard)?.tops[s.task], base=baselines?.[s.split][s.task];
+        return {...visible,rawScore:visible.score,score:convertScore(visible.score,display.primary,top,base),extraScore:display.extra?convertScore(visible.score,display.extra,top,base):null};
+      }),
     selections: {},
     leaderboard: {
-      public: rankTeams(Object.values(teams), rows, {}, "public", taskIds),
-      private: privateVisible
-        ? rankTeams(Object.values(teams), rows, {}, "private", taskIds)
-        : null,
+      public: publicBoard.board,
+      private: privateBoard?.board ?? null,
     },
     announcements:
       contest && entered
@@ -373,7 +383,7 @@ export async function control(
       throw new ApiError("Vòng luyện vừa được cập nhật. Hãy tải lại.", 409);
     if (v.action === "practice-open" && !(await getPackage(c)))
       throw new ApiError("Chưa nạp bộ đề.", 409);
-    next = reduceRoundControl(c, v, now);
+    next = reduceRoundControl(c,v,now,v.action==="score-display" && !!packageBaselines(await getPackage(c)));
     const result = await db().eval<unknown[], string>(
       CONTROL_ROUND_SCRIPT,
       [roundKey(c), requestKey, key(`runs:${c.id}`)],

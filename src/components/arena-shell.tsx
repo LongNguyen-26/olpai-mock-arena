@@ -80,6 +80,8 @@ export const names = {
 };
 export default function Arena() {
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
+  const [roundQuery,setRoundQuery]=useState("");
+  const [roundFilter,setRoundFilter]=useState("all");
   const [slow, setSlow] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [data, setData] = useState<ArenaData | null>(null),
@@ -241,6 +243,12 @@ export default function Arena() {
         }}
       />
     );
+  const visibleRounds = data.rounds.filter(r => {
+    const matchesName = r.title.toLocaleLowerCase("vi").includes(roundQuery.trim().toLocaleLowerCase("vi"));
+    const phase = phaseOf({...r,unlimited:r.unlimited}, clock+offset);
+    const group = phase==="ended" ? "ended" : ["waiting","scheduled"].includes(phase) ? "upcoming" : "live";
+    return matchesName && (roundFilter==="all" || roundFilter===group);
+  });
   const isAdmin = data.user.admin,
     transitioning = (c?.roundId ?? "") !== selected.current,
     inside = !!c && !transitioning,
@@ -433,8 +441,11 @@ export default function Arena() {
           </div>
           {section === "rounds" && (
             <>
-              <div className="round-grid">
-                {data.rounds.map((r) => (
+              <div className="round-filters"><label>Tìm vòng<input type="search" placeholder="Tên vòng luyện" value={roundQuery} onChange={e=>setRoundQuery(e.target.value)}/></label>
+                <label>Trạng thái<select value={roundFilter} onChange={e=>setRoundFilter(e.target.value)}><option value="all">Tất cả ({data.rounds.length})</option><option value="live">Đang mở</option><option value="upcoming">Chưa mở</option><option value="ended">Đã kết thúc</option></select></label>
+              </div>
+              <div className="round-index">
+                {visibleRounds.map((r) => (
                   <RoundCard
                     key={r.id}
                     round={r}
@@ -470,6 +481,7 @@ export default function Arena() {
                   />
                 ))}
               </div>
+              {data.rounds.length>0 && visibleRounds.length===0 && <p className="empty-round-filter">Không có vòng khớp với bộ lọc.</p>}
               {!data.rounds.length && (
                 <Locked
                   title="Chưa có vòng luyện"

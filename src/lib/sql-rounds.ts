@@ -1,3 +1,4 @@
+import { packageBaselines } from "./score-baselines";
 import { createHash, randomUUID } from "node:crypto";
 import { db,key } from "./db";
 import { memoRead } from "./read-scope";
@@ -87,7 +88,7 @@ export async function controlSqlRound(action:string,values:Values,id:string) {
     if(v) {
       if(c.id!==v.runId || (c.revision??0)!==v.revision) throw new ApiError("Vòng luyện vừa được cập nhật. Hãy tải lại.",409);
       if(v.action==="practice-open" && !(await readPackage(c.packageId))) throw new ApiError("Chưa nạp bộ đề.",409);
-      next=reduceRoundControl(c,v,now);
+      next=reduceRoundControl(c,v,now,v.action==='score-display' && !!packageBaselines(await readPackage(c.packageId)));
       if(action==="reset-round") await archiveSqlRun(client,c);
     } else if(action==="grant-quota") {
       if(values.runId!==c.id || !values.requestId || !["public","private"].includes(values.split??"") || !Number.isInteger(values.amount) || values.amount!<1 || values.amount!>100) throw new ApiError("Yêu cầu tăng quota không hợp lệ hoặc lượt luyện đã thay đổi.",409);
