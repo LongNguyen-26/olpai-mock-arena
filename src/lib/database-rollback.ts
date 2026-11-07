@@ -87,9 +87,9 @@ export async function exportSqlSnapshot():Promise<DatabaseSnapshot> {
   for(const a of audit)if(a.payload?.kind&&a.payload?.id)deletions[`${a.payload.kind}:${a.payload.id}`]=a.payload;
   hash("admin:deletions",deletions);
   const sqlRuntime:Record<string,unknown[][]>={};
-  for(const table of ["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities"]) {
+  for(const table of ["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities","account_profiles"]) {
     const columns=importColumns[table];
-    sqlRuntime[table]=(await query(`select ${columns.join(",")} from arena.${table} where ns=$1${table === "auth_identities" ? " and user_id in (select id from arena.users where ns=$1 and deleted_at is null)" : ""}`,[ns])).map(row=>columns.map(column=>Buffer.isBuffer(row[column])?"\\x"+row[column].toString("hex"):row[column]));
+    sqlRuntime[table]=(await query(`select ${columns.join(",")} from arena.${table} where ns=$1${["auth_identities","account_profiles"].includes(table) ? " and user_id in (select id from arena.users where ns=$1 and deleted_at is null)" : ""}`,[ns])).map(row=>columns.map(column=>Buffer.isBuffer(row[column])?"\\x"+row[column].toString("hex"):row[column]));
   }
   const stateFreeze=(await query("select configuration->>'runtimeFreezeId' as id from arena.state where ns=$1",[ns]))[0]?.id;
   const payload={version:1 as const,sourceNamespace:ns,exportedAt:now,freezeId:stateFreeze??base.freezeId,records:records.sort((a,b)=>a.key.localeCompare(b.key,"en")),sqlRuntime};

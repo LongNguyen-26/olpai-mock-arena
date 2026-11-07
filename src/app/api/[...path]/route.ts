@@ -186,6 +186,7 @@ async function handle(
             action: z.literal("create"),
             name: z.string().trim().min(2).max(50),
           }),
+          z.object({action:z.literal("rename"),name:z.string().trim().min(2).max(50).refine(v=>!/[\p{Cc}\p{Cf}]/u.test(v),"Tên đội không hợp lệ.")}),
           z.object({
             action: z.literal("join"),
             code: z.string().max(40).optional(),
@@ -203,6 +204,7 @@ async function handle(
       return json({ ok: true });
     }
     if (route === "password") {
+      if(user.loginProvider==="google")throw new ApiError("Tài khoản đang đăng nhập bằng Google không đổi mật khẩu tại đây.",403);
       const value = z
         .object({
           current: z.string().max(128),

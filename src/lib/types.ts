@@ -7,10 +7,11 @@ export interface User {
   username: string;
   name: string;
   password: string;
+  nameChangedAt?: number;
   teamId: string | null;
   createdAt: number;
 }
-export type SafeUser = Omit<User, "password"> & { admin: boolean; authMethod?: "legacy" | "supabase"; needsName?: boolean };
+export type SafeUser = Omit<User, "password"> & { admin: boolean; authMethod?: "legacy" | "supabase"; needsName?: boolean; loginProvider?: import("./account-policy").LoginProvider };
 export interface Team {
   id: string;
   name: string;

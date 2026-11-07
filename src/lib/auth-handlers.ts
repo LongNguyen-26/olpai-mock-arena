@@ -11,16 +11,55 @@ import { completeIdentityName, identitySubject, resolveIdentity } from "./auth-i
 import { createSqlUser, readUser, readUserId } from "./entity-repository";
 import { db, key } from "./db";
 import { namespace, query, usingPostgres } from "./sql";
+import { changeAccountName, clearEmailRequest, reserveEmailChange, pendingEmailChange, syncVerifiedIdentityEmail } from "./account-profile";
 
 export const flowCookie = "arena-auth-flow";
-export async function beginAuthFlow(mode: "login" | "link" | "recovery", next: unknown, userId?: string) {
-  (await cookies()).set(flowCookie, JSON.stringify({ mode, next: authReturnPath(next), userId }), authCookieOptions);
+export async function beginAuthFlow(mode: "login" | "google" | "link" | "recovery" | "email-reauth" | "email-confirm", next: unknown, userId?: string, requestId?:string) {
+  (await cookies()).set(flowCookie, JSON.stringify({ mode, next: authReturnPath(next), userId, requestId }), authCookieOptions);
   return `${authOrigin()}/auth/callback`;
 }
 const json = (value: unknown) => NextResponse.json(value, { headers: { "Cache-Control": "private, no-store" } });
 const password = z.string().min(10).max(128);
 export async function handleAuth(req: Request, route: string, value: unknown) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+  if(route==="auth/name") {
+    const user=await requireUser();
+    await rateLimit(`account-name:${user.id}`,10,900);
+    await changeAccountName(user.id,z.object({name:z.string()}).parse(value).name);
+    return json({ok:true});
+  }
+  if(route==="auth/change-email") {
+    const user=await requireUser();
+    const input=z.object({email:registrationName,current:z.string().max(128).optional()}).parse(value);
+    await rateLimit(`account-email:${user.id}`,5,900);
+    const client=await supabaseAuth();
+    const pending=await reserveEmailChange(user.id,input.email);
+    try {
+      if(user.loginProvider==="google"||user.authMethod==="legacy") {
+        const redirectTo=await beginAuthFlow("email-reauth","/#settings",user.id,pending.requestId);
+        const result=await client.auth.signInWithOAuth({provider:"google",options:{redirectTo,skipBrowserRedirect:true,queryParams:{prompt:"select_account"}}});
+        providerError(result.error);
+        if(!result.data.url)throw new ApiError("Không thể mở Google.",503);
+        return json({url:result.data.url});
+      }
+      const signed=await client.auth.signInWithPassword({email:user.username,password:input.current??""});
+      providerError(signed.error);
+      if(signed.data.user?.id!==pending.subject)throw new ApiError("Không thể xác thực tài khoản hiện tại.",401);
+      await sendEmailChange(client,user.id,pending.requestId);
+      return json({ok:true});
+    } catch(error) {await clearEmailRequest(user.id,pending.requestId);throw error;}
+  }
+  if(route==="auth/confirm-email-change") {
+    await rateLimit(`email-confirm:${ip}`,30,900);
+    const token=(await cookies()).get("arena-email-confirm")?.value;
+    if(!token)throw new ApiError("Liên kết đã hết hạn. Hãy mở lại email xác nhận.",400);
+    const client=await supabaseAuth();
+    const result=await client.auth.verifyOtp({token_hash:token,type:"email_change"});
+    providerError(result.error);
+    (await cookies()).delete("arena-email-confirm");
+    const complete=result.data.user?await syncVerifiedIdentityEmail(result.data.user):false;
+    return json({ok:true,complete});
+  }
   if (route === "auth/profile") {
     const user = await getUser();
     if (!user) throw new ApiError("Vui lòng đăng nhập.",401);
@@ -33,7 +72,7 @@ export async function handleAuth(req: Request, route: string, value: unknown) {
   if (route === "auth/logout") {
     await logout();
     const jar = await cookies();
-    for (const name of [flowCookie, "arena-auth-verifier", "arena-auth-recovery"]) jar.delete(name);
+    for (const name of [flowCookie, "arena-auth-verifier", "arena-auth-recovery","arena-email-confirm"]) jar.delete(name);
     return json({ ok: true });
   }
   if (route === "auth/google") {
@@ -42,7 +81,7 @@ export async function handleAuth(req: Request, route: string, value: unknown) {
     const local = input.link ? await requireUser() : null;
     await rateLimit(`google:${ip}`, 30, 900);
     const client = await supabaseAuth();
-    const redirectTo = await beginAuthFlow(local ? "link" : "login", input.next, local?.id);
+    const redirectTo = await beginAuthFlow(local ? "link" : "google", input.next, local?.id);
     const result = await client.auth.signInWithOAuth({ provider: "google", options: { redirectTo, skipBrowserRedirect: true, queryParams: { prompt: "select_account" } } });
     providerError(result.error);
     if (!result.data.url) throw new ApiError("Không thể mở đăng nhập Google.",503);
@@ -75,7 +114,7 @@ export async function handleAuth(req: Request, route: string, value: unknown) {
     const id = await readUserId(input.username), user = id ? await readUser(id) : null;
     if (user && user.password !== "external:supabase") {
       if (!(await checkPassword(input.password,user.password))) throw new ApiError("Tên đăng nhập hoặc mật khẩu không đúng.",401);
-      await createSession(user.id); return json({ok:true});
+      await createSession(user.id,"legacy"); return json({ok:true});
     }
     if (authOptions().supabase && registrationName.safeParse(input.username).success) {
       const client = await supabaseAuth();
@@ -83,7 +122,7 @@ export async function handleAuth(req: Request, route: string, value: unknown) {
       providerError(result.error);
       if (!result.data.user) throw new ApiError("Email hoặc mật khẩu không đúng.",401);
       const local = await resolveIdentity(result.data.user);
-      await createSession(local.id); return json({ok:true,needsName:local.needsName});
+      await createSession(local.id,"email"); return json({ok:true,needsName:local.needsName});
     }
     await checkPassword(input.password, `${"0".repeat(32)}:${"0".repeat(128)}`);
     throw new ApiError("Tên đăng nhập hoặc mật khẩu không đúng.",401);
@@ -131,5 +170,15 @@ export async function changeExternalPassword(userId: string, email: string, curr
   if (signed.data.user?.id !== subject) throw new ApiError("Mật khẩu hiện tại không đúng.",401);
   providerError((await client.auth.updateUser({password})).error);
   await query("delete from arena.sessions where ns=$1 and user_id=$2",[namespace(),userId]);
-  await createSession(userId);
+  await createSession(userId,"email");
+}
+
+export async function sendEmailChange(client:Awaited<ReturnType<typeof supabaseAuth>>,userId:string,requestId:string) {
+  const pending=await pendingEmailChange(userId,requestId);
+  const current=await client.auth.getUser();providerError(current.error);
+  if(current.data.user?.id!==pending.subject)throw new ApiError("Hãy xác thực đúng tài khoản đang sử dụng.",403);
+  const emailRedirectTo=await beginAuthFlow("email-confirm","/#settings",userId,requestId);
+  const changed=await client.auth.updateUser({email:pending.email},{emailRedirectTo});
+  providerError(changed.error);
+  if(changed.data.user?.email?.toLowerCase()===pending.email&&!changed.data.user.new_email)throw new ApiError("Cần bật xác nhận thay đổi email trong Supabase trước khi sử dụng tính năng này.",503);
 }

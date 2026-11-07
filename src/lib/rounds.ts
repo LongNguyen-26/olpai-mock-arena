@@ -23,6 +23,7 @@ import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
 import { authOptions } from "./supabase-auth";
+import { accountSettings } from "./account-profile";
 import { identitySubject } from "./auth-identities";
 import { usingPostgres } from "./sql";
 import { readDirectoryScores, readRound, readRoundIds, readRounds, readPackage, readSubmissions, readTeams, readInvites, readRegistration, readRegistrations, readUser, readAnnouncements, readPackageCatalogue, readPackageSummaries } from "./entity-repository";
@@ -219,6 +220,7 @@ export async function snapshot(user: SafeUser | null, id?: string) {
     user,
     auth: authOptions(),
     authLinked: user && authOptions().supabase ? !!(await identitySubject(user.id)) : false,
+    account: user ? await accountSettings(user.id) : null,
     scoreDisplay:display,
     baselineScores:baselines ? {public:baselines.public,private:privateVisible?baselines.private:null} : null,
     rounds,

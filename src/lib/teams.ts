@@ -20,6 +20,12 @@ elseif action=='leave' then
  local raw=redis.call('HGET',KEYS[2],user.teamId);if not raw then user.teamId=cjson.null;redis.call('SET',KEYS[1],cjson.encode(user));return 'ok' end
  local team=cjson.decode(raw); local members={}; for _,id in ipairs(team.members) do if id~=user.id then table.insert(members,id) end end
  team.members=members; if team.captainId==user.id then team.captainId=members[1] or '' end; redis.call('HSET',KEYS[2],user.teamId,cjson.encode(team)); user.teamId=cjson.null;
+elseif action=='rename' then
+ if user.teamId==cjson.null or not user.teamId then return 'missing' end
+ local raw=redis.call('HGET',KEYS[2],user.teamId);if not raw then return 'missing' end
+ local team=cjson.decode(raw);if team.captainId~=user.id then return 'forbidden' end
+ team.name=ARGV[4];redis.call('HSET',KEYS[2],user.teamId,cjson.encode(team));
+else return 'invalid'
 end
 redis.call('SET',KEYS[1],cjson.encode(user)); return 'ok';`;
 export async function teamAction(
@@ -81,7 +87,7 @@ export async function teamAction(
       key("teams"),
       key(`code:${team?.inviteCode ?? "unused"}`),
     ],
-    [action, teamId, JSON.stringify(team)],
+    [action, teamId, JSON.stringify(team),payload.name??""],
   );
   if (result !== "ok")
     throw new ApiError(
@@ -91,8 +97,10 @@ export async function teamAction(
             "Bạn đang ở một đội. Hãy rời đội trước khi tham gia đội khác.",
           full: "Đội đã đủ 3 thành viên.",
           missing: "Không tìm thấy đội.",
+          forbidden: "Chỉ đội trưởng được đổi tên đội.",
         } as Record<string, string>
       )[result] ?? "Không thực hiện được thao tác.",
+      result === "forbidden" ? 403 : 400,
     );
   if (action === "join") await db().srem(key(`invites:${user.id}`), teamId);
 }

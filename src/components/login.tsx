@@ -1,4 +1,5 @@
 "use client";
+import LegalLinks from "./legal-links";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Clock3, Users, Layers3, MailCheck } from "lucide-react";
 type Mode = "login" | "register" | "forgot" | "reset" | "confirmation";
@@ -78,12 +79,13 @@ export default function Login({ options, next, initialMode, initialError }: {
         {register && <label>Họ và tên<input name="name" required minLength={2} maxLength={60} placeholder="Nguyễn Minh Anh" autoComplete="name"/></label>}
         {mode !== "reset" && <label>{mode === "login" ? "Email hoặc tên đăng nhập" : "Email"}<input name="username" required type={mode === "login" ? "text" : "email"} maxLength={254} placeholder={mode === "login" ? "Email hoặc tên tài khoản" : "ban@example.com"} autoComplete="username" autoCapitalize="none" spellCheck={false}/></label>}
         {mode !== "forgot" && <label>{mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}<input name="password" type="password" required minLength={register || mode === "reset" ? 10 : 1} maxLength={128} placeholder={register || mode === "reset" ? "Tối thiểu 10 ký tự" : "Nhập mật khẩu"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"}/></label>}
-        {register && <small>{options.supabase ? "Bạn cần xác nhận email trước khi sử dụng tài khoản." : "Dùng email của bạn để đăng ký tài khoản."}</small>}
+        {register && <small>{options.supabase ? "Bạn cần xác nhận email trước khi sử dụng tài khoản." : "Dùng email của bạn để đăng ký tài khoản."} Khi tạo tài khoản, bạn đồng ý với <a href="/terms">Điều khoản sử dụng</a> và đã đọc <a href="/privacy">Chính sách bảo mật</a>.</small>}
         {mode === "forgot" && <small>Tính năng này dành cho tài khoản đăng ký qua email xác thực. Tài khoản cũ chưa liên kết cần liên hệ quản trị viên để khôi phục.</small>}
         {mode === "login" && options.supabase && <button className="text-button auth-forgot" type="button" disabled={busy} onClick={()=>change("forgot")}>Quên mật khẩu?</button>}
         <button disabled={busy} className="btn primary wide" type="submit">{busy ? "Đang xử lý…" : register ? "Tạo tài khoản" : mode === "forgot" ? "Gửi liên kết đặt lại" : mode === "reset" ? "Lưu mật khẩu mới" : "Đăng nhập"}<ArrowRight size={18}/></button>
         {["forgot","reset"].includes(mode) && <button className="text-button" type="button" disabled={busy} onClick={()=>change("login")}>Quay lại đăng nhập</button>}
       </form>}
+      <LegalLinks/>
     </div></section>
   </main>;
 }

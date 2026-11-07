@@ -1,12 +1,13 @@
 "use client";
 import { useState } from "react";
-import { LogOut, Plus, Send, ShieldCheck, Users } from "lucide-react";
+import { Pencil, Plus, Send, Users } from "lucide-react";
 import { api, type ViewProps } from "./arena-client";
 export async function signOut() {
   await api("auth/logout", {});
   window.location.href = "/";
 }
 export function TeamView({ data, busy, action }: ViewProps) {
+  const [renaming,setRenaming]=useState(false);
   return (
     <>
       {data.team ? (
@@ -20,7 +21,12 @@ export function TeamView({ data, busy, action }: ViewProps) {
                 <h2>{data.team.name}</h2>
                 <p>{data.team.members.length}/3 thành viên</p>
               </div>
+              {data.user?.id===data.team.captainId&&<button type="button" className="text-button team-rename-toggle" disabled={busy} onClick={()=>setRenaming(!renaming)} aria-expanded={renaming}><Pencil size={15}/>Đổi tên đội</button>}
             </div>
+            {renaming&&data.user?.id===data.team.captainId&&<form className="team-rename-form" onSubmit={async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get("name");if(await action("team",{action:"rename",name},"Đã đổi tên đội."))setRenaming(false);}}>
+              <label>Tên đội mới<input name="name" defaultValue={data.team.name} minLength={2} maxLength={50} required autoFocus/></label>
+              <div className="account-form-actions"><button className="btn primary small-btn" disabled={busy}>Lưu tên đội</button><button type="button" className="text-button" disabled={busy} onClick={()=>setRenaming(false)}>Hủy</button></div>
+            </form>}
             {data.team.members.map((m) => (
               <div className="member" key={m.id}>
                 <span className="avatar">{m.name.slice(0, 1)}</span>
@@ -182,66 +188,4 @@ export function TeamView({ data, busy, action }: ViewProps) {
     </>
   );
 }
-export function ProfileView({ data, busy, action }: ViewProps) {
-  const [linking,setLinking] = useState(false), [error,setError] = useState("");
-  async function linkGoogle() {
-    setLinking(true); setError("");
-    try {
-      const result = await api("auth/google",{link:true,next:"/#settings"});
-      window.location.assign(result.url);
-    } catch(error) { setError(error instanceof Error ? error.message : "Không thể liên kết Google."); setLinking(false); }
-  }
-  return (
-    <section className="panel narrow-panel">
-      <h2>Tài khoản</h2>
-      <p>
-        {data.user?.name} ·{" "}
-        {data.user?.username.includes("@") ? data.user.username : `@${data.user?.username}`}
-      </p>
-      {data.auth?.supabase && <div className="auth-connections">
-        <h3>Phương thức đăng nhập</h3>
-        <p>{data.authLinked ? "Tài khoản đã liên kết với Supabase. Đội và lịch sử bài nộp được giữ trong tài khoản này." : "Liên kết Google để đăng nhập nhanh vào chính tài khoản này, giữ nguyên đội và lịch sử bài nộp."}</p>
-        {data.auth.google && !data.authLinked && <button type="button" className="btn" disabled={linking} onClick={linkGoogle}>{linking ? "Đang mở Google…" : "Liên kết Google"}</button>}
-        {error && <p className="alert error" role="alert">{error}</p>}
-      </div>}
-      {data.user?.authMethod === "supabase" && <p className="auth-password-help">Nếu bạn chỉ đăng nhập bằng Google và chưa có mật khẩu, hãy dùng <a href="/login?mode=forgot">Quên mật khẩu</a> để tạo mật khẩu cho email của mình.</p>}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          void action("password", Object.fromEntries(f), "Đã đổi mật khẩu.");
-          e.currentTarget.reset();
-        }}
-      >
-        <label>
-          Mật khẩu hiện tại
-          <input
-            type="password"
-            name="current"
-            required
-            autoComplete="current-password"
-          />
-        </label>
-        <label>
-          Mật khẩu mới
-          <input
-            type="password"
-            name="password"
-            minLength={10}
-            maxLength={128}
-            required
-            autoComplete="new-password"
-          />
-        </label>
-        <button className="btn primary" disabled={busy}>
-          <ShieldCheck size={16} />
-          Đổi mật khẩu
-        </button>
-      </form>
-      <button className="btn danger-ghost profile-signout" onClick={signOut}>
-        <LogOut size={16} />
-        Đăng xuất
-      </button>
-    </section>
-  );
-}
+export { default as ProfileView } from "./account-view";

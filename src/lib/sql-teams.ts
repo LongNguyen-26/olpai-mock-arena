@@ -32,6 +32,10 @@ export async function sqlTeamAction(userId:string,action:string,payload:Payload)
       await client.query("insert into arena.team_members(ns,team_id,user_id,position) values($1,$2,$3,$4)",[namespace(),target.id,userId,target.members.length]);
       await client.query("update arena.users set team_id=$3 where ns=$1 and id=$2",[namespace(),userId,target.id]);
       await client.query("delete from arena.team_invites where ns=$1 and user_id=$2 and team_id=$3",[namespace(),userId,target.id]);
+    } else if(action==="rename") {
+      if(!user.teamId)throw new ApiError("Bạn chưa có đội.");
+      const changed=await client.query("update arena.teams set name=$4 where ns=$1 and id=$2 and captain_id=$3 and deleted_at is null returning id",[namespace(),user.teamId,userId,payload.name]);
+      if(!changed.rowCount)throw new ApiError("Chỉ đội trưởng được đổi tên đội.",403);
     } else if(action==="leave") {
       if(!user.teamId) throw new ApiError("Không tìm thấy đội.");
       const team=await readTeam(user.teamId);

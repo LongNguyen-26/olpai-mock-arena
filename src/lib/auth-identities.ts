@@ -4,6 +4,7 @@ import { ApiError } from "./api-error";
 import { bumpRevision, namespace, query, sqlTransaction } from "./sql";
 import { userFromRow } from "./entity-repository";
 import { profileName, registrationName } from "./auth-input";
+import { syncVerifiedIdentityEmail } from "./account-profile";
 
 export async function identitySubject(userId: string) {
   const rows = await query("select subject from arena.auth_identities where ns=$1 and user_id=$2", [namespace(), userId]);
@@ -31,11 +32,13 @@ export async function resolveIdentity(identity: AuthUser, linkUserId?: string) {
   // Google names are entered explicitly in Arena. Email signup already asks for a name.
   const enteredName = profileName.safeParse(identity.user_metadata?.name);
   const name = !google && enteredName.success ? enteredName.data : "Thí sinh";
+  await syncVerifiedIdentityEmail(identity);
   return sqlTransaction(async client => {
     const ns = namespace();
     const found = await client.query("select u.*,i.needs_name,i.name_confirmed_at from arena.auth_identities i join arena.users u on u.ns=i.ns and u.id=i.user_id where i.ns=$1 and i.subject=$2", [ns, identity.id]);
     if (found.rows[0]) {
       if (found.rows[0].deleted_at || (linkUserId && found.rows[0].id !== linkUserId)) throw new ApiError("Phương thức đăng nhập này đã liên kết với tài khoản khác hoặc không còn khả dụng.", 409);
+      if(google)await client.query("update arena.auth_identities set google_account=true where ns=$1 and subject=$2",[ns,identity.id]);
       // Google accounts created before onboarding was introduced confirm their name once.
       const needsName = found.rows[0].needs_name || (google && found.rows[0].name_confirmed_at == null && found.rows[0].password_hash === "external:supabase");
       if (needsName && !found.rows[0].needs_name) {
@@ -56,7 +59,7 @@ export async function resolveIdentity(identity: AuthUser, linkUserId?: string) {
       await client.query("insert into arena.users(ns,id,username,name,password_hash,team_id,created_at) values($1,$2,$3,$4,'external:supabase',null,$5)",[ns,id,email.data,name,Date.now()]);
     }
     const needsName = !linkUserId && google;
-    await client.query("insert into arena.auth_identities(ns,subject,user_id,created_at,needs_name,name_confirmed_at) values($1,$2,$3,$4,$5,$6)",[ns,identity.id,id,Date.now(),needsName,needsName?null:Date.now()]);
+    await client.query("insert into arena.auth_identities(ns,subject,user_id,created_at,needs_name,name_confirmed_at,google_account) values($1,$2,$3,$4,$5,$6,$7)",[ns,identity.id,id,Date.now(),needsName,needsName?null:Date.now(),google]);
     await bumpRevision(client);
     return {...userFromRow((await client.query("select * from arena.users where ns=$1 and id=$2",[ns,id])).rows[0]),needsName};
   },true);

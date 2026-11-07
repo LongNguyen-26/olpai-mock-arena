@@ -3,8 +3,11 @@ import { namespace, query, sqlTransaction } from "./sql";
 export async function sessionUser(hash: string) {
   return (await query("select user_id from arena.sessions where ns=$1 and token_hash=$2 and expires_at>floor(extract(epoch from clock_timestamp())*1000)", [namespace(), hash]))[0]?.user_id as string | undefined;
 }
-export async function saveSession(hash: string, user: string, expiresAt: number) {
-  await query("insert into arena.sessions(ns,token_hash,user_id,expires_at) values($1,$2,$3,$4) on conflict(ns,token_hash) do update set user_id=excluded.user_id,expires_at=excluded.expires_at", [namespace(), hash, user, expiresAt]);
+export async function sessionProvider(hash:string) {
+  return (await query("select s.auth_provider,i.google_account from arena.sessions s left join arena.auth_identities i on i.ns=s.ns and i.user_id=s.user_id where s.ns=$1 and s.token_hash=$2 and s.expires_at>floor(extract(epoch from clock_timestamp())*1000)",[namespace(),hash]))[0];
+}
+export async function saveSession(hash: string, user: string, expiresAt: number, provider?: import("./account-policy").LoginProvider) {
+  await query("insert into arena.sessions(ns,token_hash,user_id,expires_at,auth_provider) values($1,$2,$3,$4,$5) on conflict(ns,token_hash) do update set user_id=excluded.user_id,expires_at=excluded.expires_at,auth_provider=excluded.auth_provider", [namespace(), hash, user, expiresAt,provider??null]);
 }
 export async function removeSession(hash: string) {
   await query("delete from arena.sessions where ns=$1 and token_hash=$2", [namespace(), hash]);

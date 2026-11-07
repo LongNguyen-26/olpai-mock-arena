@@ -12,7 +12,7 @@ import type { SafeUser, User } from "./types";
 import { ApiError } from "./api-error";
 import { readUser } from "./entity-repository";
 import { usingPostgres } from "./sql";
-import { sessionUser, saveSession, removeSession, consumeCounter } from "./sql-runtime";
+import { sessionUser, sessionProvider, saveSession, removeSession, consumeCounter } from "./sql-runtime";
 import { identityNeedsName } from "./auth-identities";
 export { ApiError } from "./api-error";
 const scrypt = promisify(scryptCallback);
@@ -41,11 +41,12 @@ export async function getUser(): Promise<SafeUser | null> {
   if (!user) return null;
   const { password: _password, ...safe } = user;
   const external = user.password === "external:supabase";
-  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id), authMethod: external ? "supabase" : "legacy", needsName: external && usingPostgres() ? await identityNeedsName(id) : false };
+  const provider=usingPostgres()?await sessionProvider(createHash("sha256").update(token).digest("hex")):null;
+  return { ...safe, teamId: safe.teamId ?? null, admin: adminIds.includes(id), authMethod: external ? "supabase" : "legacy", loginProvider:provider?.auth_provider??(provider?.google_account?"google":external?"email":"legacy"), needsName: external && usingPostgres() ? await identityNeedsName(id) : false };
 }
-export async function createSession(id: string) {
+export async function createSession(id: string, provider?: import("./account-policy").LoginProvider) {
   const token = randomBytes(32).toString("base64url");
-  if (usingPostgres()) await saveSession(createHash("sha256").update(token).digest("hex"), id, Date.now() + 7 * 86400_000);
+  if (usingPostgres()) await saveSession(createHash("sha256").update(token).digest("hex"), id, Date.now() + 7 * 86400_000,provider);
   else await db().set(sessionKey(token), id, { ex: 7 * 86400 });
   (await cookies()).set("arena-session", token, {
     httpOnly: true,

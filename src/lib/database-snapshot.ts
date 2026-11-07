@@ -83,10 +83,11 @@ export const importColumns:Record<string,string[]>={
   gpu_templates:["store","id","name","revision","configuration"],gpu_credentials:["owner_id","ciphertext"],api_credentials:["owner_id","provider","configuration"],
   runtime_history:["kind","id","round_id","run_id","owner_id","status","payload","expires_at","observed_at"],
   audit_events:["id","kind","payload","created_at"],legacy_archive:["source_key","redis_type","payload","expires_at"],
-  sessions:["token_hash","user_id","expires_at"],rate_counters:["id","count","expires_at"],
+  sessions:["token_hash","user_id","expires_at","auth_provider"],rate_counters:["id","count","expires_at"],
   runtime_leases:["id","token","expires_at"],runtime_signals:["id","value","expires_at"],
   chat_lanes:["group_id","run_id","audience","served_at"],submission_files:["id","gzip"],
-  auth_identities:["subject","user_id","created_at","needs_name","name_confirmed_at"],
+  auth_identities:["subject","user_id","created_at","needs_name","name_confirmed_at","google_account"],
+  account_profiles:["user_id","name_changed_at","email_changed_at","pending_email","pending_requested_at","pending_id"],
 };
 type Plan={tables:Record<string,unknown[][]>;issues:string[];configuration:{templatesShared:boolean};counts:Record<string,number>};
 export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
@@ -106,7 +107,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
   const issues:string[]=[],users=new Map<string,User>(),teams=new Map<string,Team>();
   const primary=value("admin"),admins=new Set<string>([...(primary?[primary]:[]),...((value("admins")??[]) as string[])]);
   for(const [k,r] of source) {
-    if(k.startsWith("user:")) { const u=parse(r.value) as User;users.set(u.id,u);add("users",u.id,u.username,u.name,u.password,u.teamId,u.createdAt,null); }
+    if(k.startsWith("user:")) { const u=parse(r.value) as User;users.set(u.id,u);add("users",u.id,u.username,u.name,u.password,u.teamId,u.createdAt,null);if(u.nameChangedAt!=null)add("account_profiles",u.id,u.nameChangedAt,null,null,null,null); }
     if(k==="teams") for(const [id,t] of hash(r)) { const team=t as Team;teams.set(id,team);add("teams",id,team.name,team.captainId,team.inviteCode,team.createdAt,null); }
   }
   const memberships=new Set<string>();
@@ -155,8 +156,14 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
     }
   }
   for(const [table,savedRows] of Object.entries(snapshot.sqlRuntime??{})) {
-    const rows = table === "auth_identities" && Array.isArray(savedRows) ? savedRows.map(row=>Array.isArray(row)&&row.length===3?[...row,false,null]:row) : savedRows;
-    if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
+    const rows = Array.isArray(savedRows) ? savedRows.map(row=>{
+      if(!Array.isArray(row))return row;
+      if(table==="auth_identities"&&row.length===3)return [...row,false,null,false];
+      if(table==="auth_identities"&&row.length===5)return [...row,false];
+      if(table==="sessions"&&row.length===3)return [...row,null];
+      return row;
+    }) : savedRows;
+    if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities","account_profiles"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}
     tables[table]=rows;
   }
   return {tables,issues,configuration:{templatesShared:!!value("gpu:templates:shared:ready")},counts:Object.fromEntries(Object.entries(tables).map(([k,v])=>[k,v.length]))};
@@ -195,7 +202,7 @@ export async function importSnapshot(snapshot:DatabaseSnapshot,allowProduction=f
   return {targetNamespace:target,sourceNamespace:snapshot.sourceNamespace,counts:plan.counts,elapsedMs:Date.now()-started};
 }
 const jsonColumns=new Set(["configuration","payload","result","report"]);
-const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at","count","served_at","name_confirmed_at"]);
+const numericColumns=new Set(["created_at","registered_at","imported_at","catalog_score","revision","chat_epoch","score","secondary","metric","bytes","used","position","expires_at","observed_at","count","served_at","name_confirmed_at","name_changed_at","email_changed_at","pending_requested_at"]);
 export async function verifySnapshot(snapshot:DatabaseSnapshot) {
   const plan=planSnapshot(snapshot),tables:Record<string,unknown>={},mismatches:string[]=[];
   for(const [table,columns] of Object.entries(importColumns)) {

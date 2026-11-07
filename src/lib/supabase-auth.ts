@@ -45,6 +45,8 @@ export function providerError(error: { code?: string } | null) {
     validation_failed: "Thông tin xác thực chưa hợp lệ.",
     weak_password: "Mật khẩu chưa đủ mạnh. Hãy dùng mật khẩu khác, tối thiểu 10 ký tự.",
     same_password: "Mật khẩu mới cần khác mật khẩu hiện tại.",
+    email_exists: "Không thể sử dụng email này. Hãy chọn địa chỉ khác.",
+    otp_expired: "Liên kết xác nhận đã hết hạn hoặc đã được sử dụng. Hãy gửi yêu cầu mới.",
   };
   throw new ApiError(messages[error.code ?? ""] ?? "Không thể xác thực. Vui lòng thử lại hoặc liên hệ quản trị viên.", error.code === "invalid_credentials" ? 401 : 400);
 }

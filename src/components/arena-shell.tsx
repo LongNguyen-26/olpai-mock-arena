@@ -33,6 +33,7 @@ import AdminRoster from "./admin-roster";
 import RoundCard from "./round-card";
 import AuthRequired from "./auth-required";
 import LockedResources from "./locked-resources";
+import LegalLinks from "./legal-links";
 import { loginHref, publicSections } from "@/lib/auth-navigation";
 import { ProfileView, signOut, TeamView } from "./team-profile";
 import {
@@ -561,7 +562,7 @@ export default function Arena() {
           )}{" "}
           {inside && section === "leaderboard" && <BoardView {...views} />}
           {section === "team" && !guest && !isAdmin && <TeamView {...props} />}{" "}
-          {section === "settings" && !guest && <ProfileView {...props} />}{" "}
+          {section === "settings" && !guest && <ProfileView {...props} onRefresh={()=>load()} />}{" "}
           {!guest && (section === "workspace" || workspaceMounted) && (
             <div hidden={section !== "workspace"}>
               <GpuWorkspace
@@ -576,6 +577,7 @@ export default function Arena() {
             <RoundAdmin {...props} />
           )}
         </main>
+        <footer className="arena-footer"><p>OlpAI Arena — không gian luyện tập AI, làm bài theo đội và theo dõi kết quả trên bảng xếp hạng.</p><LegalLinks/></footer>
       </div>
     </div>
   );
