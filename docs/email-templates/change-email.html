@@ -1,28 +1,31 @@
 <!doctype html>
 <html lang="vi">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Xác nhận đổi email — OlpAI Arena</title></head>
-<body style="margin:0;padding:32px 16px;background:#f3f6f7;font-family:Arial,Helvetica,sans-serif;color:#19313a;">
+<body style="margin:0;padding:32px 16px;background:#eef1f4;font-family:Arial,Helvetica,sans-serif;color:#1d2f3d;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Xác nhận yêu cầu thay đổi email tài khoản OlpAI Arena.</div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td align="center">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e1e8eb;border-radius:16px;overflow:hidden;">
-      <tr><td style="background:#192e36;padding:28px 32px;color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:-.5px;">
-        <span style="display:inline-block;background:#f57743;color:#192e36;padding:7px 10px;border-radius:9px;margin-right:8px;">A·</span> OlpAI <span style="font-weight:normal;color:#c1d0d5;">Arena</span>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #dce3e9;border-radius:16px;overflow:hidden;">
+      <tr><td style="background:#1d2f3d;padding:28px 32px;color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:-.5px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td width="48" style="width:48px;vertical-align:middle;"><img src="https://olpaiarena.cyou/branding/olpai-arena-oauth-120.png?v=night-blue-20261107" alt="" width="40" height="40" style="display:block;width:40px;height:40px;border:0;"></td>
+          <td style="vertical-align:middle;color:#f4f7fa;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;letter-spacing:-.5px;">OlpAI Arena</td>
+        </tr></table>
       </td></tr>
       <tr><td style="padding:34px 32px 30px;">
-        <p style="margin:0 0 12px;color:#6c817d;font-size:11px;letter-spacing:1.5px;font-weight:bold;">BẢO MẬT TÀI KHOẢN</p>
+        <p style="margin:0 0 12px;color:#b45225;font-size:11px;letter-spacing:1.5px;font-weight:bold;">BẢO MẬT TÀI KHOẢN</p>
         <h1 style="margin:0 0 18px;font-size:27px;line-height:1.3;letter-spacing:-.6px;">Xác nhận thay đổi email</h1>
-        <p style="margin:0 0 16px;color:#5b7077;font-size:15px;line-height:1.8;">Chúng tôi nhận được yêu cầu đổi email tài khoản OlpAI Arena từ <strong style="overflow-wrap:anywhere;word-break:break-word;">{{ .Email }}</strong> sang <strong style="overflow-wrap:anywhere;word-break:break-word;">{{ .NewEmail }}</strong>.</p>
-        <p style="margin:0 0 26px;color:#5b7077;font-size:14px;line-height:1.8;">Nếu đây là yêu cầu của bạn, mở liên kết bên dưới rồi bấm xác nhận trên Arena. Bạn có thể cần xác nhận thư gửi đến <strong style="color:#284c52;">cả email hiện tại và email mới</strong> trước khi thay đổi hoàn tất.</p>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#203d46" style="border-radius:9px;">
+        <p style="margin:0 0 16px;color:#526575;font-size:15px;line-height:1.8;">Chúng tôi nhận được yêu cầu đổi email tài khoản OlpAI Arena từ <strong style="overflow-wrap:anywhere;word-break:break-word;">{{ .Email }}</strong> sang <strong style="overflow-wrap:anywhere;word-break:break-word;">{{ .NewEmail }}</strong>.</p>
+        <p style="margin:0 0 26px;color:#526575;font-size:14px;line-height:1.8;">Nếu đây là yêu cầu của bạn, mở liên kết bên dưới rồi bấm xác nhận trên Arena. Bạn có thể cần xác nhận thư gửi đến <strong style="color:#1d2f3d;">cả email hiện tại và email mới</strong> trước khi thay đổi hoàn tất.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#1d2f3d" style="border-radius:9px;">
           <a href="{{ .SiteURL }}/auth/email-change?token_hash={{ .TokenHash }}" style="display:inline-block;padding:15px 25px;color:#ffffff;font-size:15px;font-weight:bold;line-height:1.4;text-decoration:none;border-radius:9px;">Xác nhận đổi email</a>
         </td></tr></table>
-        <p style="margin:25px 0 0;color:#819098;font-size:12px;line-height:1.8;">Liên kết có thời hạn và chỉ sử dụng một lần. Nếu bạn không yêu cầu thay đổi, không xác nhận và liên hệ <a href="mailto:nhatlong30042006@gmail.com" style="color:#47796f;">nhatlong30042006@gmail.com</a>.</p>
-        <hr style="border:0;border-top:1px solid #e8edef;margin:27px 0 20px;">
-        <p style="margin:0 0 8px;color:#819098;font-size:12px;line-height:1.7;">Nếu nút không hoạt động, sao chép liên kết sau vào trình duyệt:</p>
-        <p style="margin:0;word-break:break-all;overflow-wrap:anywhere;font-size:12px;line-height:1.7;"><a href="{{ .SiteURL }}/auth/email-change?token_hash={{ .TokenHash }}" style="color:#47796f;">{{ .SiteURL }}/auth/email-change?token_hash={{ .TokenHash }}</a></p>
+        <p style="margin:25px 0 0;color:#647585;font-size:12px;line-height:1.8;">Liên kết có thời hạn và chỉ sử dụng một lần. Nếu bạn không yêu cầu thay đổi, không xác nhận và liên hệ <a href="mailto:nhatlong30042006@gmail.com" style="color:#335c73;">nhatlong30042006@gmail.com</a>.</p>
+        <hr style="border:0;border-top:1px solid #e4e9ee;margin:27px 0 20px;">
+        <p style="margin:0 0 8px;color:#647585;font-size:12px;line-height:1.7;">Nếu nút không hoạt động, sao chép liên kết sau vào trình duyệt:</p>
+        <p style="margin:0;word-break:break-all;overflow-wrap:anywhere;font-size:12px;line-height:1.7;"><a href="{{ .SiteURL }}/auth/email-change?token_hash={{ .TokenHash }}" style="color:#335c73;">{{ .SiteURL }}/auth/email-change?token_hash={{ .TokenHash }}</a></p>
       </td></tr>
     </table>
-    <p style="margin:22px 0 0;color:#8a989d;font-size:12px;line-height:1.7;">OlpAI Arena · <a href="https://olpaiarena.cyou" style="color:#6c858c;text-decoration:none;">olpaiarena.cyou</a></p>
+    <p style="margin:22px 0 0;color:#647585;font-size:12px;line-height:1.7;">OlpAI Arena · <a href="https://olpaiarena.cyou" style="color:#526575;text-decoration:none;">olpaiarena.cyou</a></p>
   </td></tr></table>
 </body>
 </html>

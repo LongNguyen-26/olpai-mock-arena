@@ -6,14 +6,21 @@ Ba tệp HTML là mã nguồn để dán nguyên vào **Body → Source** ở Su
 | --- | --- | --- |
 | Confirm sign up | Xác nhận email — OlpAI Arena | `confirm-signup.html` |
 | Reset password | Đặt lại mật khẩu — OlpAI Arena | `reset-password.html` |
+| Change email address | Xác nhận thay đổi email — OlpAI Arena | `change-email.html` |
 
 Giữ nguyên biến `{{ .ConfirmationURL }}` trong các liên kết. Supabase tạo liên kết xác thực; Resend gửi cả email xác nhận và email khôi phục qua cùng Custom SMTP đang cấu hình. Không cần thêm Resend API key vào frontend hoặc thay Google client.
 
 Luồng khôi phục: **Quên mật khẩu → nhập email → nhận thư Reset password → mở link trên cùng trình duyệt → chọn mật khẩu mới → đăng nhập lại**. Các phiên Arena cũ bị thu hồi sau khi lưu mật khẩu mới. Dành cho tài khoản Supabase, gồm tài khoản Google muốn thêm mật khẩu; tài khoản scrypt lịch sử không được reset qua email chưa xác minh.
 
-Trong trang SMTP, giữ sender thuộc domain đã xác minh. Tắt click tracking cho email Auth để dịch vụ gửi thư không sửa liên kết. Bản mẫu không có tài nguyên từ bên ngoài hoặc JavaScript. Preview trình duyệt không thay kiểm tra hiển thị thực tế trong mọi ứng dụng email.
+Trong trang SMTP, giữ sender thuộc domain đã xác minh. Tắt click tracking cho email Auth để dịch vụ gửi thư không sửa liên kết. Bản mẫu không có JavaScript, dùng CSS inline và bảng trình bày; ảnh logo PNG tải từ chính `https://olpaiarena.cyou/branding/olpai-arena-oauth-120.png?v=night-blue-20261107`. Tên OlpAI Arena vẫn hiển thị bằng chữ nếu ứng dụng email chặn ảnh. Preview trình duyệt không thay kiểm tra hiển thị thực tế trong mọi ứng dụng email.
 
-Sau khi dán và Save, kiểm tra riêng một email Confirm sign up và một email Reset password. Bản ZIP bàn giao giữ placeholder của Supabase, không chứa email người dùng, mật khẩu hoặc mã xác thực thật.
+Sau khi dán và Save, kiểm tra riêng ba luồng Confirm sign up, Reset password và Change email address. Bản ZIP bàn giao giữ placeholder của Supabase, không chứa email người dùng, mật khẩu hoặc mã xác thực thật.
+
+## Bộ nhận diện đã duyệt ngày 07/11/2026
+
+Nền xám lạnh `#eef1f4`, header/nút xanh đêm `#1d2f3d`, monogram A mới với điểm nhấn cam sáng `#ff9b62`. Nhãn nhỏ trên nền trắng dùng cam đậm `#b45225` để dễ đọc. Chỉ wordmark dùng Georgia để tương thích email; nội dung giữ Arial/Helvetica. Hai tệp PNG OAuth 120×120 và 512×512 nằm trong `public/branding/`, được đóng gói cùng ba HTML để bàn giao.
+
+Biến mẫu được đối chiếu với [tài liệu Supabase Email Templates](https://supabase.com/docs/guides/auth/auth-email-templates); lần cập nhật này chỉ đổi nhận diện, giữ nguyên URL xác thực và câu chữ hướng dẫn các luồng hiện có. Người dùng tự cập nhật mẫu trên Supabase và logo trong Google Auth Platform → Branding; việc deploy web không tự thay hai cấu hình này.
 
 ## Change email address
 

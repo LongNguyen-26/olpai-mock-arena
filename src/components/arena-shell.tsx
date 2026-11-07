@@ -379,7 +379,7 @@ export default function Arena() {
         </div>
       </aside>
       <div className="app-body">
-        <header className={`topbar ${section === "rounds" ? "directory-topbar" : ""}`}>
+        <header className="topbar">
           <div className="breadcrumbs">
             <a
               href="/#rounds"

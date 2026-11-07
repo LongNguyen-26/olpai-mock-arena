@@ -1,20 +1,26 @@
-# Nhận diện tối giản — 07/11/2026
+# Nhận diện xanh đêm — bản đã duyệt 07/11/2026
 
-Áp dụng mockup đã được người dùng duyệt: nền trắng ngà, sidebar than ấm, điểm nhấn đất nung tiết chế. Giữ nội dung vòng luyện và ảnh bìa gốc; giảm saturation ảnh bằng CSS, không sửa asset.
+Người dùng đổi hướng sau mockup và đã duyệt ảnh chụp bản local tăng sắc cam, cho phép áp dụng và deploy lên Render. Bản trắng ngà/serif toàn tiêu đề đã bị loại bỏ. Logo PNG và ba HTML email được bàn giao để người dùng tự cập nhật Google OAuth/Supabase.
 
-- `src/app/editorial-theme.css`: token màu và style dùng chung, import cuối trong root layout. Success/warning/error vẫn phân biệt; điều hướng active và focus bàn phím có dấu hiệu rõ ràng.
-- `src/components/brand-identity.tsx`: SVG monogram A và wordmark dùng chung cho shell, loading, đăng nhập, onboarding, xác nhận email và trang pháp lý. Link logo có accessible name ngay cả khi wordmark bị ẩn ở tablet.
-- `src/app/icon.svg`: favicon mới; `scripts/export-oauth-logo.mjs` xuất PNG 120/512 từ cùng thiết kế. Google Auth Platform là cấu hình bên ngoài; xem `OAUTH_BRANDING.md`.
-- Source Serif 4 Variable 5.3.1 dùng cho tiêu đề biên tập và wordmark, có Vietnamese subset. Đóng gói bằng Fontsource và phục vụ cùng host. Be Vietnam Pro giữ cho UI/bảng/form; IBM Plex Mono giữ cho code.
-- Trang chủ vẫn lưới hai cột trên desktop, một cột ở tablet/mobile. Menu mobile và nút đăng nhập tối thiểu 44px; input tìm/lọc dùng 16px trên mobile.
-- Không thay API, quyền truy cập, scoring, dữ liệu, cấu hình cloud hay runtime GPU.
+## Giữ lại
 
-## Kiểm tra trước phát hành
+- SVG monogram A dùng chung cho shell, loading, đăng nhập, onboarding, xác nhận email và trang pháp lý; accessible name cho link logo khi ẩn wordmark ở tablet.
+- Sidebar xanh đêm ngả xám: màu nền `#1d2f3d`, gradient nhẹ `#233847` → `#192b38`, active `#334b5d`. Điểm nhấn cam `#ff9b62` ở logo, icon menu đang chọn, nhãn thời gian và họa tiết đăng nhập theo phản hồi mới nhất; bỏ lớp opacity làm mờ họa tiết AI. Tham khảo ảnh người dùng gửi, không áp dụng nút cam hoặc mảng nền rực.
+- Source Serif 4 Variable **chỉ dành cho chữ OlpAI Arena**. Font đóng gói cùng website; không tải từ Google lúc sử dụng.
+- Nút chính, hero vòng luyện và panel tối trang đăng nhập đồng bộ xanh đêm. Form, trạng thái chức năng và dữ liệu dùng màu gốc.
+- Các tinh chỉnh kích thước chạm menu/nút trên điện thoại và input tìm/lọc 16px.
 
-- TypeScript qua; 114/114 unit test qua (`node node_modules/tsx/dist/cli.mjs --test --test-concurrency=1 tests/*.test.ts`).
-- `npm run build` qua với production Turbopack; Windows sandbox cần quyền tạo junction để build.
-- Playwright kiểm tra bản production trên localhost: logo, màu sidebar, font tiếng Việt, tìm/lọc vòng, không tràn ngang ở 1440/768/390px; trang tổng quan/đề/bảng điểm, đăng nhập, privacy, terms, xác nhận email. Không có browser exception hoặc HTTP lỗi trong các kiểm tra này.
-- Local catalogue dùng anonymous public GET được replay, chặn mọi mutation; Workspace/chat dùng fixture giả lập. Đã kiểm tra desktop/mobile và monospace trong code block. Không tạo Pod, gọi model hoặc gửi email.
-- Ảnh QA và callback kiểm tra lưu tại `output/playwright/editorial-*` và `output/playwright/check-editorial*.js` (ignored).
+## Khôi phục
 
-Sau phát hành cần đối chiếu full SHA trên Render, chạy smoke đọc/đăng nhập/đăng xuất và chụp lại trang chủ từ tên miền thật.
+- Nền xám lạnh dịu `#eef1f4` (giảm sáng nhẹ so với nền cũ), card và header trắng; bỏ toàn bộ nền trắng ngà. Form đăng nhập trên nền `#f4f6f8`.
+- Be Vietnam Pro cho tiêu đề, nội dung, biểu mẫu, bảng; IBM Plex Mono cho code.
+- Card vòng luyện về hình dáng, kích thước, ảnh bìa nguyên màu và layout cũ; khung TV1/TV2 về nền xám xanh như trước.
+- Bỏ các thay đổi màu diện rộng của theme trước ở Workspace/chat, bảng điểm và trang pháp lý.
+
+Style chọn lọc nằm trong `src/app/editorial-theme.css`; `globals.css` cùng các file CSS gốc giữ nguyên để khôi phục đúng các quy tắc cũ. PNG OAuth xuất từ `src/app/icon.svg`; cấu hình branding Google bên ngoài chưa thay đổi.
+
+## Nghiệm thu bản xem trước
+
+Ảnh và callback kiểm tra bản tăng sắc cam lưu trong `output/playwright/night-blue-accent-*` (ignored). Catalogue dùng anonymous public GET được replay; Workspace/chat dùng fixture, không ghi backend, tạo Pod hoặc gọi model. Đây là ảnh chụp giao diện chạy thật trên localhost, không phải mockup AI.
+
+Kết quả bản sửa: production build và TypeScript qua; 114 kiểm thử đạt. Playwright xác nhận nền mới/font và khung tác vụ gốc/màu ảnh gốc, tìm/lọc, desktop/tablet/mobile và Workspace/chat giả lập; không có browser exception hoặc HTTP lỗi trong các lượt kiểm tra. Ba email giữ nguyên các biến mẫu và liên kết xác thực; kiểm tra preview desktop/mobile bằng dữ liệu minh họa. Trạng thái phát hành thực tế phải đối chiếu SHA và `live` trên Render, rồi kiểm tra tên miền chính.
