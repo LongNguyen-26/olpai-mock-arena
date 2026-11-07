@@ -17,7 +17,9 @@ export default function AccountPassword({ email, enabled, disabled, onRefresh }:
     finally { setBusy(false); }
   }
   return <div className="account-detail account-password">
-    <div className="account-detail-row"><div><h3><KeyRound size={22} /> Mật khẩu</h3><small>{enabled ? "Đã thiết lập. Bạn có thể đăng nhập bằng email và mật khẩu trên thiết bị khác." : "Chưa thiết lập. Thêm mật khẩu để đăng nhập trên thiết bị khác; Google vẫn dùng được."}</small></div>
+    <h3><KeyRound size={24}/> Mật khẩu</h3>
+    <div className="account-value-row">
+      <div><p>{enabled ? "Đã thiết lập mật khẩu" : "Chưa thiết lập mật khẩu"}</p><small>{enabled ? "Đăng nhập bằng email và mật khẩu trên các thiết bị của bạn." : "Thêm mật khẩu để đăng nhập trên thiết bị khác; Google vẫn dùng được."}</small></div>
       <button className="text-button account-edit" type="button" disabled={disabled || busy} onClick={() => { setEditing(!editing); setError(""); setNotice(""); }} aria-expanded={editing}>{enabled ? "Đổi mật khẩu" : "Thiết lập mật khẩu"}</button>
     </div>
     {notice && <p className="alert auth-notice" role="status">{notice}</p>}

@@ -358,7 +358,7 @@
 
 # Tài khoản rộng, thẻ bo góc và Trường — 07/11/2026
 
-- Loại bỏ giới hạn 580px của trang Tài khoản. Hồ sơ, tên/trường, email, Google, OTP và mật khẩu được bố trí trong các thẻ trắng bo góc; heading 19–30px, nội dung chính 17–20px, chữ trợ giúp 14px; form mật khẩu hai cột trên desktop và một cột trên mobile. Chỉ đổi bố cục của trang Tài khoản.
+- Loại bỏ giới hạn 580px của trang Tài khoản. Theo yêu cầu làm rõ cuối cùng, các mục dùng chung một bảng trắng rộng, nhãn đặt ngoài ô giá trị bo góc; heading 28–32px, nhãn 21px, giá trị 22px, chữ trợ giúp 15px; form mật khẩu hai cột trên desktop và một cột trên mobile. Chỉ đổi bố cục của trang Tài khoản.
 - Trường là hồ sơ riêng có thể sửa/để trống, tối đa 160 ký tự. API yêu cầu đăng nhập, luôn dùng user ID từ session; chuẩn hóa khoảng trắng/Unicode, kiểm tra giới hạn, ghi SQL với namespace RLS và giữ các mốc đổi tên/email. Backup giữ trường mới và đọc được bản sáu cột cũ.
 - Typecheck, 114 unit test và production build qua. QA dùng PostgreSQL cục bộ và Auth giả lập; kiểm tra lưu/đọc lại trường sau đăng nhập, xóa để trống, quá giới hạn và không thể chọn user khác qua payload. Người dùng xác nhận tự lưu cấu hình email Supabase trước triển khai.
 

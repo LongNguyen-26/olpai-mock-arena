@@ -3299,72 +3299,73 @@ th.table-date-heading { font-size:10px; font-weight:500; }
 .legal-footer {border-top:1px solid #dfe7e9;padding:24px 0 36px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;color:#72828a;}
 @media(max-width:640px){.account-detail-row{gap:12px;}.account-detail-row p{font-size:14px;}.account-edit{font-size:12px;}.account-edit-form,.team-rename-form{padding:16px;}.legal-page{padding:0 22px;}.legal-header{padding:22px 0;}.legal-header .brand{font-size:17px;}.legal-header>.text-button{font-size:12px;}.legal-main{margin:40px auto 48px;}.legal-intro{font-size:15px;}.arena-footer{padding:22px 20px;}.legal-footer{display:block;}.legal-footer>.legal-links{margin-bottom:12px;}}
 
-/* Account settings use the full content width and distinct, readable cards. */
-.account-panel {width:100%;min-width:0;display:grid;gap:20px;padding-bottom:16px;}
-.account-identity {display:flex;gap:24px;align-items:center;padding:32px;background:#fff;border:1px solid #dde5eb;border-radius:22px;box-shadow:0 3px 14px #1d2f3d03;}
+/* Account values sit in rounded fields within a single full-width panel. */
+.account-panel {width:100%;min-width:0;display:grid;gap:28px;padding:34px;background:#fff;border:1px solid #dde5eb;border-radius:22px;}
+.account-identity {display:flex;gap:24px;align-items:center;padding:0 0 30px;border-bottom:1px solid #e3e9ee;}
 .account-avatar {display:grid;place-items:center;width:76px;height:76px;flex-shrink:0;border-radius:22px;background:#edf3f7;color:#294554;}
 .account-identity-copy {min-width:0;}
-.account-eyebrow {display:block;font-size:11px;font-weight:600;letter-spacing:1.7px;color:#7a8b98;margin-bottom:6px;}
-.account-identity h2 {margin:0 0 6px;font-size:30px;line-height:1.35;letter-spacing:-.7px;overflow-wrap:anywhere;}
-.account-identity p {margin:0 0 12px;color:#607585;font-size:17px;overflow-wrap:anywhere;}
-.account-type {margin-left:auto;align-self:flex-start;padding:9px 14px;border:1px solid #e2e9ee;border-radius:12px;background:#f7f9fb;font-size:13px;font-weight:500;color:#587081;white-space:nowrap;}
-.account-status {display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:6px 11px;border-radius:20px;background:#eef1f4;color:#526675;font-size:12px;font-weight:600;line-height:1.5;}
+.account-eyebrow {display:block;font-size:12px;font-weight:600;letter-spacing:1.7px;color:#7a8b98;margin-bottom:7px;}
+.account-identity h2 {margin:0 0 6px;font-size:32px;line-height:1.35;letter-spacing:-.7px;overflow-wrap:anywhere;}
+.account-identity p {margin:0 0 12px;color:#607585;font-size:19px;overflow-wrap:anywhere;}
+.account-type {margin-left:auto;align-self:flex-start;padding:9px 14px;border:1px solid #e2e9ee;border-radius:12px;background:#f7f9fb;font-size:14px;font-weight:500;color:#587081;white-space:nowrap;}
+.account-status {display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:6px 11px;border-radius:20px;background:#eef1f4;color:#526675;font-size:13px;font-weight:600;line-height:1.5;}
 .account-status.verified {color:#18724b;background:#e8f5ed;}
-.account-section-heading {margin-top:12px;}
-.account-section-heading h2 {font-size:25px;line-height:1.4;letter-spacing:-.5px;margin:0 0 7px;}
-.account-section-heading p {font-size:15px;color:#748593;margin:0;line-height:1.75;}
-.account-panel .account-detail {min-width:0;padding:28px 30px;border:1px solid #dde5eb;border-radius:18px;background:#fff;}
-.account-panel .account-detail-row {align-items:center;gap:24px;flex-wrap:nowrap;}
-.account-panel .account-detail-row>div {min-width:0;flex:1;}
-.account-panel .account-detail h3 {display:flex;align-items:center;gap:11px;font-size:19px;line-height:1.5;margin:0 0 9px;font-weight:600;}
-.account-panel .account-detail-row p {font-size:20px;line-height:1.6;margin-bottom:8px;}
-.account-panel .account-detail small {font-size:14px;line-height:1.85;color:#708291;max-width:850px;}
-.account-panel .account-edit {font-size:14px;padding:10px 15px;border:1px solid #dce5ec;border-radius:10px;background:#fff;min-height:44px;justify-content:center;}
-.account-panel .account-edit:hover:not(:disabled) {background:#f4f7fa;border-color:#bfcfda;}
-.account-panel .account-edit svg {width:17px;height:17px;}
-.account-personal-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;}
-.account-methods-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;}
-.account-panel .account-method-card {display:flex;flex-direction:column;gap:14px;}
-.account-panel .account-method-card h3 {margin:0;}
-.account-panel .account-method-card small {max-width:470px;}
-.account-connect {align-self:flex-start;margin-top:2px;}
-.account-panel .account-edit-form {margin-top:24px;padding:24px;border-radius:14px;background:#f7f9fb;max-width:none;}
-.account-panel label {font-size:14px;font-weight:500;margin:0;}
-.account-panel input:not([type=hidden]) {font-size:16px;min-height:50px;border-radius:10px;}
+.account-section-heading h2 {font-size:28px;line-height:1.4;letter-spacing:-.5px;margin:0 0 7px;}
+.account-section-heading p {font-size:16px;color:#748593;margin:0;line-height:1.75;}
+.account-security-heading {border-top:1px solid #e3e9ee;padding-top:30px;margin-top:4px;}
+.account-panel .account-detail {min-width:0;padding:0;border:0;border-radius:0;background:none;}
+.account-panel .account-detail h3 {display:flex;align-items:center;gap:11px;font-size:21px;line-height:1.5;margin:0 0 12px;font-weight:600;}
+.account-panel .account-detail small {display:block;font-size:15px;line-height:1.8;color:#708291;}
+.account-panel .account-detail>small {margin-top:10px;}
+.account-value-row {display:flex;align-items:center;gap:20px;min-width:0;min-height:70px;padding:17px 20px;background:#f8fafb;border:1px solid #dce4ea;border-radius:13px;}
+.account-value-row>div {min-width:0;flex:1;}
+.account-panel .account-value-row p {flex:1;min-width:0;margin:0;font-size:22px;line-height:1.6;color:#203842;overflow-wrap:anywhere;}
+.account-value-row small {margin-top:5px;}
+.account-panel .account-edit {flex-shrink:0;display:inline-flex;align-items:center;gap:8px;font-size:15px;padding:9px 12px;border:0;border-radius:9px;background:transparent;min-height:44px;justify-content:center;}
+.account-panel .account-edit:hover:not(:disabled) {background:#eaf0f5;}
+.account-panel .account-edit svg {width:20px;height:20px;}
+.account-personal-grid,.account-methods-grid {display:grid;grid-template-columns:minmax(0,1fr);gap:28px;}
+.account-panel .account-method-card .account-value-row p,.account-panel .account-password .account-value-row p {font-size:21px;}
+.account-connect {margin-top:14px;}
+.account-panel .account-edit-form {margin-top:20px;padding:24px;border-radius:13px;background:#f7f9fb;max-width:none;}
+.account-panel label {font-size:17px;font-weight:500;margin:0;}
+.account-panel input:not([type=hidden]) {font-size:18px;min-height:56px;border-radius:11px;}
 .account-panel input[hidden] {display:none;}
 .account-panel .account-edit-form label {display:block;margin-bottom:20px;}
 .account-panel .account-password form {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px;}
 .account-panel .account-password form label {margin:0;min-width:0;}
 .account-panel .account-form-wide,.account-password .account-form-actions {grid-column:1/-1;}
 .account-panel .account-code-button {grid-column:1/-1;justify-self:start;}
-.account-panel .account-form-actions .btn,.account-panel .account-connect,.account-panel .account-code-button {font-size:14px;min-height:44px;padding:10px 17px;}
-.account-panel .account-form-actions .text-button {font-size:14px;min-height:44px;padding:8px;}
-.account-panel .account-reauth-note,.account-panel .account-pending {font-size:14px!important;}
+.account-panel .account-form-actions .btn,.account-panel .account-connect,.account-panel .account-code-button {font-size:15px;min-height:46px;padding:11px 18px;}
+.account-panel .account-form-actions .text-button {font-size:15px;min-height:44px;padding:8px;}
+.account-panel .account-reauth-note,.account-panel .account-pending {font-size:15px!important;}
 .account-panel .account-form-wide {margin:0;}
-.account-panel .profile-signout {justify-self:start;font-size:14px;min-height:46px;padding:11px 18px;margin-top:4px;}
+.account-panel .profile-signout {justify-self:start;font-size:15px;min-height:48px;padding:11px 18px;margin-top:4px;}
 .email-confirmation-page {min-height:100vh;display:grid;place-items:center;padding:24px;background:#eef1f4;}
-@media(max-width:1000px){.account-personal-grid{grid-template-columns:1fr;}.account-methods-grid{grid-template-columns:1fr;}.account-type{font-size:12px;}.account-identity{padding:26px;gap:18px;}.account-identity h2{font-size:27px;}}
+@media(max-width:1000px){.account-type{font-size:12px;}.account-identity{gap:18px;}.account-identity h2{font-size:29px;}}
 @media(max-width:640px){
-  .account-panel{gap:16px;}
-  .account-identity{display:grid;grid-template-columns:56px minmax(0,1fr);padding:22px 20px;gap:15px;border-radius:18px;}
+  .account-panel{gap:26px;padding:24px 20px;border-radius:18px;}
+  .account-identity{display:grid;grid-template-columns:56px minmax(0,1fr);gap:15px;padding:0 0 24px;}
   .account-avatar{width:56px;height:56px;border-radius:17px;}
-  .account-identity-copy{flex:1;}
-  .account-identity h2{font-size:23px;letter-spacing:-.5px;}
-  .account-identity p{font-size:14px;}
-  .account-eyebrow{font-size:9px;letter-spacing:1.2px;}
+  .account-identity h2{font-size:25px;letter-spacing:-.5px;}
+  .account-identity p{font-size:15px;}
+  .account-eyebrow{font-size:10px;letter-spacing:1.2px;}
   .account-type{grid-column:1/-1;margin-left:0;justify-self:start;}
-  .account-section-heading{margin-top:12px;}
-  .account-section-heading h2{font-size:22px;}
-  .account-section-heading p{font-size:14px;}
-  .account-panel .account-detail{padding:22px 20px;border-radius:16px;}
-  .account-panel .account-detail h3{font-size:17px;}
-  .account-panel .account-detail-row{gap:16px;align-items:flex-start;flex-wrap:wrap;}
-  .account-panel .account-detail-row>div{flex:1 1 100%;}
-  .account-panel .account-detail-row p{font-size:17px;}
+  .account-section-heading h2{font-size:24px;}
+  .account-section-heading p{font-size:15px;}
+  .account-security-heading{padding-top:26px;}
+  .account-panel .account-detail h3{font-size:19px;}
   .account-panel .account-detail small{font-size:14px;}
-  .account-panel .account-method-card .account-detail-row{align-items:center;}
-  .account-panel .account-method-card h3{flex:1 1 170px;}
-  .account-panel .account-edit-form{padding:18px 16px;}
+  .account-value-row{padding:13px 14px;gap:10px;min-height:64px;}
+  .account-panel .account-value-row p{font-size:19px;}
+  .account-panel .account-method-card .account-value-row,.account-panel .account-password .account-value-row{flex-wrap:wrap;gap:14px;}
+  .account-panel .account-method-card .account-value-row>div,.account-panel .account-password .account-value-row>div{flex:1 1 100%;}
+  .account-panel .account-method-card .account-value-row p,.account-panel .account-password .account-value-row p{font-size:19px;}
+  .account-panel .account-edit{font-size:14px;padding:7px;min-width:44px;}
+  .account-action-label{display:none;}
+  .account-panel .account-edit-form{padding:18px 14px;}
   .account-panel .account-password form{grid-template-columns:1fr;gap:20px;}
-  .account-status{max-width:100%;font-size:11px;}
+  .account-panel label{font-size:16px;}
+  .account-panel input:not([type=hidden]){font-size:17px;min-height:52px;}
+  .account-status{max-width:100%;font-size:12px;}
 }

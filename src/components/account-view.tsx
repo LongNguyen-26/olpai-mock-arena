@@ -103,28 +103,15 @@ export default function ProfileView({
         <p>Cập nhật tên hiển thị và trường của bạn.</p>
       </div>
       <div className="account-personal-grid">
-      <div className="account-detail">
-        <div className="account-detail-row">
-          <div>
-            <h3>Tên hiển thị</h3>
-            <p>{data.user?.name}</p>
-            <small>
-              {nameReady
-                ? "Có thể đổi tên một lần mỗi 30 ngày."
-                : `Có thể đổi lại từ ${date(data.account!.nameChangeAt!)}.`}
-            </small>
-          </div>
-          <button
-            type="button"
-            className="text-button account-edit"
-            disabled={disabled || !nameReady}
-            onClick={() => edit("name")}
-            aria-expanded={editing === "name"}
-          >
-            <Pencil size={15} />
-            Đổi tên
+      <div className="account-detail account-name">
+        <h3>Tên hiển thị</h3>
+        <div className="account-value-row">
+          <p>{data.user?.name}</p>
+          <button type="button" className="text-button account-edit" disabled={disabled || !nameReady} onClick={()=>edit("name")} aria-expanded={editing === "name"} aria-label="Đổi tên">
+            <Pencil size={20}/><span className="account-action-label">Đổi tên</span>
           </button>
         </div>
+        <small>{nameReady ? "Có thể đổi tên một lần mỗi 30 ngày." : `Có thể đổi lại từ ${date(data.account!.nameChangeAt!)}.`}</small>
         {editing === "name" && (
           <form
             className="account-edit-form"
@@ -166,16 +153,14 @@ export default function ProfileView({
         )}
       </div>
       <div className="account-detail account-school">
-        <div className="account-detail-row">
-          <div>
-            <h3>Trường</h3>
-            <p>{data.account?.school || "Chưa cập nhật"}</p>
-            <small>Trường đại học, học viện hoặc đơn vị bạn đang theo học.</small>
-          </div>
-          <button type="button" className="text-button account-edit" disabled={disabled} onClick={()=>edit("school")} aria-expanded={editing === "school"}>
-            <Pencil size={17}/> Cập nhật trường
+        <h3>Trường</h3>
+        <div className="account-value-row">
+          <p>{data.account?.school || "Chưa cập nhật"}</p>
+          <button type="button" className="text-button account-edit" disabled={disabled} onClick={()=>edit("school")} aria-expanded={editing === "school"} aria-label="Cập nhật trường">
+            <Pencil size={20}/><span className="account-action-label">Cập nhật trường</span>
           </button>
         </div>
+        <small>Trường đại học, học viện hoặc đơn vị bạn đang theo học.</small>
         {editing === "school" && <form className="account-edit-form" onSubmit={async e=>{
           e.preventDefault();
           const school=new FormData(e.currentTarget).get("school");
@@ -190,37 +175,19 @@ export default function ProfileView({
         </form>}
       </div>
       </div>
-      <div className="account-section-heading">
+      <div className="account-section-heading account-security-heading">
         <h2>Tài khoản &amp; bảo mật</h2>
         <p>Quản lý email và các phương thức đăng nhập của bạn.</p>
       </div>
-      <div className="account-detail">
-        <div className="account-detail-row">
-          <div>
-            <h3>Email đăng nhập</h3>
-            <p>
-              {data.user?.username.includes("@")
-                ? data.user.username
-                : "Chưa liên kết email xác thực"}
-            </p>
-            <small>
-              {!data.account?.canChangeEmail
-                ? passwordEnabled ? "Liên kết Google để xác minh và quản lý email tài khoản." : "Email từ Google. Thiết lập mật khẩu để bật thay đổi email."
-                : emailReady ? "Đổi email cần xác nhận. Mỗi 30 ngày một lần."
-                : `Có thể đổi lại từ ${date(data.account!.emailChangeAt!)}.`}
-            </small>
-          </div>
-          {data.account?.canChangeEmail ? <button
-            type="button"
-            className="text-button account-edit"
-            disabled={disabled || !emailReady}
-            onClick={() => edit("email")}
-            aria-expanded={editing === "email"}
-          >
-            <Pencil size={15} />
-            Đổi email
-          </button> : <span className="account-status" aria-label="Email chỉ đọc"><LockKeyhole size={15}/> Chỉ đọc</span>}
+      <div className="account-detail account-email">
+        <h3>Email đăng nhập</h3>
+        <div className="account-value-row">
+          <p>{data.user?.username.includes("@") ? data.user.username : "Chưa liên kết email xác thực"}</p>
+          {data.account?.canChangeEmail ? <button type="button" className="text-button account-edit" disabled={disabled || !emailReady} onClick={()=>edit("email")} aria-expanded={editing === "email"} aria-label="Đổi email">
+            <Pencil size={20}/><span className="account-action-label">Đổi email</span>
+          </button> : <span className="account-status" aria-label="Email chỉ đọc"><LockKeyhole size={16}/> Chỉ đọc</span>}
         </div>
+        <small>{!data.account?.canChangeEmail ? passwordEnabled ? "Liên kết Google để xác minh và quản lý email tài khoản." : "Email từ Google. Thiết lập mật khẩu để bật thay đổi email." : emailReady ? "Đổi email cần xác nhận. Mỗi 30 ngày một lần." : `Có thể đổi lại từ ${date(data.account!.emailChangeAt!)}.`}</small>
         {data.account?.pendingEmail && (
           <p className="account-pending" role="status">
             Chờ xác nhận: <strong>{data.account.pendingEmail}</strong>. Kiểm tra
@@ -293,19 +260,19 @@ export default function ProfileView({
       </div>
       <div className="account-methods-grid">
         <div className="account-detail account-method-card">
-          <div className="account-detail-row">
-            <h3><span className="google-mark" aria-hidden="true">G</span> Google</h3>
+          <h3><span className="google-mark" aria-hidden="true">G</span> Google</h3>
+          <div className="account-value-row">
+            <div><p>Đăng nhập bằng Google</p><small>{google ? "Sử dụng tài khoản Google đã liên kết với Arena." : "Kết nối tài khoản Google để có thêm một cách đăng nhập."}</small></div>
             <span className={`account-status ${google ? "verified" : ""}`}>{google ? "Đã liên kết" : "Chưa liên kết"}</span>
           </div>
-          <small>{google ? "Đăng nhập nhanh bằng tài khoản Google đã liên kết." : "Kết nối tài khoản Google để có thêm một cách đăng nhập."}</small>
           {data.auth?.google && !data.authLinked && <button type="button" className="btn account-connect" disabled={disabled} onClick={linkGoogle}>Liên kết Google</button>}
         </div>
         {data.auth?.supabase && <div className="account-detail account-method-card">
-          <div className="account-detail-row">
-            <h3><Mail size={22}/> Đăng nhập qua email</h3>
+          <h3><Mail size={24}/> Đăng nhập qua email</h3>
+          <div className="account-value-row">
+            <div><p>OTP hoặc Magic Link</p><small>{data.account?.emailVerified && data.user?.authMethod === "supabase" ? "Nhận mã hoặc liên kết một lần qua email, không cần mật khẩu." : "Khả dụng sau khi tài khoản có email xác minh bằng Supabase."}</small></div>
             <span className={`account-status ${data.account?.emailVerified && data.user?.authMethod === "supabase" ? "verified" : ""}`}>{data.account?.emailVerified && data.user?.authMethod === "supabase" ? "Khả dụng" : "Chưa bật"}</span>
           </div>
-          <small>{data.account?.emailVerified && data.user?.authMethod === "supabase" ? "Dùng mã OTP hoặc Magic Link gửi đến email của bạn, không cần mật khẩu." : "Khả dụng sau khi tài khoản có email xác minh bằng Supabase."}</small>
         </div>}
       </div>
       <AccountPassword email={data.user?.username ?? ""} enabled={passwordEnabled} disabled={disabled} onRefresh={onRefresh}/>
