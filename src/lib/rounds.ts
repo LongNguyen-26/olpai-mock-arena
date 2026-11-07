@@ -1,3 +1,5 @@
+import { roundClassification, type RoundClassification } from "./round-classification";
+import { roundClassificationSchema } from "./round-classification-schema";
 import { packageBaselines } from "./score-baselines";
 import { convertScore, defaultDisplay, scoreBoard, titlesVisible } from "./score-display";
 import { createHash, randomUUID } from "node:crypto";
@@ -133,6 +135,10 @@ export async function snapshot(user: SafeUser | null, id?: string) {
           {
             id: c.roundId ?? c.id,
             title: c.title,
+            ...roundClassification(c),
+            publishedAt: c.publishedAt ?? c.createdAt,
+            catalogActivityAt: c.catalogActivityAt,
+            ...(admin ? { classificationConfigured: !!c.category } : {}),
             runId: c.id,
             leader: leaders.get(c.id) ?? null,
             ...(admin ? { packageTitle: packageLabels.get(c.packageId ?? "") ?? "Bộ đề không còn trong catalogue" } : {}),
@@ -333,8 +339,9 @@ export async function reviewRegistration(
   );
   if (!result) throw new ApiError("Không tìm thấy đăng ký.", 404);
 }
-export async function createRound(title: string, packageId: string) {
-  if(usingPostgres()) return createSqlRound(title,packageId);
+export async function createRound(title: string, packageId: string, classification: RoundClassification = {category:"mock",subcategory:"general"}) {
+  const labels=roundClassificationSchema.parse(classification);
+  if(usingPostgres()) return createSqlRound(title,packageId,labels);
   const pkg = await db().get<ContestPackage>(key(`package:${packageId}`));
   if (!pkg) throw new ApiError("Không tìm thấy bộ đề.");
   const id = randomUUID(),
@@ -344,6 +351,8 @@ export async function createRound(title: string, packageId: string) {
     roundId: id,
     packageId,
     title,
+    ...labels,
+    publishedAt: now,
     startAt: null,
     privateAt: null,
     forcedEndAt: null,
@@ -463,6 +472,7 @@ export async function control(
     if (typeof values.hidden !== "boolean")
       throw new ApiError("Chọn trạng thái hiển thị.");
     next.hidden = values.hidden;
+    if(c.hidden && !values.hidden){next.catalogActivityAt=now;next.publishedAt=c.publishedAt??c.createdAt;}
   } else if (action === "configure") {
     if (!["waiting", "scheduled"].includes(phase))
       throw new ApiError("Chỉ sửa thời lượng và quota trước khi bắt đầu.");
@@ -486,6 +496,7 @@ export async function control(
     if (!Number.isFinite(startAt) || startAt < now)
       throw new ApiError("Giờ hẹn phải ở tương lai.");
     next = { ...c, startAt, privateAt: null, forcedEndAt: null };
+    if(action === "start") next.catalogActivityAt=now;
   } else if (action === "cancel") {
     if (phase !== "scheduled") throw new ApiError("Không có lịch hẹn.");
     next.startAt = null;

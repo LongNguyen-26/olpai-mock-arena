@@ -109,3 +109,18 @@ Admin nộp thử được với cả public/private khi vòng chưa bắt đầ
 Dùng `scripts/upload-ready-package.ts` với thư mục `web_ready` để xác minh checksum và tải đúng các tệp trong upload-plan. Script chỉ chuẩn bị manifest trong `.local`, không phát hành vòng. `scripts/stage-package.ts` thêm gói vào danh sách cho admin xác nhận. Link Drive chỉ cập nhật sau khi tải xong đúng phiên bản, không trỏ gói mới sang ZIP cũ.
 
 `scripts/refresh-round-package.ts` dành cho chuyển một vòng đã kết thúc sang gói mới và xóa kết quả thử khi người dùng yêu cầu rõ ràng. Chạy trước không `--apply` để xem phạm vi; sau đó dùng `--apply`. Script giữ tài khoản, đội, đăng ký và đưa vòng về trạng thái chờ.
+
+
+## Phân nhóm vòng luyện và Mới nhất — 07/11/2026
+
+Ba nhóm chính: **Thi thử Olympic AI**, **Luyện tập chuyên đề**, **Thi tuyển chọn**. Phân loại phụ lần lượt gồm Tổng hợp/Vòng miền/Vòng quốc gia; Tổng hợp/NLP/CV/ML; Khác/Cấp trường/Nội bộ đội. Admin chọn nhóm và phân loại phụ trước khi phát hành; nút phát hành ở đầu trang danh sách mở khu vực thao tác riêng. Sau phát hành, mở Quản trị trên thẻ → Phân loại, hoặc dùng nút Phân loại trong trang quản trị vòng. API kiểm tra quyền admin và run/revision, từ chối nhãn phụ không thuộc nhóm.
+
+Trang tổng quan có **Mới nhất** tối đa 4 thẻ (2 thẻ mỗi hàng trên desktop); mỗi nhóm bên dưới tối đa 2 thẻ. Điện thoại xếp một cột. Xem tất cả/dropdown nhóm mở danh sách có tìm kiếm, trạng thái, phân loại phụ, sắp xếp và phân trang 8 vòng/trang. Nhóm chưa có vòng vẫn có nhãn và thông báo trống. Phần giới thiệu lớn đầu trang đã bỏ theo yêu cầu; icon Mới nhất màu cam, Thi thử vàng, Chuyên đề xanh, Tuyển chọn tím.
+
+Mới nhất sắp theo sự kiện gần nhất: phát hành, bắt đầu thật (gồm lịch hẹn đã đến giờ), mở luyện lại, hoặc hiển thị lại một vòng đã ẩn. Lịch bắt đầu còn ở tương lai không được tính là sự kiện đã xảy ra. Đổi tên/phân loại không đẩy vòng lên đầu; reset giữ mốc hoạt động trước đó đến khi có lần bắt đầu/mở luyện mới. Thứ tự thủ công vẫn dùng được qua lựa chọn **Thứ tự danh sách**. Các mốc và nhãn lưu trong JSON configuration của vòng; không thêm schema/table hay thay lịch/quota.
+
+Theo yêu cầu, các vòng cũ chưa có nhãn hiển thị Thi thử, riêng tên chứa từ Regional hiển thị Chuyên đề. `scripts/classify-existing-rounds.ts --base=https://olpaiarena.cyou` xem kế hoạch; thêm `--apply` để lưu nhãn qua API quản trị. Chỉ xử lý vòng chưa được cấu hình nhãn, giữ các lựa chọn admin đã lưu; dữ liệu trước cập nhật nằm trong `.local/round-classification-before.json`.
+
+QA: `npx tsx --env-file=.local/auth-qa.env scripts/qa-round-groups.ts --keep` chỉ chạy với PostgreSQL loopback; browser `playwright-cli run-code --filename scripts/qa-round-groups-ui.js`. Dừng fixture bằng POST localhost:3134/__qa/stop. QA không dùng dữ liệu production hoặc tạo GPU.
+
+- Bộ lọc desktop dùng một hàng gồm tìm tên, nhóm (Tất cả/Thi thử/Chuyên đề/Tuyển chọn), phân loại phụ, trạng thái và sắp xếp; không còn hàng tab nhóm. Tablet/mobile xuống hàng theo chiều rộng.

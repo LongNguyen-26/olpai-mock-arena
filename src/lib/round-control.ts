@@ -10,6 +10,7 @@ import {
 } from "./domain";
 import { ROUND_POLICY_LUA } from "./round-policy-lua";
 import type { Contest } from "./types";
+import { roundActivityAt } from "./round-classification";
 
 const time = z.number().int().positive().max(8_640_000_000_000_000).nullable();
 export const guardedRoundActions = [
@@ -84,6 +85,8 @@ export function resetRound(
 ): Contest {
   return {
     ...c,
+    publishedAt: c.publishedAt ?? c.createdAt,
+    catalogActivityAt: roundActivityAt(c,now),
     everOpened: alreadyOpened(c,now),
     id: keepLeaderboard ? c.id : randomUUID(),
     startAt: null,
@@ -197,6 +200,7 @@ export function reduceRoundControl(
           }
         : {}),
       practice: { startAt: now, endAt: v.endAt },
+      catalogActivityAt: now,
       submissionAccess: {
         public: { visible: v.publicVisible, enabled: true },
         private: { visible: v.privateVisible, enabled: true },

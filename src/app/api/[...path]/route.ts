@@ -1,3 +1,4 @@
+import { roundClassificationSchema, roundClassificationFields } from "@/lib/round-classification-schema";
 import { handleAuth, changeExternalPassword } from "@/lib/auth-handlers";
 import { authOptions } from "@/lib/supabase-auth";
 import { roundVisible } from "@/lib/round-visibility";
@@ -267,9 +268,10 @@ async function handle(
         .object({
           title: z.string().trim().min(3).max(100),
           packageId: z.string().min(1).max(100),
+          ...roundClassificationFields,
         })
         .parse(await payload(req));
-      return json(await createRound(v.title, v.packageId));
+      return json(await createRound(v.title, v.packageId,roundClassificationSchema.parse(v)));
     }
     if (route === "admin/registration") {
       await requireAdmin();

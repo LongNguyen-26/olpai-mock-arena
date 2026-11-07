@@ -22,6 +22,10 @@ export interface Team {
   createdAt: number;
 }
 export interface Contest {
+  category?: import("./round-classification").RoundCategory;
+  subcategory?: import("./round-classification").RoundSubcategory;
+  publishedAt?: number;
+  catalogActivityAt?: number;
   id: string;
   roundId?: string;
   packageId?: string;

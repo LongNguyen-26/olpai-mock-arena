@@ -364,3 +364,12 @@
 
 - Playwright đã kiểm tra 1440/1024/768/390/320px, lưu Trường qua form rồi reload vẫn giữ giá trị, không tràn ngang/lỗi JS/HTTP 5xx. Đã kiểm tra ảnh và sửa thẻ hồ sơ ở mobile để nhãn loại tài khoản xuống hàng riêng, không ép tên/email thành cột hẹp. Ảnh QA trong `output/playwright/account-layout-*.png`.
 - Migration `20261107100612_arena_account_school.sql` đã áp dụng vào Supabase; xác nhận `school_column_ready=true`, `rls_enabled=true`. Không thay tài khoản hay trường của người dùng thật để thử UI.
+
+
+# Phân nhóm vòng luyện, bộ lọc một hàng và Tài khoản gọn — 07/11/2026
+
+- Ba nhóm Thi thử Olympic AI, Luyện tập chuyên đề, Thi tuyển chọn, kèm phân loại phụ. Admin chọn trước phát hành và sửa lại sau phát hành; kiểm tra quyền/run/revision trên server. Nút phát hành nằm đầu trang. Tổng quan giới hạn Mới nhất 4 thẻ, mỗi nhóm 2 thẻ, hai cột desktop/một cột mobile; Xem tất cả mở danh sách phân trang 8 vòng. Tìm tên, dropdown nhóm bốn lựa chọn, phân loại phụ, trạng thái và sắp xếp cùng một hàng trên desktop. Đã bỏ phần giới thiệu lớn và hàng tab nhóm; icon cam/vàng/xanh/tím. Dòng dưới Mới nhất là “Đang diễn ra & sắp mở” theo yêu cầu.
+- Hoạt động Mới nhất dựa trên phát hành/bắt đầu/mở luyện lại; không tính lịch tương lai hoặc sửa nhãn, reset giữ mốc trước. Nhãn/mốc lưu trong JSON config hiện có, không cần DDL Supabase mới. Các vòng legacy mặc định Thi thử, tên Regional là Chuyên đề; script xem trước rồi lưu bằng API quản trị, không thay lựa chọn admin đã lưu.
+- Tài khoản giảm typography và khoảng cách một mức, giữ bảng rộng và các giá trị trong ô bo góc cùng trường Trường.
+- Typecheck, 118 unit test và production build PASS. HTTP/API với PostgreSQL 18 loopback, namespace QA riêng PASS: thứ tự sự kiện/reset, cạnh tranh sửa nhãn chỉ một request thành công, chặn guest/student, không lộ vòng ẩn, nhãn không hợp lệ trả 400, phát hành có nhóm và sửa sau phát hành. Không mutation vòng production để QA.
+- Playwright PASS desktop 1440/1024/768px, mobile 390/320px: bộ lọc một hàng desktop, không còn tab nhóm, giới hạn/số cột, tìm kiếm/dropdown/trạng thái, phân trang, phát hành từ UI, đổi nhóm sau phát hành và reload, quyền student, Tài khoản gọn; không JS error/HTTP 5xx/tràn ngang. Hộp thoại xác nhận browser đã xuất hiện; lượt tự động cuối stub confirm để công cụ đợi đủ luồng. Đã xem ảnh desktop/mobile trong output/playwright/round-groups-*.png và account-compact-*.png. Không gửi email hoặc tạo GPU.

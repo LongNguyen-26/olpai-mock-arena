@@ -3,13 +3,15 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ArrowUp, ArrowDown, Pencil, Trash2 } from "lucide-react";
 import type { Action } from "./arena-client";
 
-type ManagedRound = { id: string; runId: string; revision?: number; title: string };
+import RoundClassificationButton, { type ClassifiableRound } from "./round-classification-button";
+type ManagedRound = ClassifiableRound;
 export default function RoundManagementTools({ round, order = [], busy, action, renameOnly = false }: {
   round: ManagedRound; order?: string[]; busy: boolean; action: Action; renameOnly?: boolean;
 }) {
   const [dialog, setDialog] = useState<{ mode: "rename" | "delete"; round: ManagedRound } | null>(null);
   const index = order.indexOf(round.id);
   return <>
+    <RoundClassificationButton round={round} busy={busy} action={action}/>
     {!renameOnly && <span className="round-order-actions" role="group" aria-label="Sắp xếp vòng luyện">
       <button className="btn small-btn" type="button" disabled={busy || index <= 0}
         aria-label={`Đưa ${round.title} lên`} title="Đưa lên"

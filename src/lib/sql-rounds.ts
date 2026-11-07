@@ -1,3 +1,4 @@
+import type { RoundClassification } from "./round-classification";
 import { packageBaselines } from "./score-baselines";
 import { createHash, randomUUID } from "node:crypto";
 import { db,key } from "./db";
@@ -40,12 +41,12 @@ export async function getSqlContest(id?:string):Promise<Contest> {
     },true);
   });
 }
-export async function createSqlRound(title:string,packageId:string) {
+export async function createSqlRound(title:string,packageId:string,classification:RoundClassification) {
   return sqlTransaction(async client=>{
     const pkg=await readPackage(packageId);
     if(!pkg) throw new ApiError("Không tìm thấy bộ đề.");
     const id=randomUUID(),now=await sqlNow(client);
-    const c:Contest={id:randomUUID(),roundId:id,packageId,title,startAt:null,privateAt:null,forcedEndAt:null,
+    const c:Contest={id:randomUUID(),roundId:id,packageId,title,...classification,publishedAt:now,startAt:null,privateAt:null,forcedEndAt:null,
       unlimited:false,autoApprove:true,taskCount:taskStatements(pkg).length,publicSeconds:18000,privateSeconds:3600,
       publicLimit:20,privateLimit:5,createdAt:now};
     await putSqlRound(client,c,now); await bumpRevision(client); return {id};
@@ -99,7 +100,7 @@ export async function controlSqlRound(action:string,values:Values,id:string) {
     } else if(action==="announce") {
       await client.query("insert into arena.announcements(ns,run_id,id,text,created_at) values($1,$2,$3,$4,$5)",[namespace(),c.id,randomUUID(),values.text??"",now]); return;
     } else if(action==="visibility") {
-      if(typeof values.hidden!=="boolean") throw new ApiError("Chọn trạng thái hiển thị."); next.hidden=values.hidden;
+      if(typeof values.hidden!=="boolean") throw new ApiError("Chọn trạng thái hiển thị."); next.hidden=values.hidden;if(c.hidden&&!values.hidden){next.catalogActivityAt=now;next.publishedAt=c.publishedAt??c.createdAt;}
     } else if(action==="configure") {
       if(!["waiting","scheduled"].includes(phase)) throw new ApiError("Chỉ sửa thiết lập trước khi vòng bắt đầu.");
       next={...c,title:values.title!,publicSeconds:values.publicSeconds!,privateSeconds:values.privateSeconds!,
@@ -110,7 +111,7 @@ export async function controlSqlRound(action:string,values:Values,id:string) {
       if(!(await readPackage(c.packageId))) throw new ApiError("Chưa nạp bộ đề.");
       const start=action==="start"?now:Date.parse(values.scheduledAt!);
       if(!Number.isFinite(start)||start<now) throw new ApiError("Giờ hẹn phải ở tương lai.");
-      next={...c,startAt:start,privateAt:null,forcedEndAt:null};
+      next={...c,startAt:start,privateAt:null,forcedEndAt:null};if(action==="start")next.catalogActivityAt=now;
     } else if(action==="cancel") { if(phase!=="scheduled") throw new ApiError("Không có lịch hẹn."); next.startAt=null; }
     else if(action==="finish") {
       if(!["public","private"].includes(phase)) throw new ApiError("Vòng luyện chưa bắt đầu.");

@@ -12,6 +12,7 @@ import { api, when, type ViewProps } from "./arena-client";
 import { phaseOf, privateStart, contestEnd } from "@/lib/domain";
 import RoundVisibilityButton from "./round-visibility-button";
 import RoundManagementTools from "./round-management-tools";
+import RoundClassificationFields from "./round-classification-fields";
 import ScoreSettings from "./score-settings";
 import RoundAccessControls from "./round-access-controls";
 export default function RoundAdmin({ data, busy, action }: ViewProps) {
@@ -31,7 +32,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
             Điều khiển vòng luyện
           </h2>
           <div className="round-control-status">
-            <RoundManagementTools renameOnly round={{ id:c.roundId!, runId:c.id, revision:c.revision, title:c.title }} busy={busy} action={action} />
+            <RoundManagementTools renameOnly round={{ id:c.roundId!, runId:c.id, revision:c.revision, title:c.title, category:c.category, subcategory:c.subcategory }} busy={busy} action={action} />
             <span className="pill neutral">
               {open ? "Đang mở" : phase === "ended" ? "Đã kết thúc" : "Chưa mở"}
             </span>
@@ -424,7 +425,7 @@ export default function RoundAdmin({ data, busy, action }: ViewProps) {
     </div>
   );
 }
-export function PublishRound({ data, busy, action }: ViewProps) {
+export function PublishRound({ data, busy, action,onPublished }: ViewProps & {onPublished?:()=>void}) {
   const packages = data.packages;
   return (
     <section className="panel publish-panel">
@@ -440,7 +441,7 @@ export function PublishRound({ data, busy, action }: ViewProps) {
         luyện xuất hiện cho thí sinh đăng ký.
       </p>
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
           if (
@@ -448,11 +449,11 @@ export function PublishRound({ data, busy, action }: ViewProps) {
               "Phát hành vòng luyện này cho tất cả thí sinh? Đề và dữ liệu vẫn khóa cho đến khi bắt đầu.",
             )
           )
-            void action(
+            if(await action(
               "admin/round/create",
-              { title: f.get("title"), packageId: f.get("packageId") },
+              { title: f.get("title"), packageId: f.get("packageId"),category:f.get("category"),subcategory:f.get("subcategory") },
               "Đã phát hành vòng luyện.",
-            );
+            ))onPublished?.();
         }}
       >
         <div className="field-grid publish-fields">
@@ -476,6 +477,7 @@ export function PublishRound({ data, busy, action }: ViewProps) {
               required
             />
           </label>
+          <RoundClassificationFields disabled={busy}/>
           <button
             className="btn primary"
             disabled={busy || !data.packages.length}

@@ -6,10 +6,12 @@ import { readRound, readRoundIds, readRounds } from "./entity-repository";
 import { putSqlRound, archiveSqlRun } from "./sql-rounds";
 import { roundVisible } from "./round-visibility";
 import type { Contest } from "./types";
+import { roundClassificationFields, roundClassificationSchema } from "./round-classification-schema";
 
 const version = { runId: z.string().uuid(), revision: z.number().int().nonnegative() };
 export const roundManagementSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("rename"), ...version, title: z.string().trim().min(3).max(100) }),
+  z.object({ action: z.literal("classify"), ...version, ...roundClassificationFields }).refine(v => roundClassificationSchema.safeParse(v).success,"Phân loại vòng luyện không hợp lệ."),
   z.object({ action: z.literal("delete"), ...version, confirmTitle: z.string().min(1).max(100) }),
   z.object({ action: z.literal("move"), direction: z.enum(["up", "down"]),
     expectedOrder: z.array(z.string().uuid()).min(1).max(1000) }),
@@ -29,7 +31,9 @@ export function updateRound(c: Contest, value: Exclude<RoundManagement, { action
   if (c.id !== value.runId || (c.revision ?? 0) !== value.revision) throw changed();
   if (value.action === "delete" && value.confirmTitle !== c.title) throw changed();
   return { ...c, revision: (c.revision ?? 0) + 1,
-    ...(value.action === "rename" ? { title: value.title } : {
+    ...(value.action === "rename" ? { title: value.title } : value.action === "classify" ? {
+      category:value.category,subcategory:value.subcategory,publishedAt:c.publishedAt??c.createdAt,
+    } : {
       deletedAt: now, hidden: true, forcedEndAt: now, chatEpoch: (c.chatEpoch ?? 0) + 1,
     }),
   };

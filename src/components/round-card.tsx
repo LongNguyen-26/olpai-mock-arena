@@ -9,6 +9,7 @@ import RoundVisibilityButton from "./round-visibility-button";
 import { coverFor } from "@/lib/task-cover";
 import { duration, fmt, type ArenaData, type Action } from "./arena-client";
 import RoundManagementTools from "./round-management-tools";
+import { roundCategories, roundSubcategoryNames } from "@/lib/round-classification";
 import { roundTiming } from "@/lib/round-presentation";
 
 const names = {
@@ -60,6 +61,7 @@ export default function RoundCard({
       {covers.map((cover, i) => <span key={i} style={{backgroundImage: `url(/round-covers/${cover}.svg)`}} />)}
     </div>
     <div className="index-body">
+      <p className="round-category-label">{roundCategories.find(c=>c.id===r.category)?.short} · {roundSubcategoryNames[r.subcategory]}</p>
       <div className="index-status">
         <strong>{names[timing.phase]}</strong>
         {live && timing.seconds != null && <span className="card-clock" aria-label={`Thời gian còn lại ${duration(timing.seconds)}`}><Timer size={15}/>{duration(timing.seconds)}</span>}

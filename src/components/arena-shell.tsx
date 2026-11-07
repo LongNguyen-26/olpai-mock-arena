@@ -28,11 +28,11 @@ import {
   type ArenaData,
 } from "./arena-client";
 import { phaseOf } from "@/lib/domain";
-import RoundAdmin, { PublishRound } from "./round-admin";
+import RoundAdmin from "./round-admin";
 import GpuWorkspace from "./gpu-workspace";
 import ArenaLoading from "./arena-loading";
 import AdminRoster from "./admin-roster";
-import RoundCard from "./round-card";
+import RoundDirectory from "./round-directory";
 import AuthRequired from "./auth-required";
 import LockedResources from "./locked-resources";
 import LegalLinks from "./legal-links";
@@ -88,8 +88,6 @@ export const names = {
 export default function Arena() {
   const [statementTask, setStatementTask] = useState("1");
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
-  const [roundQuery,setRoundQuery]=useState("");
-  const [roundFilter,setRoundFilter]=useState("all");
   const [slow, setSlow] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [data, setData] = useState<ArenaData | null>(null),
@@ -255,12 +253,6 @@ export default function Arena() {
         }}
       />
     );
-  const visibleRounds = data.rounds.filter(r => {
-    const matchesName = r.title.toLocaleLowerCase("vi").includes(roundQuery.trim().toLocaleLowerCase("vi"));
-    const phase = phaseOf({...r,unlimited:r.unlimited}, clock+offset);
-    const group = phase==="ended" ? "ended" : ["waiting","scheduled"].includes(phase) ? "upcoming" : "live";
-    return matchesName && (roundFilter==="all" || roundFilter===group);
-  });
   const isAdmin = !!data.user?.admin,
     guest = !data.user,
     needsLogin = guest && !publicSections.has(section),
@@ -456,58 +448,7 @@ export default function Arena() {
             </div>
           </div>}
           {needsLogin && <AuthRequired section={section} next={returnPath} />}
-          {section === "rounds" && (
-            <>
-              <div className="round-filters"><label>Tìm vòng<input type="search" placeholder="Tên vòng luyện" value={roundQuery} onChange={e=>setRoundQuery(e.target.value)}/></label>
-                <label>Trạng thái<select value={roundFilter} onChange={e=>setRoundFilter(e.target.value)}><option value="all">Tất cả ({data.rounds.length})</option><option value="live">Đang mở</option><option value="upcoming">Chưa mở</option><option value="ended">Đã kết thúc</option></select></label>
-              </div>
-              <div className="round-index">
-                {visibleRounds.map((r) => (
-                  <RoundCard
-                    key={r.id}
-                    round={r}
-                    now={clock + offset}
-                    onEnter={() => go("overview", r.id)}
-                    admin={isAdmin}
-                    busy={busy}
-                    action={action}
-                    order={data.rounds.map((r) => r.id)}
-                    onVisibility={(hidden) =>
-                      void action(
-                        "admin/control",
-                        { action: "visibility", hidden },
-                        hidden
-                          ? "Đã ẩn vòng luyện."
-                          : "Đã hiển thị vòng luyện.",
-                        r.id,
-                      )
-                    }
-                    onStart={() => {
-                      if (
-                        confirm(
-                          `Bắt đầu ${r.title} và mở đề/public test cho thí sinh đã đăng ký?`,
-                        )
-                      )
-                        void action(
-                          "admin/control",
-                          { action: "start" },
-                          "Đã bắt đầu vòng luyện.",
-                          r.id,
-                        );
-                    }}
-                  />
-                ))}
-              </div>
-              {data.rounds.length>0 && visibleRounds.length===0 && <p className="empty-round-filter">Không có vòng khớp với bộ lọc.</p>}
-              {!data.rounds.length && (
-                <Locked
-                  title="Chưa có vòng luyện"
-                  text="Vòng luyện sẽ xuất hiện sau khi quản trị viên phát hành."
-                />
-              )}
-              {isAdmin && <PublishRound {...props} />}
-            </>
-          )}
+          {section === "rounds" && <RoundDirectory {...props} now={clock+offset} onEnter={id=>go("overview",id)}/>}
           {transitioning && section !== "rounds" && (
             <div className="round-loading" role="status">
               <div className="loader" />
