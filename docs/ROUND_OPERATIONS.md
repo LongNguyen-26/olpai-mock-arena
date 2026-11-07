@@ -113,7 +113,7 @@ Dùng `scripts/upload-ready-package.ts` với thư mục `web_ready` để xác 
 
 ## Phân nhóm vòng luyện và Mới nhất — 07/11/2026
 
-Ba nhóm chính: **Thi thử Olympic AI**, **Luyện tập chuyên đề**, **Thi tuyển chọn**. Phân loại phụ lần lượt gồm Tổng hợp/Vòng miền/Vòng quốc gia; Tổng hợp/NLP/CV/ML; Khác/Cấp trường/Nội bộ đội. Admin chọn nhóm và phân loại phụ trước khi phát hành; nút phát hành ở đầu trang danh sách mở khu vực thao tác riêng. Sau phát hành, mở Quản trị trên thẻ → Phân loại, hoặc dùng nút Phân loại trong trang quản trị vòng. API kiểm tra quyền admin và run/revision, từ chối nhãn phụ không thuộc nhóm.
+Ba nhóm chính: **Thi thử Olympic AI**, **Luyện tập chuyên đề**, **Thi tuyển chọn**. Phân loại phụ lần lượt gồm Tổng hợp/Vòng miền/Vòng quốc gia; Tổng hợp/NLP/CV/ML; Khác/Cấp trường/Nội bộ đội. Admin chọn nhóm và phân loại phụ trước khi phát hành; nút phát hành trên header trang danh sách mở khu vực thao tác riêng. Sau phát hành, mở Quản trị trên thẻ → Phân loại, hoặc dùng nút Phân loại trong trang quản trị vòng. API kiểm tra quyền admin và run/revision, từ chối nhãn phụ không thuộc nhóm.
 
 Trang tổng quan có **Mới nhất** tối đa 4 thẻ (2 thẻ mỗi hàng trên desktop); mỗi nhóm bên dưới tối đa 2 thẻ. Điện thoại xếp một cột. Xem tất cả/dropdown nhóm mở danh sách có tìm kiếm, trạng thái, phân loại phụ, sắp xếp và phân trang 8 vòng/trang. Nhóm chưa có vòng vẫn có nhãn và thông báo trống. Phần giới thiệu lớn đầu trang đã bỏ theo yêu cầu; icon Mới nhất màu cam, Thi thử vàng, Chuyên đề xanh, Tuyển chọn tím.
 
@@ -124,3 +124,5 @@ Theo yêu cầu, các vòng cũ chưa có nhãn hiển thị Thi thử, riêng t
 QA: `npx tsx --env-file=.local/auth-qa.env scripts/qa-round-groups.ts --keep` chỉ chạy với PostgreSQL loopback; browser `playwright-cli run-code --filename scripts/qa-round-groups-ui.js`. Dừng fixture bằng POST localhost:3134/__qa/stop. QA không dùng dữ liệu production hoặc tạo GPU.
 
 - Bộ lọc desktop dùng một hàng gồm tìm tên, nhóm (Tất cả/Thi thử/Chuyên đề/Tuyển chọn), phân loại phụ, trạng thái và sắp xếp; không còn hàng tab nhóm. Tablet/mobile xuống hàng theo chiều rộng.
+
+Phân loại phụ được nhóm bằng optgroup: Tổng hợp; Cấp độ kỳ thi (Vòng miền, Vòng quốc gia); Lĩnh vực AI (ML, NLP, CV); Phạm vi tuyển chọn (Cấp trường, Nội bộ đội, Khác). Cùng thứ tự này áp dụng cho bộ lọc, form phát hành và form sửa phân loại, chỉ hiện mục hợp lệ với nhóm đã chọn. Trên điện thoại, nhãn nút header rút gọn “Phát hành”/“Quay lại” để giữ các thao tác cùng hàng. Nhãn nhóm/phân loại trên thẻ cùng cỡ 13px, ngăn bằng chấm tròn căn giữa.

@@ -11,6 +11,7 @@ import {
   Database,
   LayoutDashboard,
   LockKeyhole,
+  Plus,
   LogOut,
   RefreshCw,
   Settings2,
@@ -87,6 +88,7 @@ export const names = {
 };
 export default function Arena() {
   const [statementTask, setStatementTask] = useState("1");
+  const [roundPublishing, setRoundPublishing] = useState(false);
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
   const [slow, setSlow] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
@@ -152,6 +154,7 @@ export default function Arena() {
   useEffect(() => {
     let active = true;
     const read = () => {
+      setRoundPublishing(false);
       const url = new URL(window.location.href);
       setStatementTask(url.searchParams.get("task") ?? "1");
       selected.current = url.searchParams.get("round") ?? "";
@@ -204,6 +207,7 @@ export default function Arena() {
   }, [phase, load]);
   function go(s: string, id = selected.current, task?: string) {
     if (!(s in labels)) return;
+    setRoundPublishing(false);
     selected.current = id;
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("round", id);
@@ -371,7 +375,7 @@ export default function Arena() {
         </div>
       </aside>
       <div className="app-body">
-        <header className="topbar">
+        <header className={`topbar ${isAdmin && section === "rounds" ? "topbar-rounds-admin" : ""}`}>
           <div className="breadcrumbs">
             <a
               href="/#rounds"
@@ -393,6 +397,9 @@ export default function Arena() {
             )}
           </div>
           <div className="topbar-right">
+            {isAdmin && section === "rounds" && <button type="button" className={`btn small-btn header-publish ${roundPublishing ? "" : "primary"}`} disabled={busy} aria-label={roundPublishing ? "Quay lại danh sách" : "Phát hành vòng luyện"} aria-expanded={roundPublishing} aria-controls="round-directory-content" onClick={()=>setRoundPublishing(!roundPublishing)}>
+              {roundPublishing ? <ArrowLeft size={17}/> : <Plus size={17}/>}<span className="header-publish-label" aria-hidden="true">{roundPublishing ? "Quay lại danh sách" : "Phát hành vòng luyện"}</span><span className="header-publish-short" aria-hidden="true">{roundPublishing ? "Quay lại" : "Phát hành"}</span>
+            </button>}
             {guest && <div className="guest-auth-actions">
               <a className="btn primary small-btn" href={loginHref(returnPath)}>Đăng nhập <ArrowRight size={15}/></a>
               <a className="btn small-btn guest-register" href={loginHref(returnPath,true)}>Tạo tài khoản</a>
@@ -448,7 +455,7 @@ export default function Arena() {
             </div>
           </div>}
           {needsLogin && <AuthRequired section={section} next={returnPath} />}
-          {section === "rounds" && <RoundDirectory {...props} now={clock+offset} onEnter={id=>go("overview",id)}/>}
+          {section === "rounds" && <RoundDirectory {...props} publishing={roundPublishing} onPublished={()=>setRoundPublishing(false)} now={clock+offset} onEnter={id=>go("overview",id)}/>}
           {transitioning && section !== "rounds" && (
             <div className="round-loading" role="status">
               <div className="loader" />

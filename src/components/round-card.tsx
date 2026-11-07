@@ -61,7 +61,7 @@ export default function RoundCard({
       {covers.map((cover, i) => <span key={i} style={{backgroundImage: `url(/round-covers/${cover}.svg)`}} />)}
     </div>
     <div className="index-body">
-      <p className="round-category-label">{roundCategories.find(c=>c.id===r.category)?.short} · {roundSubcategoryNames[r.subcategory]}</p>
+      <p className="round-category-label"><span>{roundCategories.find(c=>c.id===r.category)?.short}</span>{" "}<span className="round-category-dot" aria-hidden="true"/>{" "}<span>{roundSubcategoryNames[r.subcategory]}</span></p>
       <div className="index-status">
         <strong>{names[timing.phase]}</strong>
         {live && timing.seconds != null && <span className="card-clock" aria-label={`Thời gian còn lại ${duration(timing.seconds)}`}><Timer size={15}/>{duration(timing.seconds)}</span>}

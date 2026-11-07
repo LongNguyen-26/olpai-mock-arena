@@ -1,18 +1,19 @@
 "use client";
 import { useState, type ReactNode } from "react";
-import { ArrowRight, BookOpen, Flame, Plus, Trophy, Users } from "lucide-react";
+import { ArrowRight, BookOpen, Flame, Trophy, Users } from "lucide-react";
 import { phaseOf } from "@/lib/domain";
-import { recentRounds, roundCategories, roundSubcategoryIds, roundSubcategoryNames, type RoundCategory } from "@/lib/round-classification";
+import { recentRounds, roundCategories, type RoundCategory } from "@/lib/round-classification";
 import { type ViewProps, type ArenaData } from "./arena-client";
 import RoundCard from "./round-card";
 import { PublishRound } from "./round-admin";
+import RoundSubcategoryOptions from "./round-subcategory-options";
 
 type CategoryFilter = "all" | RoundCategory;
 const categoryIcons = { mock: Trophy, topic: BookOpen, selection: Users };
-export default function RoundDirectory({data,busy,action,now,onEnter}:ViewProps & {now:number;onEnter:(id:string)=>void}) {
+export default function RoundDirectory({data,busy,action,now,onEnter,publishing,onPublished}:ViewProps & {now:number;onEnter:(id:string)=>void;publishing:boolean;onPublished:()=>void}) {
   const [category,setCategory]=useState<CategoryFilter>("all"),[query,setQuery]=useState("");
   const [status,setStatus]=useState("all"),[subcategory,setSubcategory]=useState("all"),[sort,setSort]=useState("recent");
-  const [expanded,setExpanded]=useState(false),[page,setPage]=useState(1),[publishing,setPublishing]=useState(false);
+  const [expanded,setExpanded]=useState(false),[page,setPage]=useState(1);
   const admin=!!data.user?.admin;
   const filtered=data.rounds.filter(r=>{
     const phase=phaseOf(r,now);
@@ -38,16 +39,13 @@ export default function RoundDirectory({data,busy,action,now,onEnter}:ViewProps 
       {rounds.length?cards(rounds.slice(0,limit)):<p className="directory-empty">Chưa có vòng luyện trong nhóm này.</p>}
     </section>;
   }
-  return <div className="round-directory">
-    {admin&&<div className="directory-heading">
-      <button type="button" className={`btn ${publishing?"":"primary"}`} onClick={()=>setPublishing(!publishing)} aria-expanded={publishing}><Plus size={18}/>{publishing?"Quay lại danh sách":"Phát hành vòng luyện"}</button>
-    </div>}
-    {publishing&&admin?<PublishRound data={data} busy={busy} action={action} onPublished={()=>{setPublishing(false);reset();}}/>:<>
+  return <div className="round-directory" id="round-directory-content">
+    {publishing&&admin?<PublishRound data={data} busy={busy} action={action} onPublished={()=>{onPublished();reset();}}/>:<>
       <div className="directory-toolbar">
         <div className="directory-filters">
           <label className="directory-search">Tìm vòng luyện<input type="search" placeholder="Nhập tên vòng luyện…" value={query} onChange={e=>{setQuery(e.target.value);setPage(1);}}/></label>
           <label>Nhóm vòng luyện<select value={category} onChange={e=>selectCategory(e.target.value as CategoryFilter)}><option value="all">Tất cả</option>{roundCategories.map(c=><option key={c.id} value={c.id}>{c.short}</option>)}</select></label>
-          <label>Phân loại phụ<select value={subcategory} onChange={e=>{setSubcategory(e.target.value);setPage(1);}}><option value="all">Tất cả</option>{(category==="all"?roundSubcategoryIds:roundCategories.find(c=>c.id===category)!.subcategories).map(id=><option key={id} value={id}>{roundSubcategoryNames[id]}</option>)}</select></label>
+          <label>Phân loại phụ<select value={subcategory} onChange={e=>{setSubcategory(e.target.value);setPage(1);}}><option value="all">Tất cả</option><RoundSubcategoryOptions category={category==="all"?undefined:category}/></select></label>
           <label>Trạng thái<select value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="all">Tất cả</option><option value="upcoming">Sắp diễn ra / Chưa mở</option><option value="live">Đang thi</option><option value="practice">Luyện lại</option><option value="ended">Đã kết thúc</option></select></label>
           <label>Sắp xếp<select value={sort} onChange={e=>{setSort(e.target.value);setPage(1);}}><option value="recent">Mới nhất</option><option value="catalogue">Thứ tự danh sách</option><option value="title">Tên A–Z</option></select></label>
         </div>

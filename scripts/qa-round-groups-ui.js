@@ -8,6 +8,10 @@ async page => {
  await page.context().clearCookies();await page.setViewportSize({width:1440,height:1050});await page.goto(base+'/');await page.locator('.round-directory').waitFor();
  check(await page.locator('.directory-tabs').count()===0,'removed category tabs');
  const filterRows=await page.locator('.directory-filters>label').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().y)));check(new Set(filterRows).size===1,'single desktop filter row');
+ const secondary=page.getByRole('combobox',{name:'Phân loại phụ',exact:true});
+ check(JSON.stringify(await secondary.locator('optgroup').evaluateAll(n=>n.map(x=>x.label)))===JSON.stringify(['Tổng hợp','Cấp độ kỳ thi','Lĩnh vực AI','Phạm vi tuyển chọn']),'subcategory sectors');
+ check(JSON.stringify(await secondary.locator('option').evaluateAll(n=>n.map(x=>x.value)))===JSON.stringify(['all','general','regional','national','ml','nlp','vision','school','team','other']),'subcategory order');
+ const label=page.locator('.round-category-label').first();const typography=await label.evaluate(n=>{const a=n.children[0],b=n.children[2],dot=n.children[1],r=n.getBoundingClientRect(),d=dot.getBoundingClientRect();return{a:getComputedStyle(a).fontSize,b:getComputedStyle(b).fontSize,dotOffset:Math.abs((d.y+d.height/2)-(r.y+r.height/2))}});check(typography.a==='13px'&&typography.a===typography.b&&typography.dotOffset<1,'equal label fonts and centered dot');
  const latest=page.getByRole('region',{name:'Mới nhất',exact:true});
  check(await latest.locator('.index-row').count()===4,'latest limit');
  for(const title of ['Thi thử Olympic AI','Luyện tập chuyên đề','Thi tuyển chọn'])check(await page.getByRole('region',{name:title,exact:true}).locator('.index-row').count()<=2,'category limit '+title);
@@ -29,6 +33,9 @@ async page => {
  await page.getByRole('button',{name:'Về tổng quan',exact:true}).click();
  for(const w of [1024,768,390,320]){await page.setViewportSize({width:w,height:950});check(await fits(),'overflow '+w);await page.screenshot({path:'output/playwright/round-groups-overview-'+w+'.png',fullPage:true});}
  await page.setViewportSize({width:1440,height:1050});await login('qa_groups_admin');
+ check(await page.locator('header').getByRole('button',{name:'Phát hành vòng luyện',exact:true}).count()===1,'publish in header');check(await page.locator('.round-directory').getByRole('button',{name:'Phát hành vòng luyện',exact:true}).count()===0,'no duplicate publish');
+ for(const w of [768,390,320]){await page.setViewportSize({width:w,height:950});check(await fits(),'admin header overflow '+w);const actionRows=await page.locator('header .topbar-right>button').evaluateAll(n=>n.map(x=>Math.round(x.getBoundingClientRect().y+x.getBoundingClientRect().height/2)));check(Math.max(...actionRows)-Math.min(...actionRows)<2,'header controls one row '+w);await page.screenshot({path:'output/playwright/round-header-admin-'+w+'.png',fullPage:false});}
+ await page.setViewportSize({width:1440,height:1050});
  await page.getByRole('button',{name:'Phát hành vòng luyện',exact:true}).click();
  await page.getByLabel('Tên vòng luyện',{exact:true}).fill('QA vòng phát hành trên giao diện');
  await page.getByRole('combobox',{name:'Nhóm vòng luyện',exact:true}).selectOption('selection');await page.getByRole('combobox',{name:'Phân loại phụ',exact:true}).selectOption('team');
@@ -47,5 +54,5 @@ async page => {
  await page.goto(base+'/#settings');await page.locator('.account-panel').waitFor();await page.screenshot({path:'output/playwright/account-compact-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});check(await fits(),'compact account overflow');await page.screenshot({path:'output/playwright/account-compact-mobile.png',fullPage:true});
  await post('auth/logout',{});await page.context().clearCookies();check(!errors.length,errors.join(';'));check(!bad.length,bad.join(';'));
- return {result:'PASS',singleFilterRow:true,latestMax4:true,categoryMax2:true,twoDesktopColumns:true,filtersPagination:true,publishClassification:true,editAfterPublish:true,studentPermissions:true,compactAccount:true,desktopMobile:true,errors:0,serverErrors:0};
+ return {result:'PASS',singleFilterRow:true,publishInHeader:true,subcategorySectors:true,equalLabelFont:true,centeredDot:true,latestMax4:true,categoryMax2:true,twoDesktopColumns:true,filtersPagination:true,publishClassification:true,editAfterPublish:true,studentPermissions:true,compactAccount:true,desktopMobile:true,errors:0,serverErrors:0};
 }
