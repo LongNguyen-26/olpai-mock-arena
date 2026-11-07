@@ -1,4 +1,6 @@
 "use client";
+import BrandIdentity from "./brand-identity";
+
 import { useState } from "react";
 import { MailCheck } from "lucide-react";
 import { api } from "./arena-client";
@@ -28,13 +30,8 @@ export default function EmailChangeConfirmation({
   }
   return (
     <main className="profile-setup-page">
-      <a className="brand" href="/">
-        <span className="brand-symbol">
-          A<span>·</span>
-        </span>
-        <span>
-          OlpAI<span className="brand-light"> Arena</span>
-        </span>
+      <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/">
+        <BrandIdentity />
       </a>
       <section className="panel email-change-panel">
         <MailCheck size={36} />

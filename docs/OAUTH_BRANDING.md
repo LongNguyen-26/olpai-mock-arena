@@ -12,7 +12,7 @@ Thông tin điền Google Auth Platform → Branding:
 | App logo | `public/branding/olpai-arena-oauth-120.png` |
 | Authorized domain của website | olpaiarena.cyou |
 
-Logo PNG 120×120, dưới 1 MB; bản 512×512 cùng thư mục. Giữ nhận diện chữ A·, nền xanh đậm, chữ cam đang dùng trên website, xuất từ mã đồ họa gốc; không thay logo toàn website.
+Logo PNG 120×120, dưới 1 MB; bản 512×512 cùng thư mục. Nhận diện cập nhật 07/11/2026: monogram A hình học màu trắng ngà, điểm nhấn đất nung trên nền than ấm, đồng bộ website. Xuất từ `src/app/icon.svg` bằng `node scripts/export-oauth-logo.mjs`. File PNG được cập nhật trong repo; logo đã tải lên Google Auth Platform cần được thay thủ công và qua quy trình duyệt của Google nếu áp dụng.
 
 Hai trang chính sách công khai không yêu cầu đăng nhập; có liên kết từ trang chủ và form đăng nhập/đăng ký. Nội dung phản ánh chức năng tài khoản, đội, bài nộp, lưu lịch sử, Google Sign-In và nhà cung cấp thực tế. Người vận hành cần cập nhật chính sách khi thay đổi mục đích xử lý hoặc nhà cung cấp.
 

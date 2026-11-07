@@ -1,4 +1,6 @@
 "use client";
+import BrandIdentity from "./brand-identity";
+
 import LegalLinks from "./legal-links";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Clock3, Users, Layers3, MailCheck } from "lucide-react";
@@ -51,7 +53,7 @@ export default function Login({ options, next, initialMode, initialError }: {
   const titles = {login:"Chào mừng trở lại",register:"Tạo tài khoản của bạn",forgot:"Quên mật khẩu",reset:"Đặt mật khẩu mới",confirmation:"Kiểm tra hộp thư của bạn"};
   return <main className="auth-page">
     <section className="auth-story">
-      <a className="brand" href="/"><span className="brand-symbol">A<span>·</span></span><span>OlpAI<span className="brand-light"> Arena</span></span></a>
+      <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/"><BrandIdentity /></a>
       <div className="auth-pitch">
         <span className="eyebrow orange">OLYMPIC AI 2026</span>
         <h1>Ôn luyện mô phỏng<span className="auth-title-break"> Olympic AI 2026.</span></h1>

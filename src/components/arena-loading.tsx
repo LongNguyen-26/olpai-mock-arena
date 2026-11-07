@@ -1,3 +1,4 @@
+import BrandIdentity from "./brand-identity";
 export function WorkspaceSkeleton({
   label = "Đang tải GPU Workspace…",
 }: {
@@ -49,13 +50,8 @@ export default function ArenaLoading({
   return (
     <div className="app-shell arena-loading">
       <aside className="sidebar" aria-label="OlpAI Arena">
-        <a className="brand" href="/">
-          <span className="brand-symbol">
-            A<span>·</span>
-          </span>
-          <span>
-            OlpAI<span className="brand-light"> Arena</span>
-          </span>
+        <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/">
+          <BrandIdentity />
         </a>
         <div className="arena-loading-nav" aria-hidden="true">
           {[0, 1, 2, 3].map((n) => (

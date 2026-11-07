@@ -1,4 +1,6 @@
 "use client";
+import BrandIdentity from "./brand-identity";
+
 import { useState } from "react";
 import { ArrowRight, UserRound } from "lucide-react";
 import { api } from "./arena-client";
@@ -19,7 +21,7 @@ export default function ProfileSetup({next}:{next:string}) {
     catch(error) {setError(error instanceof Error?error.message:"Không thể đăng xuất.");setBusy(false);}
   }
   return <main className="profile-setup-page">
-    <a className="brand" href="/"><span className="brand-symbol">A<span>·</span></span><span>OlpAI<span className="brand-light"> Arena</span></span></a>
+    <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/"><BrandIdentity /></a>
     <section className="panel profile-setup-panel">
       <span className="profile-setup-icon" aria-hidden="true"><UserRound size={28}/></span>
       <span className="eyebrow muted">HOÀN TẤT TÀI KHOẢN</span>

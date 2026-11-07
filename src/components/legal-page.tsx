@@ -1,3 +1,4 @@
+import BrandIdentity from "./brand-identity";
 import type { ReactNode } from "react";
 import LegalLinks from "./legal-links";
 export const supportEmail = "nhatlong30042006@gmail.com";
@@ -16,13 +17,8 @@ export default function LegalPage({
   return (
     <div className="legal-page">
       <header className="legal-header">
-        <a className="brand" href="/">
-          <span className="brand-symbol">
-            A<span>·</span>
-          </span>
-          <span>
-            OlpAI<span className="brand-light"> Arena</span>
-          </span>
+        <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/">
+          <BrandIdentity />
         </a>
         <a className="text-button" href="/">
           Về Arena →

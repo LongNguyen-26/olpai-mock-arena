@@ -1,4 +1,6 @@
 "use client";
+import BrandIdentity from "./brand-identity";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -281,19 +283,14 @@ export default function Arena() {
     <div className="app-shell">
       <aside className="sidebar">
         <a
-          className="brand"
+          className="brand" aria-label="OlpAI Arena — Trang chủ"
           href="/#rounds"
           onClick={(e) => {
             e.preventDefault();
             go("rounds", "");
           }}
         >
-          <span className="brand-symbol">
-            A<span>·</span>
-          </span>
-          <span>
-            OlpAI<span className="brand-light"> Arena</span>
-          </span>
+          <BrandIdentity />
         </a>
         <nav className="arena-nav" aria-label="Điều hướng chính">
           {inside &&
@@ -382,7 +379,7 @@ export default function Arena() {
         </div>
       </aside>
       <div className="app-body">
-        <header className="topbar">
+        <header className={`topbar ${section === "rounds" ? "directory-topbar" : ""}`}>
           <div className="breadcrumbs">
             <a
               href="/#rounds"
