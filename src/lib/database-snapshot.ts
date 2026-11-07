@@ -87,7 +87,7 @@ export const importColumns:Record<string,string[]>={
   runtime_leases:["id","token","expires_at"],runtime_signals:["id","value","expires_at"],
   chat_lanes:["group_id","run_id","audience","served_at"],submission_files:["id","gzip"],
   auth_identities:["subject","user_id","created_at","needs_name","name_confirmed_at","google_account"],
-  account_profiles:["user_id","name_changed_at","email_changed_at","pending_email","pending_requested_at","pending_id"],
+  account_profiles:["user_id","name_changed_at","email_changed_at","pending_email","pending_requested_at","pending_id","school"],
 };
 type Plan={tables:Record<string,unknown[][]>;issues:string[];configuration:{templatesShared:boolean};counts:Record<string,number>};
 export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
@@ -107,7 +107,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
   const issues:string[]=[],users=new Map<string,User>(),teams=new Map<string,Team>();
   const primary=value("admin"),admins=new Set<string>([...(primary?[primary]:[]),...((value("admins")??[]) as string[])]);
   for(const [k,r] of source) {
-    if(k.startsWith("user:")) { const u=parse(r.value) as User;users.set(u.id,u);add("users",u.id,u.username,u.name,u.password,u.teamId,u.createdAt,null);if(u.nameChangedAt!=null)add("account_profiles",u.id,u.nameChangedAt,null,null,null,null); }
+    if(k.startsWith("user:")) { const u=parse(r.value) as User;users.set(u.id,u);add("users",u.id,u.username,u.name,u.password,u.teamId,u.createdAt,null);if(u.nameChangedAt!=null||u.school!=null)add("account_profiles",u.id,u.nameChangedAt??null,null,null,null,null,u.school??null); }
     if(k==="teams") for(const [id,t] of hash(r)) { const team=t as Team;teams.set(id,team);add("teams",id,team.name,team.captainId,team.inviteCode,team.createdAt,null); }
   }
   const memberships=new Set<string>();
@@ -161,6 +161,7 @@ export function planSnapshot(snapshot:DatabaseSnapshot):Plan {
       if(table==="auth_identities"&&row.length===3)return [...row,false,null,false];
       if(table==="auth_identities"&&row.length===5)return [...row,false];
       if(table==="sessions"&&row.length===3)return [...row,null];
+      if(table==="account_profiles"&&row.length===6)return [...row,null];
       return row;
     }) : savedRows;
     if(!["sessions","rate_counters","runtime_leases","runtime_signals","chat_lanes","submission_files","auth_identities","account_profiles"].includes(table)||!Array.isArray(rows)||rows.some(r=>!Array.isArray(r)||r.length!==importColumns[table].length)) {issues.push("Invalid SQL runtime backup table");continue;}

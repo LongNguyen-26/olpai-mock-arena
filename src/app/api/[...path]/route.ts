@@ -204,7 +204,6 @@ async function handle(
       return json({ ok: true });
     }
     if (route === "password") {
-      if(user.loginProvider==="google")throw new ApiError("Tài khoản đang đăng nhập bằng Google không đổi mật khẩu tại đây.",403);
       const value = z
         .object({
           current: z.string().max(128),

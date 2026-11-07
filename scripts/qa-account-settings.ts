@@ -1,6 +1,7 @@
-/** Real Postgres in a fresh namespace, mocked Auth/SMTP. No production account or email mutation.
- * npx tsx --env-file=.env --env-file=.local/supabase-runtime.env scripts/qa-account-settings.ts [--keep]
+/** Disposable local Postgres + mocked Auth/SMTP. No hosted Auth users or real emails.
+ * npx tsx --env-file=.local/auth-qa.env scripts/qa-account-settings.ts [--keep]
  */
+import { authFixturePool,seedAuthFixtures,cleanupAuthFixtures } from "./qa-auth-fixtures";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -51,6 +52,10 @@ async function main() {
     member = identity("member@example.test"),
     wrong = identity("wrong@example.test", "google");
   const identities = [email, google, member, wrong];
+  await seedAuthFixtures(identities);
+  const passwords = new Map(identities.map(u=>[u.id,u===google||u===wrong?null:password]));
+  const otps = new Map<string,string>();
+  let recoveryRedirect="", otpRedirect="";
   const tokens = new Map<
     string,
     { user: AuthUser; target: string; confirmed: Set<string> }
@@ -58,6 +63,7 @@ async function main() {
   let lastTokens: string[] = [],
     challenge = "",
     wrongGoogle = false,
+    wrongOtpSubject = false,
     verifyCalls = 0,
     mailRequests = 0,
     stopQA: (() => void) | undefined;
@@ -103,7 +109,7 @@ async function main() {
           } else result = session(wrongGoogle ? wrong : google);
         } else {
           const user = identities.find((u) => u.email === body.email);
-          if (!user || body.password !== password) {
+          if (!user || body.password !== passwords.get(user.id)) {
             status = 400;
             result = { code: "invalid_credentials", message: "QA invalid" };
           } else result = session(user);
@@ -134,9 +140,23 @@ async function main() {
             mailRequests++;
             result = user;
           }
+        } else if (req.method === "PUT" && body.password) {
+          passwords.set(user.id,body.password);
+          await authFixturePool().query("update auth.users set encrypted_password=$2 where id=$1",[user.id,"qa-password-capability"]);
+          result=user;
         } else result = user;
       } else if (url.pathname.endsWith("/verify")) {
         verifyCalls++;
+        if(body.type==="email") {
+          const user=identities.find(u=>u.email===body.email);
+          if (body.token_hash) {
+            const entry=[...otps.entries()].find(([email,code])=>body.token_hash===createHash("sha256").update(email+code).digest("hex"));
+            const target=entry && identities.find(u=>u.email===entry[0]);
+            if(target) {otps.delete(target.email!);result=session(target);} else {status=403;result={code:"otp_expired",message:"QA used"};}
+          } else if(user&&otps.get(user.email!)===body.token) {otps.delete(user.email!);result=session(wrongOtpSubject?wrong:user);}
+          else {status=403;result={code:"otp_expired",message:"QA invalid"};}
+          res.writeHead(status,{"Content-Type":"application/json"});res.end(JSON.stringify(result));return;
+        }
         assert.equal(body.type, "email_change");
         const entry = tokens.get(body.token_hash);
         if (!entry || entry.confirmed.has(body.token_hash)) {
@@ -148,10 +168,17 @@ async function main() {
             result = { msg: "Confirmation accepted" };
           else {
             entry.user.email = entry.target;
+            await authFixturePool().query("update auth.users set email=$2 where id=$1",[entry.user.id,entry.target]);
             delete entry.user.new_email;
             result = session(entry.user);
           }
         }
+      } else if(url.pathname.endsWith("/recover")) {
+        recoveryRedirect=url.searchParams.get("redirect_to")??"";
+      } else if(url.pathname.endsWith("/otp")) {
+        assert.equal(body.create_user,false);
+        otpRedirect=url.searchParams.get("redirect_to")??"";
+        if(identities.some(u=>u.email===body.email))otps.set(body.email,"123456");
       } else {
         status = 404;
         result = { message: "Unexpected QA endpoint" };
@@ -277,6 +304,7 @@ async function main() {
         .status,
       401,
     );
+    assert.equal((await request("/api/auth/school",{school:"Forbidden"})).status,401);
     for (const path of ["/privacy", "/terms"]) {
       const r = await request(path);
       assert.equal(r.status, 200);
@@ -292,6 +320,19 @@ async function main() {
     await request("/api/auth/logout", {});
     await login(email);
     assert.equal((await me()).loginProvider, "email");
+    assert.equal((await request("/api/auth/school",{school:"x".repeat(161)})).status,400);
+    assert.equal((await request("/api/auth/school",{school:"  Đại học   Bách khoa  – ĐH Đà Nẵng  ",userId:localMember.id})).status,200);
+    let schoolSettings=await (await request("/api/arena")).json();
+    assert.equal(schoolSettings.account.school,"Đại học Bách khoa – ĐH Đà Nẵng");
+    assert.equal((await query("select school from arena.account_profiles where ns=$1 and user_id=$2",[ns,localMember.id]))[0]?.school??null,null);
+    await request("/api/auth/logout",{});await login(email);
+    schoolSettings=await (await request("/api/arena")).json();
+    assert.equal(schoolSettings.account.school,"Đại học Bách khoa – ĐH Đà Nẵng");
+    assert.equal((await request("/api/auth/school",{school:"   "})).status,200);
+    assert.equal((await (await request("/api/arena")).json()).account.school,null);
+    assert.equal((await request("/api/auth/school",{school:"Đại học Bách khoa – ĐH Đà Nẵng"})).status,200);
+    checks.push("optional school validation, whitespace normalization, own-user writes, persistence after login, clearing and backup-ready profile");
+
     assert.equal(
       (
         await request("/api/team", {
@@ -414,6 +455,36 @@ async function main() {
       ).status,
       403,
     );
+    settings=await (await request("/api/arena")).json();
+    assert.equal(settings.account.passwordEnabled,false);assert.equal(settings.account.googleLinked,true);assert.equal(settings.account.canChangeEmail,false);
+    assert.equal((await request("/api/auth/change-email",{email:"google-new@example.test"})).status,403);
+    await request("/api/auth/logout",{});
+    assert.equal((await request("/api/auth/forgot",{username:google.email})).status,200);
+    assert.equal(new URL(recoveryRedirect).searchParams.get("intent"),"google-reminder");
+    assert.equal((await request("/api/auth/forgot",{username:email.email})).status,200);
+    assert.equal(new URL(recoveryRedirect).searchParams.get("intent"),null);
+    await oauth();
+    assert.equal((await request("/api/auth/set-password",{token:"000000",password,confirmation:password})).status,400);
+    assert.equal((await request("/api/auth/password-otp",{})).status,200);
+    assert.equal(new URL(otpRedirect).searchParams.get("intent"),"password-setup");
+    assert.equal((await request("/api/auth/set-password",{token:"123456",password,confirmation:"Mismatch-password"})).status,400);
+    wrongOtpSubject=true;
+    assert.equal((await request("/api/auth/set-password",{token:"123456",password,confirmation:password})).status,403);
+    wrongOtpSubject=false;otps.set(google.email!,"123456");
+    const revoked=new Map(jar);
+    assert.equal((await request("/api/auth/set-password",{token:"123456",password,confirmation:password})).status,200);
+    assert.equal((await (await request("/api/me",undefined,revoked)).json()).user,null);
+    settings=await (await request("/api/arena")).json();
+    assert.equal(settings.account.passwordEnabled,true);assert.equal(settings.account.googleLinked,true);
+    assert.equal((await request("/api/auth/set-password",{token:"123456",password,confirmation:password})).status,409);
+    await request("/api/auth/logout",{});await login(google);assert.equal((await me()).id,localGoogle.id);
+    await request("/api/auth/logout",{});await oauth();
+    assert.equal((await request("/api/password",{current:"wrong",password:password+"-new"})).status,401);
+    assert.equal((await request("/api/password",{current:password,password:password+"-new"})).status,200);
+    assert.equal((await request("/api/password",{current:password+"-new",password})).status,200);
+    await request("/api/auth/logout",{});await oauth();
+    checks.push("Google-only recovery reminder, email recovery, read-only Google email, OTP-gated password setup, mismatch/replay protection, revoked sessions and email/password login with same identity");
+    await request("/api/auth/logout",{});await login(google);
     const start = await request("/api/auth/change-email", {
       email: "google-new@example.test",
     });
@@ -449,8 +520,29 @@ async function main() {
     assert.equal((await me()).name, "QA Google tự chọn");
     assert.equal((await me()).username, "google-new@example.test");
     checks.push(
-      "Google session password restriction, same-subject reauthentication, Google email change and returning login with stable identity",
+      "Google capability checks, same-subject reauthentication, Google email change and returning login with stable identity",
     );
+    await request("/api/auth/logout",{});
+    assert.equal((await request("/api/auth/otp",{username:member.email,next:"/#team"})).status,200);
+    assert.equal((await request("/api/auth/otp",{username:member.email,next:"/#team"})).status,429);
+    assert.equal((await request("/api/auth/verify-otp",{username:member.email,token:"000000"})).status,400);
+    assert.equal((await request("/api/auth/verify-otp",{username:member.email,token:"123456"})).status,200);
+    assert.equal((await me()).id,localMember.id);assert.equal((await me()).teamId,teamId);
+    await request("/api/auth/logout",{});
+    assert.equal((await request("/api/auth/verify-otp",{username:member.email,token:"123456"})).status,400);
+    assert.equal((await request("/api/auth/otp",{username:"missing@example.test"})).status,200);
+    assert.equal((await request("/api/auth/otp",{username:email.email,next:"/#settings"})).status,200);
+    const linkHash=createHash("sha256").update(email.email+"123456").digest("hex"), beforeVerify=verifyCalls;
+    const foreignJar=new Map<string,string>();
+    assert.equal((await request(`/auth/email-login?token_hash=${linkHash}`,undefined,foreignJar)).status,303);
+    assert.equal(verifyCalls,beforeVerify);
+    const crossDevice=await request("/api/auth/confirm-login",{},foreignJar);
+    assert.equal(crossDevice.status,200);assert.equal((await crossDevice.json()).next,"/");
+    assert.equal((await (await request("/api/me",undefined,foreignJar)).json()).user.id,localEmail.id);
+    await request("/api/auth/logout",{},foreignJar);
+    await request(`/auth/email-login?token_hash=${linkHash}`,undefined,foreignJar);
+    assert.equal((await request("/api/auth/confirm-login",{},foreignJar)).status,400);
+    checks.push("existing-account OTP login, wrong/used code rejection, generic nonexistent response, scanner-safe cross-device Magic Link, one-time token and stable team identity");
     const snapshot = await exportSqlSnapshot(),
       restore = ns + ":restore";
     assert.ok(snapshot.sqlRuntime!.account_profiles.length > 0);
@@ -493,6 +585,8 @@ async function main() {
     );
     console.log(JSON.stringify(proof));
     if (process.argv.includes("--keep")) {
+      // The browser starts with fresh request counters after API rate-limit QA.
+      await query("delete from arena.rate_counters where ns=$1",[ns]);
       console.log(`Local QA ready at ${base}`);
       await new Promise<void>((resolve) => {
         stopQA = resolve;
@@ -504,6 +598,7 @@ async function main() {
     provider.close();
     await cleanup(ns);
     await closeSqlPools();
+    await cleanupAuthFixtures(identities);
   }
 }
 main().catch((e) => {

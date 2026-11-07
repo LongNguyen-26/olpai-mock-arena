@@ -40,7 +40,7 @@ Tài khoản Supabase mới chỉ được tạo trong Arena sau xác thực th�
 
 Phiên Arena dùng cookie HttpOnly/Secure/SameSite=Lax, TTL 7 ngày như trước. Token provider chỉ ở bộ nhớ server; riêng access token reset dùng cookie HttpOnly 10 phút, xóa khi hoàn tất. Đặt lại/đổi mật khẩu Supabase thu hồi các phiên Arena của user. Xóa/revoke user chỉ ở Supabase không tự thu hồi phiên Arena; khi xử lý sự cố phải khóa/xóa user Arena hoặc xóa session tương ứng.
 
-Quên mật khẩu qua email dành cho tài khoản mới dùng Supabase. Tài khoản lịch sử vẫn dùng mật khẩu cũ sau khi liên kết Google; không reset scrypt qua email lịch sử chưa xác minh. Tài khoản chỉ có Google có thể dùng quên mật khẩu để tạo mật khẩu Supabase nếu email provider bật.
+Quên mật khẩu qua email dành cho tài khoản mới dùng Supabase. Tài khoản lịch sử vẫn dùng mật khẩu cũ sau khi liên kết Google; không reset scrypt qua email lịch sử chưa xác minh. Tài khoản chỉ có Google nhận thư hướng dẫn đăng nhập Google; thêm mật khẩu tại Tài khoản bằng mã email một lần. Sau khi có mật khẩu, tài khoản này dùng được luồng khôi phục thông thường.
 
 Backup SQL gồm ánh xạ đang hoạt động trong `sqlRuntime.auth_identities`; import sau users. Backup này không xuất kho mật khẩu/refresh token của `auth.users`; chuyển Supabase project cần kế hoạch Auth riêng. Công cụ hiện tại chặn rollback SQL runtime sang Redis production. Không đổi mode database để chữa Auth.
 
@@ -56,14 +56,14 @@ Mã nguồn HTML tiếng Việt ở [email-templates](email-templates/README.md)
 
 `npm run typecheck`; `npx tsx --test --test-concurrency=1 tests/*.test.ts`; `npm run build`.
 
-`npx tsx --env-file=.env --env-file=.local/supabase-runtime.env scripts/qa-public-auth.ts` dùng SQL thật trong namespace QA mới, Supabase Auth giả lập; không gửi email/Google thật, không tạo GPU. Tự dọn dữ liệu. `--keep` giữ server localhost 3113/3114 cho browser; dừng sạch bằng POST `http://127.0.0.1:3114/__qa/stop` (hoặc Ctrl+C trong terminal tương tác).
+`npx tsx --env-file=.local/auth-qa.env scripts/qa-public-auth.ts` dùng PostgreSQL cục bộ trong namespace QA mới và Supabase Auth giả lập; không gửi email/Google thật, không tạo GPU. Tự dọn dữ liệu. `--keep` giữ server localhost 3113/3114 cho browser; dừng sạch bằng POST `http://127.0.0.1:3114/__qa/stop` (hoặc Ctrl+C trong terminal tương tác).
 
 Nguồn: [Supabase Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [PKCE](https://supabase.com/docs/guides/auth/sessions/pkce-flow), [SMTP](https://supabase.com/docs/guides/auth/auth-smtp), [Resend + Supabase](https://resend.com/docs/send-with-supabase-smtp).
 
 
 ## Chỉnh sửa tài khoản và OAuth branding — 07/11/2026
 
-- `sessions.auth_provider` ghi phương thức đăng nhập Arena của từng phiên. Phiên Google ẩn form đổi mật khẩu và API `/password` từ chối 403. Phiên email/mật khẩu tiếp tục dùng form hiện có. Các phiên trước migration nhận diện Google từ `auth_identities.google_account` cho đến lần đăng nhập mới.
+- `sessions.auth_provider` ghi phương thức đăng nhập Arena của từng phiên. Từ bản cập nhật phương thức đăng nhập, UI/API kiểm tra mật khẩu thực tế trong Supabase thay vì chặn theo phiên Google; tài khoản đã có mật khẩu đổi được sau khi xác thực bằng mật khẩu hiện tại. Các phiên trước migration nhận diện Google từ `auth_identities.google_account` cho đến lần đăng nhập mới.
 - `/api/auth/name` cho phép đổi tên hợp lệ; SQL dùng thời gian database và transaction để bảo đảm 30 ngày/lần kể cả request đồng thời. Đổi email có đồng hồ riêng, chỉ bắt đầu 30 ngày sau khi thay đổi được xác nhận thành công.
 - `/api/auth/change-email` yêu cầu mật khẩu hiện tại, hoặc Google OAuth xác thực lại đúng Supabase subject đang gắn với user. Pending request lưu ở `arena.account_profiles` (RLS backend theo namespace, không có token provider). Chặn email Arena trùng và pending email đang được giữ bởi user khác. Không giữ transaction SQL trong lúc gọi Auth.
 - Supabase `updateUser({email})` gửi thư qua SMTP Resend. Template `Change email address` dùng `SiteURL` + `TokenHash` đến `/auth/email-change`; GET chỉ đặt cookie HttpOnly 10 phút rồi chuyển sang trang sạch token. POST cùng Origin mới gọi `verifyOtp(type:email_change)`, xử lý được xác nhận hai hộp thư. Chưa đủ xác nhận không đổi username; sau đủ xác nhận cập nhật theo subject, giữ user/team ID, thu hồi phiên Arena và yêu cầu đăng nhập lại.
@@ -72,3 +72,7 @@ Nguồn: [Supabase Google](https://supabase.com/docs/guides/auth/social-sign-in/
 - Đội trưởng được rename đội ở API `team`, action `rename`; SQL và Redis đều kiểm tra captain tại thời điểm ghi. Giữ invite code, team ID và dữ liệu theo đội.
 - Migration `20261107031944_arena_account_settings.sql`; backup đọc được identity/session cũ và giữ account_profiles/cooldown/provider khi export/restore SQL. Kho Supabase Auth/refresh token không nằm trong backup ứng dụng.
 - Trang công khai `/privacy`, `/terms`, liên kết trang chủ và màn hình auth; thông tin điền Google ở `docs/OAUTH_BRANDING.md`. Logo PNG 120/512 xuất từ `src/app/icon.svg` bằng `node scripts/export-oauth-logo.mjs`. Chưa tự nộp/publish branding Google hoặc thay email template trong Dashboard.
+
+## Phương thức đăng nhập — cập nhật 07/11/2026
+
+Xem [ACCOUNT_AUTH_METHODS.md](ACCOUNT_AUTH_METHODS.md) để cấu hình mẫu Recovery/Magic Link và Redirect URLs trước khi phát hành các luồng mới. File HTML trong repo không tự đồng bộ với Supabase Dashboard. Người dùng đã chọn tự cập nhật cấu hình Supabase.

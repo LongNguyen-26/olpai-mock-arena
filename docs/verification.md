@@ -345,3 +345,22 @@
 - Typecheck/build production qua. Build trong Windows sandbox gặp lỗi quyền tạo junction của Turbopack; chạy ngoài sandbox thành công, không sửa next.config để né lỗi. Không tạo Pod, không gọi mô hình hoặc gửi email thật; Google/SMTP trong kiểm thử trên là provider giả lập.
 - Migration đã áp dụng trên đúng Supabase `olpai-arena`, RLS bật, anon không SELECT/authenticated không UPDATE bảng account_profiles. Advisor không có lỗi RLS; cảnh báo hiện có [Leaked Password Protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) vẫn chưa bật, không tự đổi gói/cấu hình Auth.
 - Mẫu `Change email address` và ZIP `output/email-templates/OlpAI_Arena_Account_Email_OAuth.zip` giữ biến Go template, không chứa credential hoặc token thật. Logo 120×120 PNG 2.368 byte; 512×512 16.155 byte. Hai trang dùng support email do người dùng chọn `nhatlong30042006@gmail.com`. Người dùng tự dán HTML và nộp Verify/Publish branding; việc duyệt thuộc Google.
+
+
+# Phương thức đăng nhập và Tài khoản — 07/11/2026
+
+- UI thể hiện email xác minh, Google đã liên kết, mật khẩu có/chưa có và email OTP/Magic Link theo trạng thái thực tế trong Supabase; Google chưa có mật khẩu xem email chỉ đọc, thiết lập mật khẩu bằng OTP trước khi bật đổi email. Google đã có mật khẩu đổi được với mật khẩu hiện tại, kể cả phiên đăng nhập Google. Cùng Arena user/team ID, không tạo tài khoản phụ.
+- Migration `20261107064210_arena_auth_methods.sql` đã áp dụng vào project `prgbpkscymbihbhtando`; hàm chỉ đọc trong schema private, không thay Auth user thực tế. Xác minh EXECUTE: anon=false, authenticated=false, arena_backend=true. Advisor không phát hiện lỗi mới liên quan hàm; còn cảnh báo có sẵn về Leaked Password Protection tắt.
+- Typecheck, 114 unit test và production build qua. PostgreSQL 18 dùng riêng trên loopback, Auth/SMTP giả lập: hai script `qa-account-settings.ts`, `qa-public-auth.ts` qua. Bao gồm mã sai subject, sai/đã dùng, nhập lại không khớp, Google thêm mật khẩu rồi đăng nhập password, đổi password từ phiên Google, thu hồi phiên, khôi phục chọn đúng redirect loại thư, OTP, Magic Link khác trình duyệt và GET không tiêu thụ token, onboarding, collision, PKCE, quyền đội/khách, email hai bước và export/restore. Không gửi email thật/Google thật, không tạo GPU.
+- Playwright desktop 1440px/mobile 390px qua: login bằng OTP đến đúng user/đội; trạng thái Google có mật khẩu; Google-only email chỉ đọc và hoàn tất thiết lập mật khẩu bằng form qua API/database; password confirmation, thiếu Magic Link, hồi đáp forgot chung. Không page error/HTTP 5xx/tràn ngang. Đã xem ảnh desktop/mobile trong `output/playwright/auth-methods-*.png`; dữ liệu ảnh là fixture QA. Có thông báo DOM verbose của Chrome về hidden username trong password form, không phải lỗi JS.
+- Người dùng chọn tự cập nhật hai email template và hai Redirect URL trong Supabase. Hướng dẫn ở `docs/ACCOUNT_AUTH_METHODS.md`. Chưa kiểm tra email thật hoặc tuyên bố các template đã được lưu trên Dashboard. Người dùng đã xác nhận lưu cấu hình email trước lần phát hành giao diện rộng và trường Trường.
+
+
+# Tài khoản rộng, thẻ bo góc và Trường — 07/11/2026
+
+- Loại bỏ giới hạn 580px của trang Tài khoản. Hồ sơ, tên/trường, email, Google, OTP và mật khẩu được bố trí trong các thẻ trắng bo góc; heading 19–30px, nội dung chính 17–20px, chữ trợ giúp 14px; form mật khẩu hai cột trên desktop và một cột trên mobile. Chỉ đổi bố cục của trang Tài khoản.
+- Trường là hồ sơ riêng có thể sửa/để trống, tối đa 160 ký tự. API yêu cầu đăng nhập, luôn dùng user ID từ session; chuẩn hóa khoảng trắng/Unicode, kiểm tra giới hạn, ghi SQL với namespace RLS và giữ các mốc đổi tên/email. Backup giữ trường mới và đọc được bản sáu cột cũ.
+- Typecheck, 114 unit test và production build qua. QA dùng PostgreSQL cục bộ và Auth giả lập; kiểm tra lưu/đọc lại trường sau đăng nhập, xóa để trống, quá giới hạn và không thể chọn user khác qua payload. Người dùng xác nhận tự lưu cấu hình email Supabase trước triển khai.
+
+- Playwright đã kiểm tra 1440/1024/768/390/320px, lưu Trường qua form rồi reload vẫn giữ giá trị, không tràn ngang/lỗi JS/HTTP 5xx. Đã kiểm tra ảnh và sửa thẻ hồ sơ ở mobile để nhãn loại tài khoản xuống hàng riêng, không ép tên/email thành cột hẹp. Ảnh QA trong `output/playwright/account-layout-*.png`.
+- Migration `20261107100612_arena_account_school.sql` đã áp dụng vào Supabase; xác nhận `school_column_ready=true`, `rls_enabled=true`. Không thay tài khoản hay trường của người dùng thật để thử UI.

@@ -1,7 +1,8 @@
 /** Real SQL in a fresh QA namespace; Supabase Auth is mocked, no mail or OAuth account is used.
- * npx tsx --env-file=.env --env-file=.local/supabase-runtime.env scripts/qa-public-auth.ts [--keep]
+ * npx tsx --env-file=.local/auth-qa.env scripts/qa-public-auth.ts [--keep]
  * --keep leaves the local servers/fixture for browser QA; stop with Ctrl+C to clean up.
  */
+import { seedAuthFixtures,cleanupAuthFixtures } from "./qa-auth-fixtures";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -25,6 +26,7 @@ async function main() {
   const identity=(email:string,id=randomUUID(),provider="google"):ProviderUser=>({id,aud:"authenticated",role:"authenticated",email,email_confirmed_at:new Date().toISOString(),created_at:new Date().toISOString(),app_metadata:{provider,providers:[provider]},user_metadata:{name:provider==="email"?"QA email":undefined,full_name:"QA Google auto name",admin:true},identities:[]});
   const newIdentity=identity("new@example.test",undefined,"email"), collision=identity(legacy.username), recovery=identity("recovery@example.test",undefined,"email"), google=identity("google@example.test"), browserGoogle=identity("browsergoogle@example.test");
   const identities:Record<string,ProviderUser>={new:newIdentity,collision,recovery,google,"google-browser":browserGoogle};
+  await seedAuthFixtures(Object.values(identities));
   const session=(user:ProviderUser)=>({access_token:`qa-${user.id}`,refresh_token:"qa-refresh-token",token_type:"bearer",expires_in:3600,user});
   const challenges=new Map<string,string>();
   let stopQA: (()=>void) | undefined;
@@ -155,7 +157,7 @@ async function main() {
     app.kill();provider.close();
     assert.equal(namespace(),ns);assert.ok(ns.startsWith("arena:qa:public-auth:"));
     await sqlTransaction(async client=>{for(const table of ["auth_identities","sessions","rate_counters","team_members","team_invites","registrations","submissions","submission_quotas","requests","admins","users","teams","packages","rounds","runs","state"])await client.query(`delete from arena.${table} where ns=$1`,[ns]);},true);
-    await closeSqlPools();
+    await closeSqlPools();await cleanupAuthFixtures(Object.values(identities));
   }
 }
 main().catch(error=>{console.error(error instanceof Error?error.message:"QA failed");process.exitCode=1;});

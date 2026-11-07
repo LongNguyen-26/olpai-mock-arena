@@ -4,7 +4,7 @@ import BrandIdentity from "./brand-identity";
 import LegalLinks from "./legal-links";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Clock3, Users, Layers3, MailCheck } from "lucide-react";
-type Mode = "login" | "register" | "forgot" | "reset" | "confirmation";
+type Mode = "login" | "register" | "forgot" | "reset" | "confirmation" | "otp" | "verify-otp";
 export default function Login({ options, next, initialMode, initialError }: {
   options: {supabase:boolean;google:boolean}; next:string; initialMode:string; initialError:string;
 }) {
@@ -14,7 +14,7 @@ export default function Login({ options, next, initialMode, initialError }: {
   const resendCooldown = Math.max(0,Math.ceil((resendReadyAt-clock)/1000));
   function startResendCooldown() { const now=Date.now();setClock(now);setResendReadyAt(now+60000); }
   useEffect(()=>{
-    if (mode !== "confirmation" || resendReadyAt <= Date.now()) return;
+    if (!["confirmation","verify-otp"].includes(mode) || resendReadyAt <= Date.now()) return;
     const timer = setInterval(()=>{const now=Date.now();setClock(now);if(now>=resendReadyAt)clearInterval(timer);},1000);
     return ()=>clearInterval(timer);
   },[resendReadyAt,mode]);
@@ -31,7 +31,8 @@ export default function Login({ options, next, initialMode, initialError }: {
     try {
       const data = await request(mode,{...values,next});
       if (mode === "register" && data.confirmationRequired) { setEmail(String(values.username)); setMode("confirmation"); startResendCooldown(); }
-      else if (mode === "forgot") setNotice("Nếu email có tài khoản xác thực, bạn sẽ nhận được liên kết đặt lại mật khẩu. Hãy kiểm tra cả thư rác và mở liên kết trên trình duyệt này.");
+      else if (mode === "forgot") setNotice("Nếu email phù hợp, bạn sẽ nhận được hướng dẫn đăng nhập hoặc đặt lại mật khẩu. Hãy kiểm tra cả thư rác.");
+      else if (mode === "otp") { setEmail(String(values.username)); setMode("verify-otp"); startResendCooldown(); setNotice("Nếu email đã đăng ký, bạn sẽ nhận được mã và liên kết đăng nhập. Kiểm tra cả thư rác."); }
       else if (mode === "reset") { setMode("login"); setNotice("Đã đổi mật khẩu. Hãy đăng nhập bằng mật khẩu mới."); }
       else window.location.assign(data.needsName ? `/onboarding?next=${encodeURIComponent(next)}` : next);
     } catch(e) { setError(e instanceof Error ? e.message : "Không thể kết nối."); }
@@ -50,7 +51,7 @@ export default function Login({ options, next, initialMode, initialError }: {
     finally { setBusy(false); }
   }
   const register = mode === "register";
-  const titles = {login:"Chào mừng trở lại",register:"Tạo tài khoản của bạn",forgot:"Quên mật khẩu",reset:"Đặt mật khẩu mới",confirmation:"Kiểm tra hộp thư của bạn"};
+  const titles = {login:"Chào mừng trở lại",register:"Tạo tài khoản của bạn",forgot:"Quên mật khẩu",reset:"Đặt mật khẩu mới",confirmation:"Kiểm tra hộp thư của bạn",otp:"Đăng nhập bằng email", "verify-otp":"Nhập mã từ email"};
   return <main className="auth-page">
     <section className="auth-story">
       <a className="brand" aria-label="OlpAI Arena — Trang chủ" href="/"><BrandIdentity /></a>
@@ -79,13 +80,17 @@ export default function Login({ options, next, initialMode, initialError }: {
         <button className="text-button" disabled={busy} onClick={()=>change("login")}>Quay lại đăng nhập</button>
       </div> : <form onSubmit={send}>
         {register && <label>Họ và tên<input name="name" required minLength={2} maxLength={60} placeholder="Nguyễn Minh Anh" autoComplete="name"/></label>}
-        {mode !== "reset" && <label>{mode === "login" ? "Email hoặc tên đăng nhập" : "Email"}<input name="username" required type={mode === "login" ? "text" : "email"} maxLength={254} placeholder={mode === "login" ? "Email hoặc tên tài khoản" : "ban@example.com"} autoComplete="username" autoCapitalize="none" spellCheck={false}/></label>}
-        {mode !== "forgot" && <label>{mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}<input name="password" type="password" required minLength={register || mode === "reset" ? 10 : 1} maxLength={128} placeholder={register || mode === "reset" ? "Tối thiểu 10 ký tự" : "Nhập mật khẩu"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"}/></label>}
+        {!["reset","verify-otp"].includes(mode) && <label>{mode === "login" ? "Email hoặc tên đăng nhập" : "Email"}<input name="username" required type={mode === "login" ? "text" : "email"} maxLength={254} placeholder={mode === "login" ? "Email hoặc tên tài khoản" : "ban@example.com"} autoComplete="username" autoCapitalize="none" spellCheck={false}/></label>}
+        {mode === "verify-otp" && <><p className="account-reauth-note">Nhập mã được gửi đến <strong>{email}</strong>, hoặc mở liên kết trong email. Chỉ dùng được một lần.</p><input type="hidden" name="username" value={email}/><label>Mã đăng nhập<input name="token" required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} autoFocus/></label></>}
+        {!["forgot","otp","verify-otp"].includes(mode) && <label>{mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}<input name="password" type="password" required minLength={register || mode === "reset" ? 10 : 1} maxLength={128} placeholder={register || mode === "reset" ? "Tối thiểu 10 ký tự" : "Nhập mật khẩu"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"}/></label>}
         {register && <small>{options.supabase ? "Bạn cần xác nhận email trước khi sử dụng tài khoản." : "Dùng email của bạn để đăng ký tài khoản."} Khi tạo tài khoản, bạn đồng ý với <a href="/terms">Điều khoản sử dụng</a> và đã đọc <a href="/privacy">Chính sách bảo mật</a>.</small>}
-        {mode === "forgot" && <small>Tính năng này dành cho tài khoản đăng ký qua email xác thực. Tài khoản cũ chưa liên kết cần liên hệ quản trị viên để khôi phục.</small>}
+        {mode === "forgot" && <small>Dành cho tài khoản đã thiết lập mật khẩu. Nếu chỉ dùng Google, email sẽ hướng dẫn đăng nhập Google. Tài khoản Arena cũ cần liên hệ quản trị viên để khôi phục.</small>}
+        {mode === "otp" && <small>Dùng email đã đăng ký. Tài khoản mới cần đăng ký trước; thao tác này không tạo tài khoản.</small>}
         {mode === "login" && options.supabase && <button className="text-button auth-forgot" type="button" disabled={busy} onClick={()=>change("forgot")}>Quên mật khẩu?</button>}
-        <button disabled={busy} className="btn primary wide" type="submit">{busy ? "Đang xử lý…" : register ? "Tạo tài khoản" : mode === "forgot" ? "Gửi liên kết đặt lại" : mode === "reset" ? "Lưu mật khẩu mới" : "Đăng nhập"}<ArrowRight size={18}/></button>
-        {["forgot","reset"].includes(mode) && <button className="text-button" type="button" disabled={busy} onClick={()=>change("login")}>Quay lại đăng nhập</button>}
+        <button disabled={busy} className="btn primary wide" type="submit">{busy ? "Đang xử lý…" : register ? "Tạo tài khoản" : mode === "forgot" ? "Gửi liên kết đặt lại" : mode === "reset" ? "Lưu mật khẩu mới" : mode === "otp" ? "Gửi mã và liên kết" : mode === "verify-otp" ? "Xác nhận mã" : "Đăng nhập"}<ArrowRight size={18}/></button>
+        {mode === "login" && options.supabase && <button className="btn wide" type="button" disabled={busy} onClick={()=>change("otp")}><MailCheck size={17}/>Dùng mã OTP / liên kết email</button>}
+        {mode === "verify-otp" && <button type="button" className="text-button" disabled={busy || resendCooldown>0} onClick={async()=>{setBusy(true);setError("");try{await request("otp",{username:email,next});startResendCooldown();setNotice("Đã yêu cầu mã mới. Hãy dùng email mới nhất.");}catch(e){setError(e instanceof Error?e.message:"Không thể gửi mã.");}finally{setBusy(false);}}}>{resendCooldown>0 ? `Gửi lại sau ${resendCooldown}s` : "Gửi lại mã"}</button>}
+        {["forgot","reset","otp","verify-otp"].includes(mode) && <button className="text-button" type="button" disabled={busy} onClick={()=>change("login")}>Quay lại đăng nhập</button>}
       </form>}
       <LegalLinks/>
     </div></section>

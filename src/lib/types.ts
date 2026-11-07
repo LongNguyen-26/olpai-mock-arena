@@ -8,6 +8,7 @@ export interface User {
   name: string;
   password: string;
   nameChangedAt?: number;
+  school?: string | null;
   teamId: string | null;
   createdAt: number;
 }

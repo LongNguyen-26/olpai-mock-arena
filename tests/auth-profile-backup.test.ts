@@ -12,5 +12,7 @@ test("auth backups accept pre-onboarding records and preserve explicit name comp
   const plan=planSnapshot(snapshot);
   assert.deepEqual(plan.tables.sessions,[["hash","user",1234,null]]);
   assert.deepEqual(plan.tables.auth_identities,snapshot.sqlRuntime.auth_identities);
-  assert.deepEqual(plan.tables.account_profiles,snapshot.sqlRuntime.account_profiles);
+  assert.deepEqual(plan.tables.account_profiles,snapshot.sqlRuntime.account_profiles.map(row=>[...row,null]));
+  snapshot.sqlRuntime.account_profiles=[["u",1,2,null,null,null,"Đại học Bách khoa"]];
+  assert.deepEqual(planSnapshot(snapshot).tables.account_profiles,snapshot.sqlRuntime.account_profiles);
 });

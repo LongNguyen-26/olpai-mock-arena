@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { User as AuthUser } from "@supabase/supabase-js";
 import { ApiError } from "./api-error";
 import {
@@ -17,15 +18,19 @@ import {
 import { profileName, registrationName } from "./auth-input";
 import { db, key } from "./db";
 import { readUser } from "./entity-repository";
+import { accountAuthMethods } from "./account-auth-methods";
 
 export async function accountSettings(userId: string) {
+  const methods = await accountAuthMethods(userId);
   if (!usingPostgres()) {
     const user = await readUser(userId);
     return {
       nameChangeAt: nextAccountChange(user?.nameChangedAt),
+      school: user?.school ?? null,
       emailChangeAt: null,
       pendingEmail: null as string | null,
       canChangeEmail: false,
+      ...methods,
     };
   }
   const row = (
@@ -39,10 +44,31 @@ export async function accountSettings(userId: string) {
   )[0];
   return {
     nameChangeAt: nextAccountChange(row?.name_changed_at),
+    school: (row?.school as string | null) ?? null,
     emailChangeAt: nextAccountChange(row?.email_changed_at),
     pendingEmail: (row?.pending_email as string | null) ?? null,
-    canChangeEmail: !!row?.subject,
+    canChangeEmail: !!row?.subject && methods.passwordEnabled,
+    ...methods,
   };
+}
+export async function changeAccountSchool(userId: string, value: unknown) {
+  const school = z.string().transform(v => v.normalize("NFC").replace(/\s+/gu," ").trim())
+    .pipe(z.string().max(160).refine(v => !/[\u0000-\u001f\u007f]/u.test(v),"Tên trường chứa ký tự không hợp lệ."))
+    .parse(value) || null;
+  if (!usingPostgres()) {
+    const result=await db().eval<unknown[],number>(
+      "local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end;local u=cjson.decode(raw);u.school=cjson.decode(ARGV[1]);redis.call('SET',KEYS[1],cjson.encode(u));return 1",
+      [key(`user:${userId}`)],[JSON.stringify(school)]);
+    if (!result) throw new ApiError("Tài khoản không còn khả dụng.",401);
+    return;
+  }
+  await sqlTransaction(async client => {
+    const changed=await client.query(`insert into arena.account_profiles(ns,user_id,school)
+      select ns,id,$3 from arena.users where ns=$1 and id=$2 and deleted_at is null
+      on conflict(ns,user_id) do update set school=excluded.school returning user_id`,[namespace(),userId,school]);
+    if (!changed.rowCount) throw new ApiError("Tài khoản không còn khả dụng.",401);
+    await bumpRevision(client);
+  },true);
 }
 export async function changeAccountName(userId: string, value: unknown) {
   const name = profileName.parse(value);

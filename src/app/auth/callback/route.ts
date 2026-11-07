@@ -7,6 +7,7 @@ import { flowCookie,sendEmailChange } from "@/lib/auth-handlers";
 import { clearEmailRequest,pendingEmailChange,syncVerifiedIdentityEmail } from "@/lib/account-profile";
 import { authReturnPath } from "@/lib/auth-navigation";
 import { authCookieOptions, authOrigin, providerError, supabaseAuth } from "@/lib/supabase-auth";
+import { requirePasswordAccount } from "@/lib/account-auth-methods";
 export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const jar = await cookies();
@@ -41,6 +42,8 @@ export async function GET(req: Request) {
       destination=complete?"/email-change?status=complete":"/email-change?status=waiting";
     } else if (flow.mode === "recovery") {
       if (!recoveryFlow) throw new ApiError("Liên kết không phải yêu cầu đặt lại mật khẩu.");
+      const local = await resolveIdentity(result.data.user);
+      await requirePasswordAccount(local.id);
       jar.set("arena-auth-recovery",result.data.session.access_token,{...authCookieOptions,maxAge:600});
       destination = "/login?mode=reset";
     } else {

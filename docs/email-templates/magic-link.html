@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mã xác nhận — OlpAI Arena</title></head>
+<body style="margin:0;padding:32px 16px;background:#eef1f4;font-family:Arial,Helvetica,sans-serif;color:#1d2f3d;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Mã và liên kết xác nhận một lần cho OlpAI Arena.</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td align="center">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #dce3e9;border-radius:16px;overflow:hidden;">
+      <tr><td style="background:#1d2f3d;padding:28px 32px;color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:-.5px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td width="48" style="width:48px;vertical-align:middle;"><img src="https://olpaiarena.cyou/branding/olpai-arena-oauth-120.png?v=night-blue-20261107" alt="" width="40" height="40" style="display:block;width:40px;height:40px;border:0;"></td>
+          <td style="vertical-align:middle;color:#f4f7fa;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;letter-spacing:-.5px;">OlpAI Arena</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:34px 32px 30px;">
+        <h1 style="margin:0 0 18px;font-size:27px;line-height:1.3;">Mã xác nhận của bạn</h1>
+        <p style="color:#526575;font-size:15px;line-height:1.8;">Nhập mã sau vào trang Arena đang mở:</p>
+        <p style="background:#eef1f4;border-radius:10px;padding:20px;font-size:30px;font-weight:bold;letter-spacing:6px;text-align:center;">{{ .Token }}</p>
+        {{ if eq .RedirectTo (print .SiteURL "/auth/callback?intent=password-setup") }}
+        <p style="color:#526575;font-size:15px;line-height:1.8;">Bạn đang thiết lập mật khẩu cho tài khoản. Nhập mã ở <strong>Tài khoản → Mật khẩu</strong>, sau đó chọn mật khẩu mới. Google vẫn được giữ làm phương thức đăng nhập.</p>
+        {{ else }}
+        <p style="color:#526575;font-size:15px;line-height:1.8;">Hoặc mở liên kết dưới đây và bấm xác nhận đăng nhập. Bạn có thể mở trên thiết bị khác.</p>
+        <p><a href="{{ .SiteURL }}/auth/email-login?token_hash={{ .TokenHash }}" style="display:inline-block;padding:15px 25px;background:#1d2f3d;color:#fff;text-decoration:none;border-radius:9px;font-weight:bold;">Đăng nhập Arena</a></p>
+        {{ end }}
+        <p style="color:#647585;font-size:12px;line-height:1.8;">Mã và liên kết có thời hạn, chỉ dùng được một lần. Không chia sẻ mã hoặc liên kết. Nếu không yêu cầu, bạn có thể bỏ qua thư này.</p>
+      </td></tr></table>
+        <p style="margin:25px 0 0;color:#647585;font-size:12px;line-height:1.8;">Nếu bạn không yêu cầu đổi mật khẩu, hãy bỏ qua email này. Mật khẩu hiện tại vẫn được giữ nguyên. Không chia sẻ liên kết này với người khác.</p>
+        <hr style="border:0;border-top:1px solid #e4e9ee;margin:27px 0 20px;">
+        <p style="margin:0 0 8px;color:#647585;font-size:12px;line-height:1.7;">Nếu nút không hoạt động, sao chép liên kết sau vào trình duyệt đã gửi yêu cầu:</p>
+        <p style="margin:0;word-break:break-all;overflow-wrap:anywhere;font-size:12px;line-height:1.7;"><a href="{{ .ConfirmationURL }}" style="color:#335c73;">{{ .ConfirmationURL }}</a></p>
+      </td></tr>
+    </table>
+    <p style="margin:22px 0 0;color:#647585;font-size:12px;line-height:1.7;">OlpAI Arena · <a href="https://olpaiarena.cyou" style="color:#526575;text-decoration:none;">olpaiarena.cyou</a></p>
+  </td></tr></table>
+</body>
+</html>
