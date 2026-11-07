@@ -4,14 +4,15 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { writeFile } from "node:fs/promises";
+import { readFile,writeFile } from "node:fs/promises";
 import { createSqlUser, saveSqlPackage } from "../src/lib/entity-repository";
 import { hashPassword } from "../src/lib/auth";
-import { createRound, control, getContest, snapshot } from "../src/lib/rounds";
+import { createRound, control, getContest, registerRound } from "../src/lib/rounds";
 import { manageRound } from "../src/lib/round-management";
 import { importColumns } from "../src/lib/database-snapshot";
 import { namespace, query, sqlTransaction, closeSqlPools } from "../src/lib/sql";
 import { roundActivityAt } from "../src/lib/round-classification";
+import type { ContestPackage } from "../src/lib/types";
 
 async function main() {
   assert.ok(["localhost","127.0.0.1"].includes(new URL(process.env.ARENA_DATABASE_URL!).hostname),"Use disposable local PostgreSQL");
@@ -65,6 +66,37 @@ async function main() {
     assert.equal((await getContest(createdId)).category,"topic");
     checks.push("guest visibility and category metadata, guest/student mutation denial, validated publish labels, post-publish classification");
     await request("/api/auth/logout",{});
+    if(process.argv.includes("--resources")) {
+      const specs=[{dir:"Regional_01/web_ready/release_20261106",title:"QA Regional 01",category:"topic" as const},{dir:"Arena_04/web_ready/release_20261030",title:"QA Mô phỏng thi 03",category:"mock" as const}];
+      for(const spec of specs) {
+        const pkg=JSON.parse(await readFile(`../statements/${spec.dir}/handoff/package-config.json`,"utf8")) as ContestPackage;
+        await saveSqlPackage({...pkg,importedAt:Date.now()});
+        const round=(await createRound(spec.title,pkg.version,{category:spec.category,subcategory:"general"})).id;
+        const path="/api/statement?round="+round;
+        assert.equal((await request(path)).status,403);
+        await request("/api/auth/login",{username:admin.username,password});
+        const adminStatement=await (await request(path)).json();assert.ok(adminStatement.generalInstructions);assert.ok(adminStatement.tasks.some((t:{content:string})=>t.content.includes("$$")));
+        const before=await getContest(round);await control("start",{},round);assert.equal((await getContest(round)).id,before.id);
+        await request("/api/auth/logout",{});
+        const opened=await (await request(path)).json();assert.equal(opened.generalInstructions,adminStatement.generalInstructions);
+        await registerRound({...student,admin:false},round);
+        await request("/api/auth/login",{username:student.username,password});
+        const arena=await (await request("/api/arena?round="+round)).json();
+        assert.ok(arena.assets.every((a:{phase:string})=>a.phase==="public"));
+        if(spec.category==="topic") {
+          assert.ok(arena.assets.some((a:{name:string;kind:string})=>a.name==="Bo_de_Regional_01.pdf"&&a.kind==="statement"));
+          assert.deepEqual(arena.assets.find((a:{name:string})=>a.name==="Tac_vu_2.zip").baselineNotebooks,["baseline.ipynb"]);
+        } else {
+          assert.ok(!arena.assets.some((a:{name:string})=>["Huong_dan_chung.pdf","Ghi_cong_va_giay_phep.txt"].includes(a.name)));
+          assert.match(opened.attributions,/Oxford-IIIT Pet/);
+          for(const a of pkg.assets.filter(a=>["Huong_dan_chung.pdf","Ghi_cong_va_giay_phep.txt"].includes(a.name)))assert.equal((await request("/api/download?round="+round+"&asset="+encodeURIComponent(a.key))).status,404);
+        }
+        const privateAsset=pkg.assets.find(a=>a.phase==="private")!;
+        assert.equal((await request("/api/download?round="+round+"&asset="+encodeURIComponent(privateAsset.key))).status,403);
+        await request("/api/auth/logout",{});
+      }
+      checks.push("general instructions respect opening policy; regional notebook metadata and PDFs preserved; hidden guide/credit downloads blocked; private assets remain locked");
+    }
     const proof={result:"PASS",checks,localSQL:true,realEmailsSent:0,productionWrites:0};
     await writeFile(".local/round-groups-qa.json",JSON.stringify(proof,null,2));
     await writeFile(".local/round-groups-fixture.json",JSON.stringify({ns,base,password,admin:admin.username,student:student.username,ids,packageId}));

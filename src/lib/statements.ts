@@ -1,4 +1,5 @@
 import type { ContestPackage, TaskStatement } from "./types";
+import mathPresentation from "@/content/statement-math.json";
 function webTask(task: TaskStatement): TaskStatement {
   const content = task.content
     .split(/^#{1,6}[ \t]+Phụ lục[ \t]+Giấy phép và ghi công[^\n]*$/im)[0]
@@ -17,7 +18,11 @@ function webTask(task: TaskStatement): TaskStatement {
 }
 /** Presentation cleanup only: preserve the source files and dataset splits. */
 export function taskStatements(pkg: ContestPackage): TaskStatement[] {
-  if (pkg.tasks?.length) return pkg.tasks.map(webTask);
+  if (pkg.tasks?.length) return pkg.tasks.map(task=>{
+    let content=task.content;
+    for(const formula of (mathPresentation as Record<string,{source:string;math:string}[]>)[pkg.version]??[])content=content.replaceAll(formula.source,()=>formula.math);
+    return webTask({...task,content});
+  });
   const source = pkg.statement
     .split(/^# Nguồn tham khảo và phạm vi suy luận/m)[0]
     .replaceAll("<!-- PAGE -->", "");

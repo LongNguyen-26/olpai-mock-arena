@@ -15,6 +15,8 @@ export default function RoundDirectory({data,busy,action,now,onEnter,publishing,
   const [status,setStatus]=useState("all"),[subcategory,setSubcategory]=useState("all"),[sort,setSort]=useState("recent");
   const [expanded,setExpanded]=useState(false),[page,setPage]=useState(1);
   const admin=!!data.user?.admin;
+  const selectedCategory=roundCategories.find(c=>c.id===category);
+  const SelectedIcon=category!=="all"?categoryIcons[category]:null;
   const filtered=data.rounds.filter(r=>{
     const phase=phaseOf(r,now);
     const state=phase==="practice"?"practice":["public","private"].includes(phase)?"live":phase==="ended"?"ended":"upcoming";
@@ -53,8 +55,8 @@ export default function RoundDirectory({data,busy,action,now,onEnter,publishing,
       {overview?<>
         {preview("Mới nhất","Đang diễn ra & sắp mở",<Flame size={23}/>,recentRounds(data.rounds,now),4,"all")}
         {roundCategories.map(c=>{const Icon=categoryIcons[c.id];return preview(c.title,c.description,<Icon size={23}/>,recentRounds(data.rounds.filter(r=>r.category===c.id),now),2,c.id);})}
-      </>:<section className="directory-section" aria-label="Kết quả vòng luyện">
-        <div className="directory-section-heading"><div><h2>{category==="all"?"Tất cả vòng luyện":roundCategories.find(c=>c.id===category)!.title}</h2><p>{sorted.length} vòng luyện phù hợp</p></div><button type="button" className="text-button directory-view-all" onClick={reset}>Về tổng quan</button></div>
+      </>:<section className="directory-section" data-group={category} aria-label="Kết quả vòng luyện">
+        <div className="directory-section-heading"><div><h2>{SelectedIcon&&<SelectedIcon size={23}/>}{selectedCategory?.title??"Tất cả vòng luyện"}</h2>{selectedCategory&&<p>{selectedCategory.description}</p>}<p className="directory-result-count">{sorted.length} vòng luyện phù hợp</p></div><button type="button" className="text-button directory-view-all" onClick={reset}>Về tổng quan</button></div>
         {sorted.length?cards(sorted.slice((currentPage-1)*8,currentPage*8)):<p className="directory-empty">Không có vòng khớp với bộ lọc. Thử đổi từ khóa hoặc nhóm vòng luyện.</p>}
         {pages>1&&<nav className="directory-pagination" aria-label="Phân trang vòng luyện"><button className="btn" disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Trang trước</button><span>Trang {currentPage} / {pages}</span><button className="btn" disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Trang sau</button></nav>}
       </section>}

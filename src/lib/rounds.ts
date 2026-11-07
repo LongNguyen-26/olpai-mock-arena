@@ -21,6 +21,7 @@ import {
   roundControlSchema,
 } from "./round-control";
 import { taskStatements } from "./statements";
+import { downloadableAssets } from "./package-resources";
 import { GRANT_QUOTA_SCRIPT } from "./round-quota";
 import { roundVisible } from "./round-visibility";
 import { getAdminIds } from "./admins";
@@ -260,10 +261,10 @@ export async function snapshot(user: SafeUser | null, id?: string) {
         : [],
     assets:
       pkg && contest && entered
-        ? pkg.assets.filter(
+        ? downloadableAssets(pkg).filter(
             (a) =>
               !a.name.endsWith(".md") &&
-              a.name !== "Bo_de_mo_phong_OlpAI_2026.pdf" &&
+              (a.name !== "Bo_de_mo_phong_OlpAI_2026.pdf" || a.kind === "statement") &&
               canRead(contest, now, a.phase, admin),
           )
         : [],

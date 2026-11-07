@@ -8,6 +8,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "@fontsource-variable/source-serif-4/index.css";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./arena-refinements.css";
 import "./round-management.css";

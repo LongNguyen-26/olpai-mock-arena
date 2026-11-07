@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { resolve, relative, join } from "node:path";
 import { storage } from "../src/lib/db";
+import { packageWebMetadata } from "./package-web-metadata";
+import { packageSchema } from "../src/lib/package-schema";
 interface ObjectPlan {
   local: string;
   key: string;
@@ -73,9 +75,10 @@ async function main() {
   const pkg = JSON.parse(
     await readFile(join(root, "handoff/package-config.json"), "utf8"),
   );
+  const prepared=packageSchema.parse(await packageWebMetadata(pkg,root,plan.objects));
   await writeFile(
     ".local/ready-package-config.json",
-    JSON.stringify(pkg, null, 2),
+    JSON.stringify(prepared, null, 2),
   );
   console.log(
     "Upload complete. Local staging manifest prepared; no round changed.",

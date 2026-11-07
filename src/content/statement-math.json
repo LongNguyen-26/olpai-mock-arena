@@ -1,0 +1,46 @@
+{
+  "regional-01-82a84e389db4": [
+    {
+      "source": "```\nR = √(Σ dᵢ² / N)\nD = √((9 − 1)² + (9 − 1)²) = √128\n```",
+      "math": "$$\n\\begin{aligned} R &= \\sqrt{\\frac{1}{N}\\sum_{i=1}^{N}d_i^2} \\\\ D &= \\sqrt{(9-1)^2+(9-1)^2}=\\sqrt{128} \\end{aligned}\n$$"
+    },
+    {
+      "source": "```\ncF1 = 2 × C / (P + G)\nĐiểm NLP = 30 × (1 − R/D) + 70 × cF1\n```",
+      "math": "$$\n\\begin{aligned} \\mathrm{cF1} &= \\frac{2C}{P+G} \\\\ \\text{Điểm NLP} &= 30\\left(1-\\frac{R}{D}\\right)+70\\,\\mathrm{cF1} \\end{aligned}\n$$"
+    },
+    {
+      "source": "```\nRecall@1 = 100 × Σ hit(q) / |Q|\n```",
+      "math": "$$\n\\mathrm{Recall@1}=100\\,\\frac{\\sum_{q\\in Q}\\mathrm{hit}(q)}{|Q|}\n$$"
+    }
+  ],
+  "arena-04-standardized-20261030-67ee96a06f0f": [
+    {
+      "source": "```text\nĐiểm = 100 × (IoU_0 + IoU_1 + IoU_2) / 3\n```",
+      "math": "$$\n\\text{Điểm}=100\\,\\frac{\\mathrm{IoU}_0+\\mathrm{IoU}_1+\\mathrm{IoU}_2}{3}\n$$"
+    },
+    {
+      "source": "```text\nP_n = M_n / (số ký tự dự đoán - n + 1)\nR_n = M_n / (số ký tự tham chiếu - n + 1)\nP = trung bình P_n trên các bậc hợp lệ\nR = trung bình R_n trên các bậc hợp lệ\nchrF2 = 5 × P × R / (4 × P + R)\n```",
+      "math": "$$\n\\begin{aligned} P_n &= \\frac{M_n}{\\text{số ký tự dự đoán}-n+1} \\\\ R_n &= \\frac{M_n}{\\text{số ký tự tham chiếu}-n+1} \\\\ P &= \\operatorname{mean}_{n\\text{ hợp lệ}} P_n \\\\ R &= \\operatorname{mean}_{n\\text{ hợp lệ}} R_n \\\\ \\mathrm{chrF2} &= \\frac{5PR}{4P+R} \\end{aligned}\n$$"
+    },
+    {
+      "source": "```text\ns_i = max chrF2(dự đoán_i, tham chiếu_ij), trên mọi j\nĐiểm = 100 × tổng s_i / số bản ghi\n```",
+      "math": "$$\n\\begin{aligned} s_i &= \\max_j\\mathrm{chrF2}(\\text{dự đoán}_i,\\text{tham chiếu}_{ij}) \\\\ \\text{Điểm} &= \\frac{100}{N}\\sum_{i=1}^{N}s_i \\end{aligned}\n$$"
+    },
+    {
+      "source": "`IoU_c = I_c / U_c`",
+      "math": "$\\mathrm{IoU}_c=\\frac{I_c}{U_c}$"
+    },
+    {
+      "source": "`U_c = 0`",
+      "math": "$U_c=0$"
+    },
+    {
+      "source": "`IoU_c = 1`",
+      "math": "$\\mathrm{IoU}_c=1$"
+    },
+    {
+      "source": "`100 × IoU_2`",
+      "math": "$100\\,\\mathrm{IoU}_2$"
+    }
+  ]
+}

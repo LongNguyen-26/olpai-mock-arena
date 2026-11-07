@@ -38,6 +38,7 @@ export const packageSchema = z
     arenaNumber: z.number().int().min(1).max(9999).optional(),
     edition: z.enum(["original", "standardized"]).optional(),
     statement: z.string().default(""),
+    webPresentation: z.object({version:z.literal(1),generalInstructions:z.string().trim().min(1).max(100_000).optional(),attributions:z.string().trim().min(1).max(100_000).optional()}).optional(),
     tasks: z
       .array(
         z.object({
@@ -63,6 +64,8 @@ export const packageSchema = z
         sha256: z.string().regex(/^[a-f0-9]{64}$/),
         phase: z.enum(["public", "private"]),
         description: z.string().default(""),
+        kind: z.enum(["statement","archive","general-instructions","attribution"]).optional(),
+        baselineNotebooks: z.array(z.string().regex(/^baseline[\w.-]*\.ipynb$/)).min(1).max(20).optional(),
         driveUrl: z
           .string()
           .url()
@@ -131,6 +134,12 @@ export const packageSchema = z
           message: "Task 3 requires a judge specification.",
           path: ["judgeSpecs", "3"],
         });
+    }
+    for (const [index,asset] of pkg.assets.entries()) {
+      if(asset.baselineNotebooks && (asset.phase!=="public" || !asset.name.toLowerCase().endsWith(".zip") || new Set(asset.baselineNotebooks).size!==asset.baselineNotebooks.length))
+        ctx.addIssue({code:"custom",message:"Baseline notebooks require a public ZIP and unique filenames.",path:["assets",index,"baselineNotebooks"]});
+      if(asset.kind==="general-instructions"&&!pkg.webPresentation?.generalInstructions || asset.kind==="attribution"&&!pkg.webPresentation?.attributions)
+        ctx.addIssue({code:"custom",message:"Inline documents require their web content.",path:["assets",index,"kind"]});
     }
     if (
       pkg.assets.some((a) => a.task && !ids.includes(a.task)) ||

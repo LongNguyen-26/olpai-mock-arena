@@ -31,6 +31,7 @@ import {
   reviewRegistration,
 } from "@/lib/rounds";
 import { taskStatements } from "@/lib/statements";
+import { downloadableAssets, packagePresentation } from "@/lib/package-resources";
 import { canRead } from "@/lib/domain";
 import { guardedRoundActions, roundControlSchema } from "@/lib/round-control";
 import { SubmissionError } from "@/lib/judge";
@@ -100,7 +101,8 @@ async function handle(
       if (!canRead(contest, now, "statement", !!viewer?.admin))
         throw new ApiError("Đề chỉ mở khi buổi thi bắt đầu.", 403);
       if (!pkg) throw new ApiError("Chưa nạp đề.", 404);
-      return json({ tasks: taskStatements(pkg) });
+      const { generalInstructions, attributions }=packagePresentation(pkg);
+      return json({ tasks: taskStatements(pkg), generalInstructions, attributions });
     }
     const user = await requireUser();
     if (route === "admin/roster") {
@@ -115,12 +117,12 @@ async function handle(
       const contest = await getContest(selectedRound());
       await requireRegistration(user, contest);
       const [pkg, now] = await Promise.all([getPackage(contest), serverNow()]);
-      const asset = pkg?.assets.find((a) => a.key === resource);
+      const asset = pkg && downloadableAssets(pkg).find((a) => a.key === resource);
       if (
         !asset ||
         (!user.admin &&
           (asset.name.endsWith(".md") ||
-            asset.name === "Bo_de_mo_phong_OlpAI_2026.pdf"))
+            (asset.name === "Bo_de_mo_phong_OlpAI_2026.pdf" && asset.kind !== "statement")))
       )
         throw new ApiError("Không tìm thấy tệp.", 404);
       if (!canRead(contest, now, asset.phase, user.admin))

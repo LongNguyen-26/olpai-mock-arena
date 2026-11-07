@@ -17,10 +17,11 @@ import {
   Send,
   Trophy,
   Users,
+  FileText,
+  Check,
 } from "lucide-react";
 import { coverFor } from "@/lib/task-cover";
-import Markdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import StatementMarkdown from "./statement-markdown";
 import {
   api,
   bytes,
@@ -39,7 +40,7 @@ type Props = ViewProps & {
   now: number;
   go: (section: string) => void;
   statementTask: string;
-  openTask: (task: TaskId) => void;
+  openTask: (task: TaskId | "general") => void;
   refresh: () => Promise<void>;
   report: (error: string) => void;
 };
@@ -274,15 +275,18 @@ export function OverviewView({ data, phase, now, go, openTask }: Props) {
 }
 export function StatementView({ data, go, report, statementTask, openTask }: Props) {
   const task = data.taskIds.find(id => id === statementTask) ?? data.taskIds[0];
-  const [statements, setStatements] = useState<TaskStatement[]>([]);
+  const [loaded, setLoaded] = useState<{runId:string;tasks:TaskStatement[];generalInstructions?:string;attributions?:string}|null>(null);
   const c = data.contest;
+  const current=loaded?.runId===c?.id?loaded:null;
+  const statements=current?.tasks??[];
+  const general=statementTask==="general"&&!!current?.generalInstructions;
   useEffect(() => {
-    setStatements([]);
+    setLoaded(null);
     if (!c || !data.canReadStatement) return;
     let cancelled = false;
     api("statement", undefined, c.roundId)
       .then((result) => {
-        if (!cancelled) setStatements(result.tasks);
+        if (!cancelled) setLoaded({...result,runId:c.id});
       })
       .catch((e) => {
         if (!cancelled) report(e.message);
@@ -305,12 +309,14 @@ export function StatementView({ data, go, report, statementTask, openTask }: Pro
           {data.taskIds.map((id) => (
             <button
               key={id}
-              className={task === id ? "active" : ""}
+              className={!general&&task === id ? "active" : ""}
+              aria-pressed={!general&&task===id}
               onClick={() => openTask(id)}
             >
               Tác vụ 0{id}
             </button>
           ))}
+          {current?.generalInstructions&&<button className={general?"active":""} aria-pressed={general} onClick={()=>openTask("general")}>Hướng dẫn chung</button>}
         </div>
         <button className="btn small-btn" onClick={() => go("data")}>
           <ArrowDownToLine size={16} />
@@ -320,26 +326,25 @@ export function StatementView({ data, go, report, statementTask, openTask }: Pro
       <div className="statement-title">
         <p>{data.contest?.title}</p>
         <h2>
-          Tác vụ {task} -{" "}
+          {general?"Hướng dẫn chung":<>Tác vụ {task} -{" "}
           {statements.find((t) => t.id === task)?.title ??
             data.tasks.find((t) => t.id === task)?.title ??
-            "Đang tải đề thi…"}
+            "Đang tải đề thi…"}</>}
         </h2>
       </div>
       <div className="prose">
         {statements.length ? (
-          <Markdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) =>
-            key === "src" && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(url) ? url : defaultUrlTransform(url)
-          }>
-            {(statements.find((t) => t.id === task)?.content ?? "").replace(
+          <StatementMarkdown>
+            {general?(current?.generalInstructions??"").replace(/^#{1,2}[ \t]+(?:BỘ ĐỀ[^\n]*|HƯỚNG DẪN CHUNG)[ \t]*(?:\n|$)/gim,""):(statements.find((t) => t.id === task)?.content ?? "").replace(
               /^#[ \t]+Tác vụ[ \t]+\d+[^\n]*(?:\n|$)/gim,
               "",
             )}
-          </Markdown>
+          </StatementMarkdown>
         ) : (
           <p>Đang tải đề thi…</p>
         )}
       </div>
+      {general&&current?.attributions&&<details className="statement-attributions"><summary>Giấy phép và ghi công</summary><div className="prose"><StatementMarkdown>{current.attributions}</StatementMarkdown></div></details>}
     </section>
   );
 }
@@ -357,7 +362,7 @@ export function DataView({ data }: Props) {
       {data.assets.map((a) => (
         <article className="panel asset-card" key={a.key}>
           <div className="asset-icon">
-            <Database size={25} />
+            {a.kind==="statement"?<FileText size={25}/>:<Database size={25} />}
           </div>
           <span
             className={`pill ${a.phase === "private" ? "lavender" : "neutral"}`}
@@ -366,6 +371,7 @@ export function DataView({ data }: Props) {
           </span>
           <h3>{a.name}</h3>
           <div className="asset-size">{bytes(a.bytes)}</div>
+          {!!a.baselineNotebooks?.length&&a.phase==="public"&&a.name.toLowerCase().endsWith(".zip")&&<div className="asset-notebooks" aria-label="Notebook baseline có trong ZIP">{a.baselineNotebooks.map(name=><span className="asset-notebook" key={name}><Check size={15} aria-hidden="true"/><span>{name}</span></span>)}</div>}
           <div className="asset-actions">
             <a
               className="btn primary asset-download"

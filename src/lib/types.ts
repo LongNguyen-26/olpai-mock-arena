@@ -60,6 +60,8 @@ export interface Contest {
   createdAt: number;
 }
 export interface Asset {
+  kind?: "statement" | "archive" | "general-instructions" | "attribution";
+  baselineNotebooks?: string[];
   key: string;
   name: string;
   bytes: number;
@@ -95,6 +97,7 @@ export interface Registration {
   registeredAt: number;
 }
 export interface ContestPackage {
+  webPresentation?: { version: 1; generalInstructions?: string; attributions?: string };
   baselineScores?: import('./score-display').Baselines;
   version: string;
   title?: string;
